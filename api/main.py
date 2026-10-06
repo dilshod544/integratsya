@@ -58,7 +58,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # корень проекта: пакет atm_monitor
 
 import uvicorn
-from fastapi import Body, Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
+from fastapi import Body, Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -115,9 +115,13 @@ from core.sqb_rates import (
     replace_sqb_rates,
 )
 from core.incassation_router import build_regional_routes, hours_to_low_cash, osrm_route_geometry
-from core.cashier_analytics import (
+from core.cashier import (
     cashier_analytics,
     cashier_detail,
+    delete_cashier_import,
+    detect_period,
+    list_cashier_imports,
+    normalize_period,
     parse_cashier_status_xlsx,
     parse_cashiers_xlsx,
     save_cashier_import,
@@ -1088,22 +1092,61 @@ async def incassation_plan(days: int = Query(2, ge=1, le=14)):
 # CASHIER INTELLIGENCE
 # ═══════════════════════════════════════════════════════════
 
-@app.post("/api/cashiers/import", summary="Импорт отчёта KPI кассиров из XLSX/CSV")
-async def import_cashiers(file: UploadFile = File(..., description="Excel-отчёт кассиров")):
+_UNREADABLE_CASHIER_FILE = (
+    "Не удалось прочитать файл. Проверьте, что это итоговый Excel-отчёт (.xlsx) "
+    "в том же формате, что и предыдущие месяцы."
+)
+
+
+@app.post("/api/cashiers/import", summary="Импорт отчёта KPI кассиров за месяц из XLSX/CSV")
+async def import_cashiers(
+    file: UploadFile = File(..., description="Excel-отчёт кассиров"),
+    period: Optional[str] = Form(None, description="Отчётный месяц ГГГГ-ММ (например 2026-08)"),
+):
     if not file.filename:
         raise HTTPException(status_code=400, detail="Имя файла не указано.")
+    if period and not normalize_period(period):
+        raise HTTPException(status_code=422, detail="Отчётный месяц должен быть в формате ГГГГ-ММ.")
+    period = normalize_period(period) or detect_period(Path(file.filename).stem)
+    if not period:
+        raise HTTPException(
+            status_code=422,
+            detail="Не удалось определить отчётный месяц по имени файла. Выберите месяц перед загрузкой.",
+        )
 
     tmp_dir = tempfile.mkdtemp(prefix="cashier_import_")
-    tmp_path = Path(tmp_dir) / file.filename
+    tmp_path = Path(tmp_dir) / Path(file.filename).name
     try:
         tmp_path.write_bytes(await file.read())
         try:
             parsed = parse_cashiers_xlsx(tmp_path)
         except ValueError as e:
             raise HTTPException(status_code=422, detail=str(e))
-        return {"ok": True, "filename": file.filename, **save_cashier_import(file.filename, parsed)}
+        except Exception:
+            log.exception("Не удалось разобрать отчёт KPI кассиров %s", file.filename)
+            raise HTTPException(status_code=422, detail=_UNREADABLE_CASHIER_FILE)
+        if not parsed.get("records"):
+            raise HTTPException(status_code=422, detail="В файле не найдено ни одной строки кассира.")
+        return {"ok": True, "filename": file.filename, **save_cashier_import(file.filename, parsed, period)}
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+@app.get("/api/cashiers/imports", summary="Список загруженных месяцев KPI кассиров")
+async def get_cashier_imports():
+    return {"imports": list_cashier_imports()}
+
+
+@app.get("/api/cashiers/imports/detect-period", summary="Определить отчётный месяц по имени файла")
+async def get_cashier_import_period(filename: str = Query(...)):
+    return {"period": detect_period(Path(filename).stem)}
+
+
+@app.delete("/api/cashiers/imports/{import_id}", summary="Удалить загруженный месяц KPI кассиров")
+async def remove_cashier_import(import_id: int):
+    if not delete_cashier_import(import_id):
+        raise HTTPException(status_code=404, detail="Импорт не найден.")
+    return {"ok": True}
 
 
 @app.post("/api/cashiers/import-status", summary="Импорт реестра штата и статусов кассиров")
@@ -1112,13 +1155,16 @@ async def import_cashier_status(file: UploadFile = File(..., description="Excel-
         raise HTTPException(status_code=400, detail="Имя файла не указано.")
 
     tmp_dir = tempfile.mkdtemp(prefix="cashier_status_import_")
-    tmp_path = Path(tmp_dir) / file.filename
+    tmp_path = Path(tmp_dir) / Path(file.filename).name
     try:
         tmp_path.write_bytes(await file.read())
         try:
             parsed = parse_cashier_status_xlsx(tmp_path)
         except ValueError as e:
             raise HTTPException(status_code=422, detail=str(e))
+        except Exception:
+            log.exception("Не удалось разобрать реестр штата %s", file.filename)
+            raise HTTPException(status_code=422, detail=_UNREADABLE_CASHIER_FILE)
         return {"ok": True, "filename": file.filename, **save_cashier_status_import(file.filename, parsed)}
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -1129,7 +1175,7 @@ async def get_cashier_analytics(
     import_id: Optional[int] = Query(None, description="ID импорта KPI (None = последний)"),
     page: int = Query(1, ge=1),
     page_size: int = Query(25, ge=1, le=200),
-    role: Optional[str] = Query(None, description="Фильтр по роли: back / front / mixed"),
+    role: Optional[str] = Query(None, description="Фильтр по роли: back / front / none (без операций)"),
     search: Optional[str] = Query(None, description="Поиск по ФИО/табелю"),
     position: Optional[str] = Query(None, description="Фильтр по лавозим/должности"),
     status: Optional[str] = Query(None, description="Фильтр по статусу (работает/отпуск/больничный...)"),
@@ -1139,8 +1185,11 @@ async def get_cashier_analytics(
 
 
 @app.get("/api/cashiers/{report_id}", summary="Углублённая аналитика одного кассира")
-async def get_cashier_detail(report_id: int):
-    item = cashier_detail(report_id)
+async def get_cashier_detail(
+    report_id: int,
+    import_id: Optional[int] = Query(None, description="Месяц для записей из реестра штата"),
+):
+    item = cashier_detail(report_id, import_id)
     if not item:
         raise HTTPException(status_code=404, detail="Запись кассира не найдена.")
     return item

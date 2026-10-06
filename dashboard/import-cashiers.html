@@ -330,6 +330,71 @@
       color: var(--text-muted);
       line-height: 1.5;
     }
+
+    .period-row {
+      margin-top: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 14px 18px;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: #f8fafc;
+    }
+    .period-row label { display: flex; flex-direction: column; gap: 2px; font-size: 14px; }
+    .period-row label span { font-size: 12px; color: var(--text-muted); }
+    .period-row input {
+      height: 42px;
+      padding: 0 12px;
+      border: 1px solid #a7f3d0;
+      border-radius: 10px;
+      font: inherit;
+      font-weight: 700;
+      color: var(--text);
+      background: #fff;
+    }
+    .period-row.invalid input { border-color: #dc2626; box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.12); }
+
+    .months-card { margin-top: 24px; padding: 24px 28px; }
+    .months-title {
+      font-size: 16px;
+      font-weight: 800;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+    .months-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .months-table th {
+      text-align: left;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--text-muted);
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--border);
+    }
+    .months-table td { padding: 10px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
+    .months-table tr:last-child td { border-bottom: none; }
+    .months-table .muted-cell { color: var(--text-muted); text-align: center; padding: 18px; }
+    .months-table .actions { text-align: right; white-space: nowrap; }
+    .months-table .act {
+      display: inline-flex;
+      align-items: center;
+      padding: 6px 12px;
+      border-radius: 9px;
+      font-size: 12px;
+      font-weight: 700;
+      text-decoration: none;
+      border: 1px solid var(--border);
+      background: #fff;
+      color: var(--text);
+      cursor: pointer;
+      margin-left: 6px;
+    }
+    .months-table .act.open { color: #047857; border-color: #a7f3d0; background: #ecfdf5; }
+    .months-table .act.del { color: #b91c1c; border-color: #fecaca; background: #fef2f2; }
   </style>
 </head>
 <body>
@@ -382,7 +447,7 @@
       <div class="dropzone" id="dropzone" onclick="document.getElementById('file-input').click()">
         <div class="drop-icon" id="drop-icon"><i data-lucide="file-up" style="width:28px;height:28px"></i></div>
         <h3 id="drop-title">Перетащите Excel / CSV файл сюда</h3>
-        <p id="drop-sub">Поддерживаются форматы .XLSX, .XLS и .CSV</p>
+        <p id="drop-sub">Поддерживаются форматы .XLSX и .CSV</p>
         <button class="select-file-btn" onclick="event.stopPropagation(); document.getElementById('file-input').click()">
           <i data-lucide="folder-open" style="width:16px;height:16px"></i> Выбрать файл с компьютера
         </button>
@@ -400,6 +465,15 @@
         </div>
       </div>
 
+      <!-- Reporting month (KPI only) -->
+      <div class="period-row" id="period-row">
+        <label for="period-input">
+          <b>Отчётный месяц KPI</b>
+          <span>Каждый месяц хранится отдельно. Повторная загрузка того же месяца заменит его.</span>
+        </label>
+        <input type="month" id="period-input" min="2020-01" max="2099-12">
+      </div>
+
       <!-- Submit Button -->
       <button class="upload-submit-btn" id="submit-btn" onclick="startUpload()">
         <i data-lucide="upload" style="width:18px;height:18px"></i> Начать загрузку в базу
@@ -407,6 +481,19 @@
 
       <!-- Result Feedback Box -->
       <div class="result-box" id="result-box"></div>
+    </div>
+
+    <!-- Loaded months -->
+    <div class="upload-card months-card">
+      <h3 class="months-title"><i data-lucide="calendar-days" style="width:18px;height:18px"></i> Загруженные месяцы KPI</h3>
+      <table class="months-table">
+        <thead>
+          <tr><th>Период</th><th>Файл</th><th style="text-align:right">Кассиров</th><th>Загружен</th><th></th></tr>
+        </thead>
+        <tbody id="months-body">
+          <tr><td colspan="5" class="muted-cell">Загрузка…</td></tr>
+        </tbody>
+      </table>
     </div>
 
     <!-- Specifications Grid -->
@@ -418,7 +505,7 @@
 
       <div class="spec-card">
         <h4 style="color:#7c3aed"><i data-lucide="user-check"></i> 2. Реестр штата и статусов</h4>
-        <p>Реестр кассиров по филиалам с отметками о трудовых отпусках <code>(мехнат.тат.)</code>, декретах <code>(декрет2)</code> va vaqtincha замещениях <code>(вакт.)</code>.</p>
+        <p>Реестр кассиров по филиалам с отметками о трудовых отпусках <code>(мехнат.тат.)</code>, декретах <code>(декрет2)</code> и временных замещениях <code>(вакт.)</code>.</p>
       </div>
     </div>
   </div>
@@ -426,6 +513,24 @@
   <script>
     let activeMode = 'auto'; // 'auto' | 'kpi' | 'status'
     let selectedFile = null;
+    let loadedMonths = [];
+
+    const STATUS_FILE_HINTS = ['status', 'штат', 'отпуск', 'декрет', 'реестр'];
+
+    function resolveEndpoint() {
+      if (activeMode === 'status') return '/api/cashiers/import-status';
+      if (activeMode === 'kpi') return '/api/cashiers/import';
+      const fname = (selectedFile ? selectedFile.name : '').toLowerCase();
+      return STATUS_FILE_HINTS.some(h => fname.includes(h)) ? '/api/cashiers/import-status' : '/api/cashiers/import';
+    }
+
+    function isKpiUpload() {
+      return resolveEndpoint() === '/api/cashiers/import';
+    }
+
+    function refreshPeriodRow() {
+      document.getElementById('period-row').style.display = isKpiUpload() ? 'flex' : 'none';
+    }
 
     function setMode(mode, btn) {
       activeMode = mode;
@@ -440,6 +545,7 @@
       } else {
         icon.style.background = 'linear-gradient(135deg, #2563eb, #3b82f6)';
       }
+      refreshPeriodRow();
     }
 
     const dropzone = document.getElementById('dropzone');
@@ -453,26 +559,37 @@
       }
     });
 
-    function onFileSelected(files) {
+    async function onFileSelected(files) {
       if (!files || !files.length) return;
       selectedFile = files[0];
 
       document.getElementById('preview-name').textContent = selectedFile.name;
       const sizeKB = (selectedFile.size / 1024).toFixed(1);
-      
-      let detectedType = 'Определится при загрузке';
-      const fname = selectedFile.name.toLowerCase();
-      if (fname.includes('status') || fname.includes('штат') || fname.includes('отпуск') || fname.includes('декрет')) {
-        detectedType = 'Реестр штата кассиров';
-      } else {
-        detectedType = 'Операционный отчёт KPI';
-      }
-
-      document.getElementById('preview-meta').textContent = `Размер: ${sizeKB} KB · Предварительный тип: ${detectedType}`;
+      const detectedType = isKpiUpload() ? 'Операционный отчёт KPI' : 'Реестр штата кассиров';
+      document.getElementById('preview-meta').textContent = `Размер: ${sizeKB} KB · Тип: ${detectedType}`;
       document.getElementById('file-preview').classList.add('active');
       document.getElementById('submit-btn').style.display = 'flex';
-      document.getElementById('result-box').className = 'result-box';
-      document.getElementById('result-box').style.display = 'none';
+      hideResult();
+      refreshPeriodRow();
+
+      try {
+        const r = await fetch(`${location.origin}/api/cashiers/imports/detect-period?filename=${encodeURIComponent(selectedFile.name)}`);
+        const d = await r.json();
+        if (d.period) document.getElementById('period-input').value = d.period;
+      } catch (e) { /* month stays as chosen by the user */ }
+    }
+
+    function hideResult() {
+      const box = document.getElementById('result-box');
+      box.className = 'result-box';
+      box.style.display = 'none';
+    }
+
+    function showResult(kind, html) {
+      const box = document.getElementById('result-box');
+      box.style.display = 'block';
+      box.className = `result-box ${kind}`;
+      box.innerHTML = html;
     }
 
     function cancelFile() {
@@ -480,61 +597,77 @@
       document.getElementById('file-input').value = '';
       document.getElementById('file-preview').classList.remove('active');
       document.getElementById('submit-btn').style.display = 'none';
-      document.getElementById('result-box').className = 'result-box';
-      document.getElementById('result-box').style.display = 'none';
+      hideResult();
+    }
+
+    function periodLabel(period) {
+      const months = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
+      const [y, m] = (period || '').split('-');
+      return y && m ? `${months[Number(m) - 1]} ${y}` : period;
     }
 
     async function startUpload() {
       if (!selectedFile) return;
 
+      const endpoint = resolveEndpoint();
+      const kpi = endpoint === '/api/cashiers/import';
+      const periodRow = document.getElementById('period-row');
+      const period = document.getElementById('period-input').value;
+      periodRow.classList.remove('invalid');
+
+      if (kpi) {
+        if (!/^20\d{2}-(0[1-9]|1[0-2])$/.test(period)) {
+          periodRow.classList.add('invalid');
+          showResult('error', '<b>❌ Выберите отчётный месяц.</b><br>Без месяца отчёт нельзя отделить от других месяцев.');
+          return;
+        }
+        const existing = loadedMonths.find(m => m.period === period);
+        if (existing && !confirm(`${periodLabel(period)} уже загружен (файл «${existing.filename}»).\nЗаменить его новым файлом?`)) {
+          return;
+        }
+      }
+
       const submitBtn = document.getElementById('submit-btn');
-      const resultBox = document.getElementById('result-box');
-      
       submitBtn.disabled = true;
       submitBtn.innerHTML = `<i data-lucide="loader-2" class="spin"></i> Обработка и импорт...`;
       lucide.createIcons();
 
-      let endpoint = '/api/cashiers/import';
-      const fname = selectedFile.name.toLowerCase();
-
-      if (activeMode === 'status') {
-        endpoint = '/api/cashiers/import-status';
-      } else if (activeMode === 'kpi') {
-        endpoint = '/api/cashiers/import';
-      } else {
-        // Auto mode
-        if (fname.includes('status') || fname.includes('штат') || fname.includes('отпуск') || fname.includes('декрет') || fname.includes('реестр')) {
-          endpoint = '/api/cashiers/import-status';
-        } else {
-          endpoint = '/api/cashiers/import';
-        }
-      }
-
       const fd = new FormData();
       fd.append('file', selectedFile);
+      if (kpi) fd.append('period', period);
 
       try {
         const res = await fetch(location.origin + endpoint, { method: 'POST', body: fd });
-        const data = await res.json();
-
+        const data = await res.json().catch(() => ({}));
         if (!res.ok) {
-          throw new Error(data.detail || 'Ошибка импорта файла.');
+          const detail = Array.isArray(data.detail) ? data.detail.map(d => d.msg).join('; ') : data.detail;
+          throw new Error(detail || `Ошибка импорта файла (HTTP ${res.status}).`);
         }
 
-        resultBox.style.display = 'block';
-        resultBox.className = 'result-box success';
-        const importedCount = data.imported || data.rows_count || 0;
-        resultBox.innerHTML = `
+        const saved = data.rows_saved ?? 0;
+        const what = kpi
+          ? `Отчётный месяц: <b>${escapeHtml(data.period_label || periodLabel(period))}</b>${data.replaced_previous ? ' (предыдущая загрузка этого месяца заменена)' : ''}.<br>`
+          : 'Реестр штата обновлён.<br>';
+        const link = kpi ? `/dashboard/cashiers.html?import=${encodeURIComponent(data.import_id)}` : '/dashboard/cashiers.html';
+        const sameAs = data.same_data_as || [];
+        const warn = sameAs.length
+          ? `<div style="margin-top:10px;padding:10px 12px;border-radius:10px;background:#fef3c7;color:#92400e;border:1px solid #fde68a">
+               ⚠️ Данные полностью совпадают с месяцем <b>${escapeHtml(sameAs.join(', '))}</b>.
+               Проверьте, что загружен файл именно за ${escapeHtml(data.period_label || periodLabel(period))}.
+             </div>`
+          : '';
+        showResult('success', `
           <b>✅ Импорт успешно завершён!</b><br>
-          Файл: <b>${escapeHtml(data.filename)}</b>. Успешно распознано и сохранено записей: <b>${escapeHtml(String(importedCount))}</b>.<br><br>
-          <a href="/dashboard/cashiers.html" style="display:inline-block;padding:8px 16px;background:#059669;color:#fff;border-radius:10px;text-decoration:none;font-weight:bold">
+          Файл: <b>${escapeHtml(data.filename)}</b>. ${what}
+          Сохранено записей: <b>${escapeHtml(String(saved))}</b>.${warn}<br><br>
+          <a href="${link}" style="display:inline-block;padding:8px 16px;background:#059669;color:#fff;border-radius:10px;text-decoration:none;font-weight:bold">
             📊 Открыть аналитику кассиров →
           </a>
-        `;
+        `);
+        cancelFileKeepResult();
+        loadMonths();
       } catch (err) {
-        resultBox.style.display = 'block';
-        resultBox.className = 'result-box error';
-        resultBox.innerHTML = `<b>❌ Ошибка при импорте:</b><br>${escapeHtml(err.message)}`;
+        showResult('error', `<b>❌ Ошибка при импорте:</b><br>${escapeHtml(err.message)}`);
       } finally {
         submitBtn.disabled = false;
         submitBtn.innerHTML = `<i data-lucide="upload" style="width:18px;height:18px"></i> Начать загрузку в базу`;
@@ -542,6 +675,58 @@
       }
     }
 
+    function cancelFileKeepResult() {
+      selectedFile = null;
+      document.getElementById('file-input').value = '';
+      document.getElementById('file-preview').classList.remove('active');
+      document.getElementById('submit-btn').style.display = 'none';
+    }
+
+    async function loadMonths() {
+      const body = document.getElementById('months-body');
+      try {
+        const r = await fetch(location.origin + '/api/cashiers/imports');
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        loadedMonths = (await r.json()).imports || [];
+      } catch (e) {
+        body.innerHTML = `<tr><td colspan="5" class="muted-cell">Не удалось загрузить список: ${escapeHtml(e.message)}</td></tr>`;
+        return;
+      }
+      if (!loadedMonths.length) {
+        body.innerHTML = '<tr><td colspan="5" class="muted-cell">Пока не загружено ни одного месяца.</td></tr>';
+        return;
+      }
+      body.innerHTML = loadedMonths.map(m => `
+        <tr>
+          <td><b>${escapeHtml(m.period_label)}</b></td>
+          <td>${escapeHtml(m.filename || '—')}</td>
+          <td style="text-align:right">${escapeHtml(String(m.rows_count ?? 0))}</td>
+          <td>${escapeHtml(new Date(m.imported_at).toLocaleString('ru-RU'))}</td>
+          <td class="actions">
+            <a class="act open" href="/dashboard/cashiers.html?import=${encodeURIComponent(m.id)}">Открыть</a>
+            <button class="act del" onclick="deleteMonth(${Number(m.id)})">Удалить</button>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    async function deleteMonth(id) {
+      const m = loadedMonths.find(x => x.id === id);
+      if (!m || !confirm(`Удалить ${m.period_label} (файл «${m.filename}», ${m.rows_count} кассиров)?\nДанные этого месяца будут удалены без возможности восстановления.`)) return;
+      try {
+        const r = await fetch(`${location.origin}/api/cashiers/imports/${id}`, { method: 'DELETE' });
+        if (!r.ok) {
+          const d = await r.json().catch(() => ({}));
+          throw new Error(d.detail || `HTTP ${r.status}`);
+        }
+      } catch (e) {
+        alert(`Не удалось удалить: ${e.message}`);
+      }
+      loadMonths();
+    }
+
+    refreshPeriodRow();
+    loadMonths();
     lucide.createIcons();
   </script>
 <script src="/dashboard/js/auth-nav.js"></script>

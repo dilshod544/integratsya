@@ -2,7 +2,125 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Dict
+from datetime import date, datetime
+from typing import Any, Dict, Optional
+
+_CYR_RE = re.compile(r'[\u0400-\u04FF]')
+_LAT_RE = re.compile(r'[A-Za-z]')
+# Latin letters that look identical to Cyrillic ones. Excel sources sometimes type
+# the first letter of a Cyrillic word on a Latin layout ("Tошкент", "Xонобод").
+_LATIN_TO_CYRILLIC = str.maketrans({
+    'A': 'А', 'B': 'В', 'C': 'С', 'E': 'Е', 'H': 'Н', 'K': 'К', 'M': 'М', 'O': 'О',
+    'P': 'Р', 'T': 'Т', 'X': 'Х', 'Y': 'У',
+    'a': 'а', 'c': 'с', 'e': 'е', 'o': 'о', 'p': 'р', 'x': 'х', 'y': 'у',
+})
+
+
+def fix_mixed_script(text: str) -> str:
+    """Replace Latin look-alike letters inside words that are otherwise Cyrillic."""
+    def fix_word(m: re.Match) -> str:
+        w = m.group(0)
+        if _CYR_RE.search(w) and _LAT_RE.search(w):
+            return w.translate(_LATIN_TO_CYRILLIC)
+        return w
+    return re.sub(r'\w+', fix_word, text or '')
+
+
+_UZ_CYR_TO_LAT = {
+    'а': 'a', 'б': 'b', 'в': 'v', 'г': 'g', 'д': 'd', 'е': 'e', 'ё': 'yo', 'ж': 'j',
+    'з': 'z', 'и': 'i', 'й': 'y', 'к': 'k', 'л': 'l', 'м': 'm', 'н': 'n', 'о': 'o',
+    'п': 'p', 'р': 'r', 'с': 's', 'т': 't', 'у': 'u', 'ф': 'f', 'х': 'x', 'ц': 'ts',
+    'ч': 'ch', 'ш': 'sh', 'щ': 'sh', 'ъ': '', 'ы': 'i', 'ь': '', 'э': 'e', 'ю': 'yu',
+    'я': 'ya', 'ў': 'o', 'қ': 'q', 'ғ': 'g', 'ҳ': 'h',
+}
+
+
+def search_fold(v: Any) -> str:
+    """Fold text to one Latin form so Cyrillic and Latin spellings match in search.
+
+    "Тошкент", "Tошкент" and "Toshkent" all become "toshkent"; "Мухтарова" matches
+    "MUXTAROVA".
+    """
+    if v is None:
+        return ''
+    s = str(v).lower()
+    s = ''.join(_UZ_CYR_TO_LAT.get(ch, ch) for ch in s)
+    s = re.sub(r"['`′ʼʻ‘’]", '', s)
+    s = re.sub(r'[^\w]+', ' ', s, flags=re.UNICODE)
+    return s.strip()
+
+
+_MONTHS = {
+    1: ('yanvar', 'январ'),
+    2: ('fevral', 'феврал'),
+    3: ('mart', 'март'),
+    4: ('aprel', 'апрел'),
+    5: ('may', 'май', 'мая'),
+    6: ('iyun', 'июн'),
+    7: ('iyul', 'июл'),
+    8: ('avgust', 'август'),
+    9: ('sentyabr', 'sentabr', 'сентябр'),
+    10: ('oktyabr', 'oktabr', 'октябр'),
+    11: ('noyabr', 'ноябр'),
+    12: ('dekabr', 'декабр'),
+}
+_WHOLE_WORD_MONTHS = {'may', 'май', 'мая', 'mart', 'март'}
+MONTH_NAMES_RU = ('', 'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль',
+                  'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь')
+_PERIOD_RE = re.compile(r'^(20\d{2})-(0[1-9]|1[0-2])$')
+
+
+def normalize_period(value: Any) -> Optional[str]:
+    """Return 'YYYY-MM' if value is a valid reporting month, else None."""
+    s = str(value or '').strip()
+    return s if _PERIOD_RE.match(s) else None
+
+
+def period_label(period: Optional[str]) -> str:
+    """'2026-07' -> 'Июль 2026'."""
+    p = normalize_period(period)
+    if not p:
+        return 'Период не указан'
+    y, m = p.split('-')
+    return f"{MONTH_NAMES_RU[int(m)]} {y}"
+
+
+def detect_period(text: str, today: Optional[date] = None) -> Optional[str]:
+    """Guess the reporting month from a filename or sheet title.
+
+    Recognises '2026-07', '07.2026', '07_2026', '20.07.26' and month names in Uzbek/Russian
+    (Latin or Cyrillic). Without an explicit year, the most recent such month up to
+    today is used.
+    """
+    s = str(text or '').lower()
+    m = re.search(r'(20\d{2})[.\-_/ ](0[1-9]|1[0-2])(?!\d)', s)
+    if m:
+        return f"{m.group(1)}-{m.group(2)}"
+    m = re.search(r'(?<!\d)(0[1-9]|1[0-2])[.\-_/ ](20\d{2})', s)
+    if m:
+        return f"{m.group(2)}-{m.group(1)}"
+    m = re.search(r'(?<!\d)(?:0?[1-9]|[12]\d|3[01])\.(0[1-9]|1[0-2])\.(\d{2})(?!\d)', s)
+    if m:
+        return f"20{m.group(2)}-{m.group(1)}"
+
+    def has_name(n: str) -> bool:
+        # Short names ("may", "март") must be whole words: "maydon" is not May.
+        tail = r'(?![a-zа-яёқўғҳ])' if n in _WHOLE_WORD_MONTHS else ''
+        return re.search(rf'(?<![a-zа-яёқўғҳ]){re.escape(n)}{tail}', s) is not None
+
+    month = None
+    for num_, names in _MONTHS.items():
+        if any(has_name(n) for n in names):
+            month = num_
+            break
+    if month is None:
+        return None
+    y = re.search(r'(?<!\d)(20\d{2})(?!\d)', s)
+    if y:
+        return f"{y.group(1)}-{month:02d}"
+    today = today or date.today()
+    year = today.year if month <= today.month else today.year - 1
+    return f"{year}-{month:02d}"
 
 
 def clean_branch_name(raw_branch: str) -> str:
@@ -20,7 +138,8 @@ def clean_branch_name(raw_branch: str) -> str:
     s = re.sub(r'bank\s+xizmatlar[i]?\s+ofis[i]?', 'ОБУ', s, flags=re.IGNORECASE)
     s = re.sub(r'центр\s+банковских\s+услуг', 'ЦБУ', s, flags=re.IGNORECASE)
     s = re.sub(r'офис\s+банковских\s+услуг', 'ОБУ', s, flags=re.IGNORECASE)
-    return s.strip()
+    s = fix_mixed_script(s)
+    return re.sub(r'\s+', ' ', s).strip()
 
 
 def norm(v: Any) -> str:
@@ -64,6 +183,10 @@ def sval(v: Any) -> str:
     """Safely convert a cell value to a stripped string, removing Excel artefacts."""
     if v is None:
         return ''
+    if isinstance(v, (datetime, date)):
+        return v.strftime('%d.%m.%Y')
+    if isinstance(v, float) and v.is_integer():
+        v = int(v)
     s = str(v).strip().replace('\xa0', ' ').replace('\u202f', ' ')
     # Remove leading/trailing apostrophes that openpyxl sometimes prepends
     s = s.strip("'")
@@ -124,8 +247,11 @@ def parse_hr_status(raw_note: str, position: str = '', full_name: str = '') -> D
     position = str(position or '').strip()
     full_name = str(full_name or '').strip()
     n_str = norm(f"{raw_note} {position} {full_name}").replace(' ', '')
+    # "bo'sh"/"бўш" (empty seat) only as a separate word in the note or name: "Bosh kassir"
+    # is a chief cashier and surnames like "Boboshev" contain the same letters.
+    empty_seat = re.search(r'\b(bosh|bush|бош|буш)\b', norm(f"{raw_note} {full_name}")) is not None
 
-    if any(w in n_str for w in ('vacant', 'вакант', 'вакансия', 'свобод', 'vakant', 'vakansiya', 'bosh', 'bush', 'бош', 'буш')):
+    if empty_seat or any(w in n_str for w in ('vacant', 'вакант', 'вакансия', 'свобод', 'vakant', 'vakansiya')):
         code, label = 'vacant', '⚪ Вакансия (Свободная ставка)'
     elif any(w in n_str for w in ('dekret', 'декрет')):
         code, label = 'maternity', '🟣 В декрете'

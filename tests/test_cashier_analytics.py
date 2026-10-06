@@ -5,11 +5,11 @@ import pytest
 
 from api.core.cashier.helpers import clean_branch_name, norm, num, parse_hr_status, sval
 from api.core.cashier.analytics import (
-    _build_report_sql_filters,
     _build_top_lists,
     _top_metric_value,
     apply_replacement_pairing,
     cashier_role,
+    infer_absent_roles,
     is_uncovered_absence,
     _enrich,
 )
@@ -95,37 +95,8 @@ def test_classify_op_group():
     assert _classify_op_group("Жами БЕК") == "summary"
 
 
-def test_sql_filters_empty():
-    where, params = _build_report_sql_filters()
-    assert where == "TRUE"
-    assert params == []
 
 
-def test_sql_filters_role_front():
-    where, params = _build_report_sql_filters(role="front")
-    assert "front_count > bek_count" in where
-    assert "bek_count = 0" not in where
-    assert params == []
-
-
-def test_sql_filters_role_back_excludes_zero_ops():
-    where, params = _build_report_sql_filters(role="back")
-    assert "bek_count >= front_count" in where
-    assert "bek_count > 0" in where
-    assert params == []
-
-
-def test_sql_filters_position_and_branch():
-    where, params = _build_report_sql_filters(position="Кассир", branch="Yunusobod")
-    assert "position" in where
-    assert "branch_name" in where
-    assert params == ["Кассир", "%yunusobod%"]
-
-
-def test_sql_filters_disciplined():
-    where, params = _build_report_sql_filters(status="disciplined")
-    assert "discipline_type" in where
-    assert params == []
 
 
 def test_top_metric_value_by_role():
@@ -196,3 +167,29 @@ def test_replacement_pairing_skips_working_leave():
     assert is_uncovered_absence(by_name["LEAVE WORKED"]) is False
     assert is_uncovered_absence(by_name["DEKRET EMPTY"]) is False
     assert is_uncovered_absence(by_name["DEKRET NO TEMP"]) is True
+
+
+def test_infer_absent_roles_from_replacement():
+    rows = [
+        {"id": 1, "full_name": "TEMP BEK", "hr_status_code": "temporary", "operations_count": 100,
+         "cashier_type": "back", "branch_name": "BXM-1", "position": "Kassir"},
+        {"id": 2, "full_name": "DEKRET A", "hr_status_code": "maternity", "operations_count": 0,
+         "cashier_type": None, "branch_name": "BXM-1", "position": "Kassir"},
+        {"id": 3, "full_name": "TEMP FRONT", "hr_status_code": "temporary", "operations_count": 50,
+         "cashier_type": "front", "branch_name": "BXM-2", "position": "Kassir"},
+        {"id": 4, "full_name": "DEKRET B", "hr_status_code": "maternity", "operations_count": 0,
+         "cashier_type": None, "branch_name": "BXM-2", "position": "Kassir"},
+        {"id": 5, "full_name": "DEKRET NO TEMP", "hr_status_code": "maternity", "operations_count": 0,
+         "cashier_type": None, "branch_name": "BXM-3", "position": "Kassir"},
+        {"id": 6, "full_name": "ACTIVE", "hr_status_code": "active", "operations_count": 10,
+         "cashier_type": "front", "branch_name": "BXM-3", "position": "Kassir"},
+    ]
+    apply_replacement_pairing(rows)
+    infer_absent_roles(rows)
+    by_name = {r["full_name"]: r for r in rows}
+    assert by_name["DEKRET A"]["cashier_type"] == "back"
+    assert by_name["DEKRET A"]["cashier_type_inferred"] is True
+    assert by_name["DEKRET B"]["cashier_type"] == "front"
+    assert by_name["DEKRET NO TEMP"]["cashier_type"] is None
+    assert by_name["ACTIVE"]["cashier_type"] == "front"
+    assert by_name["ACTIVE"]["cashier_type_inferred"] is False

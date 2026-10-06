@@ -13,7 +13,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
 
-  <link rel="stylesheet" href="/dashboard/css/cashiers.css">
+  <link rel="stylesheet" href="/dashboard/css/cashiers.css?v=periods1">
 </head>
 <body>
 
@@ -76,6 +76,11 @@
     <div class="notice-banner" id="notice">
       <i data-lucide="info" style="width:18px;height:18px;color:#059669;flex-shrink:0"></i>
       <span id="notice-text">Загрузка последних данных…</span>
+      <label class="period-picker" id="period-picker" style="display:none">
+        <i data-lucide="calendar" style="width:16px;height:16px"></i>
+        Отчётный период:
+        <select id="period-select" onchange="onPeriodSelect()"></select>
+      </label>
     </div>
 
     <!-- KPI Metrics Grid (6 Columns) -->
@@ -173,6 +178,7 @@
         <button class="pill-btn role active" data-role="" onclick="setRole('')">Все кассиры</button>
         <button class="pill-btn role" data-role="back" onclick="setRole('back')">💼 БЭК-кассиры</button>
         <button class="pill-btn role" data-role="front" onclick="setRole('front')">💳 ФРОНТ-кассиры</button>
+        <button class="pill-btn role" data-role="none" onclick="setRole('none')" title="Нет операций за месяц: отсутствующие, вакансии и должности без учёта операций">⚪ Без операций</button>
       </div>
 
       <!-- Row 3: HR Status Pills -->
@@ -395,7 +401,7 @@
     </div>
   </div>
 
-  <script src="/dashboard/js/cashiers.js"></script>
+  <script src="/dashboard/js/cashiers.js?v=periods2"></script>
 <script src="/dashboard/js/auth-nav.js"></script>
 </body>
 </html>

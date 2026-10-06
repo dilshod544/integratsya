@@ -8,10 +8,14 @@
     let pageSize = parseInt(initParams.get('pageSize') || sessionStorage.getItem('sqb_pageSize') || '25');
     let selectedRole = initParams.get('role') || sessionStorage.getItem('sqb_role') || '';
     let selectedStatus = initParams.get('status') || sessionStorage.getItem('sqb_status') || '';
+    if (selectedStatus === 'sick') selectedStatus = '';
     let searchQuery = initParams.get('search') || sessionStorage.getItem('sqb_search') || '';
     let selectedPosition = initParams.get('position') || sessionStorage.getItem('sqb_position') || '';
     let selectedBranch = initParams.get('branch') || sessionStorage.getItem('sqb_branch') || '';
+    let selectedImport = initParams.get('import') || sessionStorage.getItem('sqb_import') || '';
     let searchTimeout = null;
+
+    const ROLE_LABELS = { back: 'БЭК', front: 'ФРОНТ', none: 'Без операций' };
 
     function saveStateToSession() {
       sessionStorage.setItem('sqb_page', currentPage);
@@ -21,8 +25,10 @@
       sessionStorage.setItem('sqb_search', searchQuery);
       sessionStorage.setItem('sqb_position', selectedPosition);
       sessionStorage.setItem('sqb_branch', selectedBranch);
+      sessionStorage.setItem('sqb_import', selectedImport);
 
       const params = new URLSearchParams();
+      if (selectedImport) params.set('import', selectedImport);
       if (currentPage > 1) params.set('page', currentPage);
       if (pageSize !== 25) params.set('pageSize', pageSize);
       if (selectedRole) params.set('role', selectedRole);
@@ -92,15 +98,50 @@
       load();
     }
 
-    function updateBranchSelectOptions(branches) {
-      const sel = document.getElementById('branch-select');
-      if (!sel || sel.options.length > 1) return;
-      (branches || []).forEach(br => {
+    function onPeriodSelect() {
+      selectedImport = document.getElementById('period-select').value;
+      currentPage = 1;
+      load();
+    }
+
+    // Options always come from the whole month (not the filtered rows), so the lists
+    // stay complete whatever is selected. A selected value missing from the month is
+    // kept visible so the user can see why the table is empty.
+    function fillSelect(sel, values, selected, allLabel, fmt) {
+      if (!sel) return;
+      const opts = [{ value: '', text: allLabel }]
+        .concat(values.map(v => ({ value: v, text: fmt(v) })));
+      if (selected && !values.includes(selected)) {
+        opts.push({ value: selected, text: `${fmt(selected)} (нет в этом месяце)` });
+      }
+      sel.innerHTML = '';
+      opts.forEach(o => {
         const opt = document.createElement('option');
-        opt.value = br;
-        opt.textContent = `🏛️ ${br}`;
+        opt.value = o.value;
+        opt.textContent = o.text;
         sel.appendChild(opt);
       });
+      sel.value = selected || '';
+    }
+
+    function updateBranchSelectOptions(branches) {
+      fillSelect(document.getElementById('branch-select'), branches || [], selectedBranch,
+        '🏛️ Все филиалы / БХМ', br => `🏛️ ${br}`);
+    }
+
+    function updatePeriodSelect(imports, current) {
+      const picker = document.getElementById('period-picker');
+      const sel = document.getElementById('period-select');
+      if (!picker || !sel) return;
+      picker.style.display = imports.length ? 'inline-flex' : 'none';
+      sel.innerHTML = '';
+      imports.forEach(i => {
+        const opt = document.createElement('option');
+        opt.value = String(i.id);
+        opt.textContent = i.period_label;
+        sel.appendChild(opt);
+      });
+      if (current) sel.value = String(current.id);
     }
 
     function drawTop(labels, data) {
@@ -239,7 +280,7 @@
       if (!modal) return;
       modal.classList.add('active');
 
-      const filterLabel = selectedRole === 'back' ? ' (💼 БЭК)' : selectedRole === 'front' ? ' (💳 ФРОНТ)' : '';
+      const filterLabel = ROLE_LABELS[selectedRole] ? ` (${ROLE_LABELS[selectedRole]})` : '';
       const titleEl = document.getElementById('cats-expand-title');
       if (titleEl) titleEl.textContent = `📊 Структура выполненных операций (%) ${filterLabel}`;
 
@@ -440,14 +481,8 @@
     }
 
     function updatePositionSelectOptions(positions) {
-      const sel = document.getElementById('position-select');
-      if (!sel || sel.options.length > 1) return;
-      positions.forEach(pos => {
-        const opt = document.createElement('option');
-        opt.value = pos;
-        opt.textContent = pos;
-        sel.appendChild(opt);
-      });
+      fillSelect(document.getElementById('position-select'), positions || [], selectedPosition,
+        'Все должности', pos => pos);
     }
 
     async function load() {
@@ -471,6 +506,7 @@
         });
 
         let url = base + `/api/cashiers/analytics?page=${currentPage}&page_size=${pageSize}`;
+        if (selectedImport) url += `&import_id=${encodeURIComponent(selectedImport)}`;
         if (selectedRole) url += `&role=${encodeURIComponent(selectedRole)}`;
         if (selectedStatus) url += `&status=${encodeURIComponent(selectedStatus)}`;
         if (searchQuery) url += `&search=${encodeURIComponent(searchQuery)}`;
@@ -478,24 +514,35 @@
         if (selectedBranch) url += `&branch=${encodeURIComponent(selectedBranch)}`;
 
         let r = await fetch(url);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
         let d = await r.json(), s = d.summary || {};
+        if (!d.import && selectedImport && (d.imports || []).length) {
+          // The chosen month was deleted — fall back to the latest one.
+          selectedImport = '';
+          return load();
+        }
+        updatePeriodSelect(d.imports || [], d.import);
         if (!d.import) {
-          document.getElementById('notice-text').textContent = 'Нет загруженных отчётов кассиров. Загрузите Excel-файл выше.';
+          document.getElementById('notice-text').textContent = 'Нет загруженных отчётов кассиров. Загрузите Excel-файл через «Импорт отчётов».';
           return;
         }
+        selectedImport = String(d.import.id);
+        currentPage = d.page || 1;
+        saveStateToSession();
 
-        if (d.positions) updatePositionSelectOptions(d.positions);
-        if (d.branches) updateBranchSelectOptions(d.branches);
+        updatePositionSelectOptions(d.positions);
+        updateBranchSelectOptions(d.branches);
         renderPosTopTabs(d.top_by_position);
 
         window.globalTopCashiers = d.top_cashiers || [];
         window.currentCashiersList = d.cashiers;
 
-        const filterLabel = selectedRole === 'back' ? ' (БЭК)' : selectedRole === 'front' ? ' (ФРОНТ)' : selectedRole === 'universal' ? ' (Универсальные)' : '';
-        const stLabel = selectedStatus ? ` · Status: ${selectedStatus}` : '';
+        const filterLabel = ROLE_LABELS[selectedRole] ? ` (${ROLE_LABELS[selectedRole]})` : '';
+        const stBtn = document.querySelector(`.st-pill[data-status="${selectedStatus}"]`);
+        const stLabel = selectedStatus && stBtn ? ` · ${stBtn.textContent.trim()}` : '';
         const posLabel = selectedPosition ? ` · ${selectedPosition}` : '';
         const brLabel = selectedBranch ? ` · BXM: ${selectedBranch}` : '';
-        document.getElementById('notice-text').textContent = `Отчёт: ${d.import.filename} · импортирован ${new Date(d.import.imported_at).toLocaleString('ru-RU')}${filterLabel}${stLabel}${posLabel}${brLabel}`;
+        document.getElementById('notice-text').textContent = `${d.import.period_label} · файл ${d.import.filename} · загружен ${new Date(d.import.imported_at).toLocaleString('ru-RU')}${filterLabel}${stLabel}${posLabel}${brLabel}`;
         
         document.getElementById('lbl-cash').textContent = selectedRole ? `Кассиров${filterLabel}` : 'Всего кассиров';
         document.getElementById('k-cash').textContent = s.cashiers || 0;
@@ -504,14 +551,15 @@
         if (bekFrontSub) {
           bekFrontSub.textContent = `${nf.format(s.bek_operations || 0)} БЭК · ${nf.format(s.front_operations || 0)} ФРОНТ`;
         }
-        document.getElementById('k-status-stat').textContent = `${s.active_cashiers || 0} / ${s.maternity_cashiers || 0}`;
+        document.getElementById('k-status-stat').textContent =
+          `${nf.format(s.active_cashiers || 0)} / ${nf.format(s.maternity_cashiers || 0)}`;
         document.getElementById('k-noreplace').textContent = (s.no_replacement_cashiers || 0) + ' чел.';
         document.getElementById('k-disciplined').textContent = (s.disciplined_cashiers || 0) + ' чел.';
         document.getElementById('k-load').textContent = (s.avg_load_percent || 0) + ' %';
         document.getElementById('k-ops-summary').textContent = nf.format(s.operations || 0);
         document.getElementById('k-hours-sub').textContent = `${s.hours || 0} ч. работы`;
 
-        const topMetricLabel = selectedRole === 'back' ? ' по БЭК' : selectedRole === 'front' ? ' по ФРОНТ' : '';
+        const topMetricLabel = selectedRole === 'back' ? ' по БЭК' : selectedRole === 'front' ? ' по ФРОНТ' : filterLabel;
         document.getElementById('chart-top-title').textContent = `Топ 10 кассиров${topMetricLabel}${posLabel}${brLabel}`;
         document.getElementById('chart-cats-title').textContent = `Структура операций (%) ${filterLabel}`;
 
@@ -566,10 +614,16 @@
           }
 
           let roleBadgeHTML = '';
+          const inferredTitle = x.cashier_type_inferred
+            ? ` title="Роль по временному кассиру: ${escapeHtml(x.replaced_by_full_name || '')}"`
+            : '';
+          const inferredMark = x.cashier_type_inferred ? '*' : '';
           if (x.cashier_type === 'front') {
-            roleBadgeHTML = `<span class="badge-role badge-front" style="font-size:10px;padding:2px 6px">💳 ФРОНТ</span>`;
+            roleBadgeHTML = `<span class="badge-role badge-front" style="font-size:10px;padding:2px 6px"${inferredTitle}>💳 ФРОНТ${inferredMark}</span>`;
           } else if (x.cashier_type === 'back') {
-            roleBadgeHTML = `<span class="badge-role badge-back" style="font-size:10px;padding:2px 6px">💼 БЭК</span>`;
+            roleBadgeHTML = `<span class="badge-role badge-back" style="font-size:10px;padding:2px 6px"${inferredTitle}>💼 БЭК${inferredMark}</span>`;
+          } else if (x.hr_status_code === 'maternity') {
+            roleBadgeHTML = `<span class="badge-role" style="font-size:10px;padding:2px 6px;background:#f1f5f9;color:#64748b" title="Нет операций и нет временной замены — роль определить нельзя">❔ Роль не опр.</span>`;
           }
 
           const initials = (x.full_name || '').split(' ').slice(0, 2).map(n => n[0] || '').join('').toUpperCase() || 'K';
@@ -623,7 +677,8 @@
 
     async function openCashierModal(reportId) {
       try {
-        const r = await fetch(base + '/api/cashiers/' + reportId);
+        const importQs = selectedImport ? `?import_id=${encodeURIComponent(selectedImport)}` : '';
+        const r = await fetch(base + '/api/cashiers/' + reportId + importQs);
         if (!r.ok) throw new Error('Не удалось загрузить данные кассира');
         const x = await r.json();
 
@@ -637,12 +692,13 @@
         const badge = document.getElementById('m-role-badge');
         const bekCnt = x.bek_count || 0;
         const frontCnt = x.front_count || 0;
+        const roleSuffix = x.cashier_type_inferred ? ' (по замене)' : '';
         if (x.cashier_type === 'front') {
           badge.className = 'badge-role badge-front';
-          badge.textContent = '💳 ФРОНТ-кассир';
+          badge.textContent = '💳 ФРОНТ-кассир' + roleSuffix;
         } else if (x.cashier_type === 'back') {
           badge.className = 'badge-role badge-back';
-          badge.textContent = '💼 БЭК-кассир';
+          badge.textContent = '💼 БЭК-кассир' + roleSuffix;
         } else {
           badge.className = 'badge-role badge-universal';
           badge.textContent = 'Нет операций';
@@ -765,12 +821,6 @@
 
     function setRole(role) {
       selectedRole = role || '';
-      if (role === '') {
-        selectedStatus = '';
-        document.querySelectorAll('.st-pill').forEach(b => {
-          b.classList.toggle('active', (b.dataset.status || '') === '');
-        });
-      }
       currentPage = 1;
       document.querySelectorAll('.pill-btn.role').forEach(b => {
         b.classList.toggle('active', (b.dataset.role || '') === (role || ''));

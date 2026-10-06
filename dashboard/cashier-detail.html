@@ -565,6 +565,7 @@
               <div class="hero-badges">
                 <span id="role-badge" class="badge-item badge-role-back">💼 БЭК-кассир</span>
                 <span id="branch-badge" class="badge-item badge-branch">🏛️ ЦБУ / Филиал</span>
+                <span id="period-badge" class="badge-item badge-branch" style="display:none">📅 —</span>
               </div>
             </div>
           </div>
@@ -745,7 +746,8 @@
 
     async function fetchCashierDetail(id) {
       try {
-        const resp = await fetch(`${baseApi}/api/cashiers/${id}`);
+        const importId = new URLSearchParams(window.location.search).get('import');
+        const resp = await fetch(`${baseApi}/api/cashiers/${id}${importId ? `?import_id=${encodeURIComponent(importId)}` : ''}`);
         if (!resp.ok) {
           throw new Error('Данные кассира не найдены.');
         }
@@ -777,18 +779,24 @@
 
       // Role & Branch Badges
       const roleBadge = document.getElementById('role-badge');
+      const roleSuffix = x.cashier_type_inferred ? ' (по замене)' : '';
       if (x.cashier_type === 'front') {
         roleBadge.className = 'badge-item badge-role-front';
-        roleBadge.textContent = '💳 ФРОНТ-кассир';
+        roleBadge.textContent = '💳 ФРОНТ-кассир' + roleSuffix;
       } else if (x.cashier_type === 'back') {
         roleBadge.className = 'badge-item badge-role-back';
-        roleBadge.textContent = '💼 БЭК-кассир';
+        roleBadge.textContent = '💼 БЭК-кассир' + roleSuffix;
       } else {
         roleBadge.className = 'badge-item badge-branch';
         roleBadge.textContent = 'Нет операций';
       }
 
       document.getElementById('branch-badge').textContent = `🏛️ ${cleanBranchName(x.branch_name)}`;
+      const periodBadge = document.getElementById('period-badge');
+      if (x.period_label) {
+        periodBadge.textContent = `📅 ${x.period_label}`;
+        periodBadge.style.display = '';
+      }
 
       // HR Banner
       const hrBanner = document.getElementById('hr-banner');

@@ -1,11 +1,14 @@
 """Excel and CSV report parsers for cashier KPI reports and HR staff registries."""
 from __future__ import annotations
 
+import csv
 import re
+import zipfile
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 import openpyxl
+from openpyxl.utils.exceptions import InvalidFileException
 
 from .helpers import (
     BACK_KEYWORDS,
@@ -15,6 +18,75 @@ from .helpers import (
     parse_hr_status,
     sval,
 )
+
+_FIO_HEADER_KEYS = ('ф и ш', 'фиш', 'ф и о', 'фио', 'fish', 'fio', 'f i sh')
+_KPI_HEADER_KEYS = _FIO_HEADER_KEYS + ('табел', 'tabel')
+
+
+def _is_vacancy_text(n: str) -> bool:
+    """Normalised text marks an empty seat; "bo'sh" must be a whole word (not "Boboshev")."""
+    if any(w in n for w in ('вакант', 'вакансия', 'vakant', 'vakansiya', 'свобод')):
+        return True
+    return re.search(r'\b(bosh|bush|бош|буш)\b', n) is not None
+
+
+def _rows_text(rows: list, limit: int = 30) -> List[str]:
+    return [norm(' '.join(str(c or '') for c in r)) for r in rows[:limit]]
+
+
+def _looks_like_kpi(rows: list) -> bool:
+    """KPI reports have a sub-header with 'Сони' / 'минутда' under each operation."""
+    return any(
+        ('сони' in t or 'soni' in t) and ('минут' in t or 'minut' in t)
+        for t in _rows_text(rows)
+    )
+
+
+def _read_csv(path: Path) -> list:
+    raw = path.read_bytes()
+    for enc in ('utf-8-sig', 'cp1251'):
+        try:
+            text = raw.decode(enc)
+            break
+        except UnicodeDecodeError:
+            continue
+    else:
+        raise ValueError('Не удалось определить кодировку CSV. Сохраните файл в UTF-8 или как .xlsx.')
+    lines = text.splitlines()
+    sample = '\n'.join(lines[:30])
+    delimiter = max((';', ',', '\t'), key=sample.count)
+    return [tuple(row) for row in csv.reader(lines, delimiter=delimiter)]
+
+
+def _read_rows(path: Path, header_keys: Tuple[str, ...]) -> list:
+    """Rows of the sheet that contains the report header (active sheet preferred)."""
+    suffix = path.suffix.lower()
+    if suffix == '.csv':
+        rows = _read_csv(path)
+    elif suffix == '.xls':
+        raise ValueError('Старый формат .xls не поддерживается. Откройте файл в Excel и сохраните как .xlsx.')
+    else:
+        try:
+            wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+        except (InvalidFileException, zipfile.BadZipFile, KeyError, OSError):
+            raise ValueError('Файл повреждён или не является Excel-файлом (.xlsx).') from None
+        try:
+            sheets = [wb.active] + [ws for ws in wb.worksheets if ws is not wb.active]
+            rows = []
+            for ws in sheets:
+                if ws is None:
+                    continue
+                ws_rows = list(ws.iter_rows(values_only=True))
+                if any(k in t for t in _rows_text(ws_rows) for k in header_keys):
+                    rows = ws_rows
+                    break
+                if not rows:
+                    rows = ws_rows
+        finally:
+            wb.close()
+    if not rows or not any(any(v not in (None, '') for v in r) for r in rows):
+        raise ValueError('Файл пуст.')
+    return rows
 
 
 def _classify_op_group(op_name: str) -> str:
@@ -94,8 +166,12 @@ def _build_op_column_map(all_rows: list, header_idx: int, sub_header_idx: int) -
         if 'минут' in ns or 'minut' in ns:
             col_is_minut[idx] = True
 
+    # Fixed columns (name, branch, days…) all sit left of the first operation column;
+    # scanning further would match words inside operation names ("Купюра санаш").
+    first_soni = next((i for i in range(n_cols) if col_is_soni[i]), n_cols)
+
     fixed = {}
-    for idx, hv in enumerate(header_row):
+    for idx, hv in enumerate(header_row[:first_soni]):
         hv_s = sval(hv)
         nh = norm(hv_s).replace(' ', '')
         if not nh:
@@ -107,7 +183,7 @@ def _build_op_column_map(all_rows: list, header_idx: int, sub_header_idx: int) -
             fixed.setdefault('tab', idx)
         elif any(k in nh for k in ('лавозим', 'lavozim', 'должность', 'position')):
             fixed.setdefault('pos', idx)
-        elif any(k in nh for k in ('ф и ш', 'фиш', 'ф и о', 'фио', 'fish', 'fio', 'f i sh')):
+        elif any(k in nh for k in _FIO_HEADER_KEYS):
             fixed.setdefault('fio', idx)
         elif any(k in nh for k in ('изох', 'izox', 'примечание', 'note', 'статус')):
             fixed.setdefault('note', idx)
@@ -139,29 +215,13 @@ def _build_op_column_map(all_rows: list, header_idx: int, sub_header_idx: int) -
             fixed['disc_date_order'] = between_cols[1]
             fixed['disc_reason'] = between_cols[2]
 
-    # Fallback if dynamic detection fails
-    fixed.setdefault('num', 0)
-    fixed.setdefault('tab', 1)
-    fixed.setdefault('pos', 2)
-    fixed.setdefault('fio', 3)
-    fixed.setdefault('note', 4)
-    fixed.setdefault('bcode', 5)
-    fixed.setdefault('bname', 6)
-
-    if fixed.get('disc_type') is not None or (load_idx is not None and load_idx >= 10) or n_cols >= 13:
-        fixed.setdefault('disc_type', 7)
-        fixed.setdefault('disc_date_order', 8)
-        fixed.setdefault('disc_reason', 9)
-        fixed.setdefault('load', 10)
-        fixed.setdefault('std_days', 11)
-        fixed.setdefault('days', 12)
-    else:
-        fixed.setdefault('disc_type', None)
-        fixed.setdefault('disc_date_order', None)
-        fixed.setdefault('disc_reason', None)
-        fixed.setdefault('load', 7)
-        fixed.setdefault('std_days', 8)
-        fixed.setdefault('days', 9)
+    # No positional guessing: a column that is not recognised by its header stays
+    # unread, so a changed layout is rejected instead of silently mixing columns.
+    if 0 not in fixed.values():
+        fixed.setdefault('num', 0)
+    for key in ('num', 'tab', 'pos', 'fio', 'note', 'bcode', 'bname', 'disc_type',
+                'disc_date_order', 'disc_reason', 'load', 'std_days', 'days'):
+        fixed.setdefault(key, None)
 
     ops = []
     bek_total_cnt = None
@@ -169,7 +229,7 @@ def _build_op_column_map(all_rows: list, header_idx: int, sub_header_idx: int) -
     front_total_cnt = None
     front_total_min = None
 
-    first_op_col = max(fixed['days'] + 1, 10)
+    first_op_col = max([v for v in fixed.values() if v is not None], default=-1) + 1
     i = first_op_col
     while i < n_cols:
         label = col_label[i]
@@ -223,26 +283,29 @@ def _build_op_column_map(all_rows: list, header_idx: int, sub_header_idx: int) -
 
 def parse_cashiers_xlsx(path: str | Path) -> dict:
     """Parse KPI Excel report. Returns dict with 'records' list and metadata."""
-    path = Path(path)
-    path_str = str(path)
-
-    if path_str.lower().endswith('.csv'):
-        import csv
-        with open(path, 'r', encoding='utf-8-sig', errors='ignore') as f:
-            all_rows = [tuple(row) for row in csv.reader(f)]
-    else:
-        wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
-        ws = wb.active
-        all_rows = list(ws.iter_rows(values_only=True))
-        wb.close()
-
-    if not all_rows:
-        raise ValueError('Excel-файл пуст.')
+    all_rows = _read_rows(Path(path), _KPI_HEADER_KEYS)
 
     header_idx, sub_header_idx, data_start_idx = _find_header_rows(all_rows)
     col_map = _build_op_column_map(all_rows, header_idx, sub_header_idx)
     fx = col_map['fixed']
     ops_def = col_map['ops']
+
+    missing = []
+    if fx['fio'] is None:
+        missing.append('«Ф.И.Ш»')
+    if fx['pos'] is None:
+        missing.append('«Лавозим»')
+    if fx['bname'] is None and fx['bcode'] is None:
+        missing.append('«БХМ номи» или «Локал код»')
+    if not ops_def and fx.get('bek_total_cnt') is None and fx.get('front_total_cnt') is None:
+        missing.append('колонки операций («Сони» / «минутда»)')
+    if missing:
+        raise ValueError(
+            'Файл не похож на месячный отчёт KPI кассиров: не найдены колонки '
+            + ', '.join(missing)
+            + f' (строка шапки {header_idx + 1}). Проверьте, что загружается итоговый отчёт '
+            'в том же формате, что и предыдущие месяцы.'
+        )
 
     records = []
     errors = []
@@ -433,26 +496,18 @@ def parse_cashiers_xlsx(path: str | Path) -> dict:
 
 def parse_cashier_status_xlsx(path: str | Path) -> dict:
     """Parse the HR staff registry Excel (Штат.xlsx)."""
-    path = Path(path)
-    path_str = str(path)
-
-    if path_str.lower().endswith('.csv'):
-        import csv
-        with open(path, 'r', encoding='utf-8-sig', errors='ignore') as f:
-            all_rows = [tuple(row) for row in csv.reader(f)]
-    else:
-        wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
-        ws = wb.active
-        all_rows = list(ws.iter_rows(values_only=True))
-        wb.close()
-
-    if not all_rows:
-        raise ValueError('Excel-файл пуст.')
+    all_rows = _read_rows(Path(path), _FIO_HEADER_KEYS)
+    if _looks_like_kpi(all_rows):
+        raise ValueError(
+            'Это месячный отчёт KPI (есть колонки «Сони» / «минутда»), а не реестр штата. '
+            'Загрузите его во вкладке «Отчёт KPI» с выбором месяца.'
+        )
 
     fio_col = None
     pos_col = None
     mfo_col = None
     note_col = None
+    bname_col = None
     header_row_idx = None
 
     for r_idx in range(min(30, len(all_rows))):
@@ -490,7 +545,6 @@ def parse_cashier_status_xlsx(path: str | Path) -> dict:
         mfo_col = 1
     if note_col is None:
         note_col = 10
-    bname_col = b_c if 'b_c' in locals() else None
 
     raw_parsed = []
     current_branch = 'Не указан'
@@ -556,15 +610,17 @@ def parse_cashier_status_xlsx(path: str | Path) -> dict:
                 val = r_str[test_idx] if len(r_str) > test_idx else ''
                 n_v = norm(val)
                 if val and len(val) >= 3 and n_v not in SKIP_FIO:
-                    if any(w in n_v for w in ('вакант', 'вакансия', 'vakant', 'vakansiya', 'bosh', 'bush')) or len(val.split()) >= 2:
+                    if _is_vacancy_text(n_v) or len(val.split()) >= 2:
                         fio_val = val
                         break
 
         n_fio = norm(fio_val)
         if not fio_val or len(fio_val) < 3 or n_fio in SKIP_FIO:
             continue
+        if not re.search(r'[^\W\d_]', fio_val):
+            continue
 
-        is_vacant = any(w in n_fio for w in ('вакант', 'вакансия', 'vakant', 'vakansiya', 'bosh', 'буш', 'bush', 'свобод'))
+        is_vacant = _is_vacancy_text(n_fio)
         full_name = f"ВАКАНСИЯ ({pos_val if pos_val else 'Кассир'})" if is_vacant else fio_val
 
         mfo_clean = mfo_val.replace('\xa0', '').strip()

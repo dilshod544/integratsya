@@ -4,9 +4,10 @@ from __future__ import annotations
 import json
 import threading
 from datetime import datetime, timezone
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional
 
 from ..db import _connect, dict_cursor
+from .helpers import detect_period, normalize_period, period_label
 
 _tables_initialized = False
 _init_lock = threading.Lock()
@@ -73,6 +74,11 @@ def init_cashier_tables() -> None:
             cur.execute("ALTER TABLE cashier_reports ADD COLUMN IF NOT EXISTS std_days REAL NOT NULL DEFAULT 0")
             cur.execute("ALTER TABLE cashier_reports ADD COLUMN IF NOT EXISTS load_percent REAL NOT NULL DEFAULT 0")
             cur.execute("ALTER TABLE cashier_reports ADD COLUMN IF NOT EXISTS load_difference REAL NOT NULL DEFAULT 0")
+            cur.execute("ALTER TABLE cashier_imports ADD COLUMN IF NOT EXISTS period TEXT")
+            _backfill_import_periods(cur)
+            cur.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_cashier_imports_period ON cashier_imports(period)"
+            )
 
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS cashier_status_imports (
@@ -111,16 +117,96 @@ def init_cashier_tables() -> None:
         _tables_initialized = True
 
 
-def save_cashier_import(filename: str, parsed: Dict[str, Any]) -> Dict[str, Any]:
-    """Replace previous KPI import with this file (single active report)."""
+def _previous_month(iso_ts: str) -> Optional[str]:
+    try:
+        d = datetime.fromisoformat(str(iso_ts).replace('Z', '+00:00'))
+    except ValueError:
+        return None
+    y, m = (d.year, d.month - 1) if d.month > 1 else (d.year - 1, 12)
+    return f"{y}-{m:02d}"
+
+
+def _backfill_import_periods(cur) -> None:
+    """Give legacy imports (saved before periods existed) a reporting month.
+
+    Uses the month named in the filename/label, otherwise the month before the
+    import date (monthly KPI reports are uploaded after the month closes).
+    """
+    cur.execute('SELECT id, filename, report_label, imported_at FROM cashier_imports WHERE period IS NULL')
+    legacy = [dict(r) for r in cur.fetchall()]
+    cur.execute('SELECT period FROM cashier_imports WHERE period IS NOT NULL')
+    taken = {r['period'] for r in cur.fetchall()}
+    for row in sorted(legacy, key=lambda r: r['imported_at'] or '', reverse=True):
+        period = (
+            detect_period(f"{row.get('filename') or ''} {row.get('report_label') or ''}")
+            or _previous_month(row.get('imported_at') or '')
+        )
+        if period and period not in taken:
+            cur.execute('UPDATE cashier_imports SET period=%s WHERE id=%s', (period, row['id']))
+            taken.add(period)
+
+
+def _import_public(row: Dict[str, Any]) -> Dict[str, Any]:
+    d = dict(row)
+    d['period_label'] = period_label(d.get('period'))
+    return d
+
+
+def list_cashier_imports() -> List[Dict[str, Any]]:
+    """All KPI imports, newest reporting month first."""
     init_cashier_tables()
     with _connect() as c:
         cur = dict_cursor(c)
-        cur.execute('TRUNCATE TABLE cashier_reports, cashier_imports RESTART IDENTITY CASCADE')
+        cur.execute(
+            'SELECT id, filename, imported_at, rows_count, report_label, period FROM cashier_imports '
+            'ORDER BY period IS NULL, period DESC, imported_at DESC, id DESC'
+        )
+        rows = [_import_public(r) for r in cur.fetchall()]
+        cur.close()
+    return rows
+
+
+def get_cashier_import(import_id: Optional[int] = None) -> Optional[Dict[str, Any]]:
+    """One KPI import by id, or the latest reporting month when id is None."""
+    imports = list_cashier_imports()
+    if import_id is None:
+        return imports[0] if imports else None
+    return next((i for i in imports if i['id'] == import_id), None)
+
+
+def delete_cashier_import(import_id: int) -> bool:
+    """Delete one month's KPI import together with its cashier rows."""
+    init_cashier_tables()
+    with _connect() as c:
+        cur = dict_cursor(c)
+        cur.execute('DELETE FROM cashier_reports WHERE import_id=%s', (import_id,))
+        cur.execute('DELETE FROM cashier_imports WHERE id=%s', (import_id,))
+        deleted = cur.rowcount > 0
+        cur.close()
+    return deleted
+
+
+def save_cashier_import(filename: str, parsed: Dict[str, Any], period: str) -> Dict[str, Any]:
+    """Save a KPI report for one reporting month, replacing that month if it was loaded before.
+
+    Other months are kept, so July, August, September… live side by side.
+    """
+    period = normalize_period(period)
+    if not period:
+        raise ValueError('Укажите отчётный месяц в формате ГГГГ-ММ.')
+    init_cashier_tables()
+    with _connect() as c:
+        cur = dict_cursor(c)
+        cur.execute('SELECT id FROM cashier_imports WHERE period=%s', (period,))
+        previous = cur.fetchone()
+        if previous:
+            cur.execute('DELETE FROM cashier_reports WHERE import_id=%s', (previous['id'],))
+            cur.execute('DELETE FROM cashier_imports WHERE id=%s', (previous['id'],))
 
         cur.execute(
-            'INSERT INTO cashier_imports(filename, imported_at, rows_count) VALUES(%s, %s, %s) RETURNING id',
-            (filename, datetime.now(timezone.utc).isoformat(), len(parsed['records']))
+            'INSERT INTO cashier_imports(filename, imported_at, rows_count, period) '
+            'VALUES(%s, %s, %s, %s) RETURNING id',
+            (filename, datetime.now(timezone.utc).isoformat(), len(parsed['records']), period)
         )
         iid = cur.fetchone()['id']
 
@@ -170,10 +256,25 @@ def save_cashier_import(filename: str, parsed: Dict[str, Any]) -> Dict[str, Any]
             (parsed.get('report_label', filename), iid)
         )
 
+        # The same file uploaded under another month gives identical totals.
+        cur.execute('''
+            SELECT i.period, COUNT(r.id) AS n,
+                   ROUND(SUM(r.operations_count)) AS ops, ROUND(SUM(r.operations_minutes)) AS mins
+            FROM cashier_imports i JOIN cashier_reports r ON r.import_id = i.id
+            GROUP BY i.id, i.period
+        ''')
+        stats = {r['period']: (r['n'], r['ops'], r['mins']) for r in cur.fetchall()}
+        mine = stats.pop(period, None)
+        same_data_as = sorted(p for p, s in stats.items() if s == mine and mine and mine[1])
+
         cur.close()
 
     return {
         'import_id': iid,
+        'period': period,
+        'period_label': period_label(period),
+        'same_data_as': [period_label(p) for p in same_data_as],
+        'replaced_previous': bool(previous),
         'rows_saved': len(parsed['records']),
         'header_rows': parsed.get('header_rows', []),
         'columns': parsed.get('columns', []),
