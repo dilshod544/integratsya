@@ -57,6 +57,8 @@ def latest_states_by_tid(force: bool = False) -> Dict[str, Dict[str, Any]]:
         f"""
         SELECT
             a.tid AS tid,
+            a.terminal_id AS btech_terminal_id,
+            a.serial AS serial,
             a.latitude AS latitude,
             a.longitude AS longitude,
             snap.cdm_total_uzs AS balance,
@@ -65,7 +67,9 @@ def latest_states_by_tid(force: bool = False) -> Dict[str, Dict[str, Any]]:
             snap.polled_at AS polled_at,
             snap.last_transaction_cash_in AS last_incassation,
             (SELECT t.forecast_hours FROM turnover_snapshots t
-              WHERE t.atm_id = a.id ORDER BY t.polled_at DESC, t.id DESC LIMIT 1) AS forecast_hours
+              WHERE t.atm_id = a.id
+                AND (t.currency IS NULL OR UPPER(t.currency) = 'UZS')
+              ORDER BY t.polled_at DESC, t.id DESC LIMIT 1) AS forecast_hours
         FROM atms a
         JOIN atm_snapshots snap ON snap.id = ({_LAST_SNAPSHOT_ID})
         WHERE a.tid IS NOT NULL
@@ -84,6 +88,8 @@ def latest_states_by_tid(force: bool = False) -> Dict[str, Dict[str, Any]]:
             "forecast_hours": float(r["forecast_hours"]) if r.get("forecast_hours") is not None else None,
             "polled_at": r.get("polled_at"),
             "last_incassation": r.get("last_incassation"),
+            "btech_terminal_id": str(r["btech_terminal_id"]) if r.get("btech_terminal_id") else None,
+            "serial": str(r["serial"]) if r.get("serial") else None,
         }
 
     _states_cache["at"] = now
@@ -98,6 +104,115 @@ def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     dlambda = math.radians(lon2 - lon1)
     a = math.sin(dphi / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dlambda / 2) ** 2
     return 2 * R * math.asin(math.sqrt(a))
+
+
+def _fill_live(
+    row: Dict[str, Any],
+    tid: str,
+    method: str,
+    live: Dict[str, Any],
+    cassettes_by_tid: Optional[Dict[str, List[Dict[str, Any]]]],
+) -> None:
+    row["live"] = True
+    row["live_match"] = method
+    row["live_tid"] = tid
+    if live.get("balance") is not None:
+        row["balance"] = live["balance"]
+    row["agent_status"] = live.get("agent_status")
+    row["forecast_hours"] = live.get("forecast_hours")
+    row["balance_polled_at"] = live.get("polled_at")
+    row["last_incassation"] = live.get("last_incassation")
+    if cassettes_by_tid is not None:
+        row["cassettes"] = cassettes_by_tid.get(tid) or []
+
+
+def match_live_to_rows(
+    rows: List[Dict[str, Any]],
+    live_by_tid: Dict[str, Dict[str, Any]],
+    cassettes_by_tid: Optional[Dict[str, List[Dict[str, Any]]]] = None,
+    max_distance_m: float = 100,
+) -> None:
+    """Накладывает живые данные BTech на строки реестра.
+
+    1) Точное совпадение terminal_id / atm_number / serial с tid, extra terminalId
+       или serial BTech. Ключи, которые встречаются у двух разных ATM, игнорируются.
+    2) Остаток — ближайшая точка в радиусе max_distance_m, каждый live-tid
+       отдаётся только одному банкомату (иначе соседние ATM делили бы один остаток).
+    """
+    if not live_by_tid:
+        for row in rows:
+            row["live"] = False
+        return
+
+    by_key: Dict[str, str] = {}
+    collisions: set = set()
+    for tid, state in live_by_tid.items():
+        for raw in (tid, state.get("btech_terminal_id"), state.get("serial")):
+            if not raw:
+                continue
+            key = str(raw).strip()
+            if not key:
+                continue
+            prev = by_key.get(key)
+            if prev and prev != tid:
+                collisions.add(key)
+            else:
+                by_key[key] = tid
+    for key in collisions:
+        by_key.pop(key, None)
+
+    used: set = set()
+    unmatched: List[Dict[str, Any]] = []
+    for row in rows:
+        hit = None
+        for raw in (row.get("terminal_id"), row.get("atm_number"), row.get("serial")):
+            if raw is None:
+                continue
+            tid = by_key.get(str(raw).strip())
+            if tid and tid not in used:
+                hit = tid
+                break
+        if hit:
+            used.add(hit)
+            _fill_live(row, hit, "terminal_id", live_by_tid[hit], cassettes_by_tid)
+        else:
+            unmatched.append(row)
+
+    pairs = []
+    for row in unmatched:
+        try:
+            lat = float(row["lat"]) if row.get("lat") is not None else None
+            lon = float(row["lon"]) if row.get("lon") is not None else None
+        except (TypeError, ValueError):
+            lat = lon = None
+        if lat is None or lon is None:
+            row["live"] = False
+            continue
+        for tid, state in live_by_tid.items():
+            if tid in used:
+                continue
+            slat, slon = state.get("lat"), state.get("lon")
+            if slat is None or slon is None:
+                continue
+            dist = _haversine_m(lat, lon, slat, slon)
+            if dist <= max_distance_m:
+                pairs.append((dist, row, tid))
+    pairs.sort(key=lambda item: item[0])
+    claimed = set()
+    for _dist, row, tid in pairs:
+        rid = id(row)
+        if rid in claimed or tid in used:
+            continue
+        used.add(tid)
+        claimed.add(rid)
+        _fill_live(row, tid, "location", live_by_tid[tid], cassettes_by_tid)
+    for row in unmatched:
+        if "live" not in row:
+            row["live"] = False
+
+
+def attach_live_to_rows(rows: List[Dict[str, Any]]) -> None:
+    match_live_to_rows(rows, latest_states_by_tid(), all_latest_cassettes())
 
 
 def find_nearest_tid(lat: Optional[float], lon: Optional[float], max_distance_m: float = 100) -> Optional[str]:

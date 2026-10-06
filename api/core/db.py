@@ -289,39 +289,8 @@ def _apply_live_state(
     live_by_tid: Dict[str, Dict[str, Any]],
     cassettes_by_tid: Optional[Dict[str, List[Dict[str, Any]]]] = None,
 ) -> None:
-    """Накладывает реальный баланс/статус агента/прогноз/кассеты от atm_monitor поверх реестра.
-
-    Сначала пробуем точное совпадение terminal_id == tid BTech. Реестр часто
-    заведён под другую сеть (WAY4/UzCard и т.п.) с собственной нумерацией —
-    тогда id не совпадёт, хотя это тот же физический банкомат. В этом случае
-    подстраховываемся совпадением координат (см. atm_live.find_nearest_tid)."""
-    own_tid = str(d.get("terminal_id"))
-    live = live_by_tid.get(own_tid)
-    match_method, live_tid = ("terminal_id", own_tid) if live else (None, None)
-
-    if not live:
-        nearest_tid = atm_live.find_nearest_tid(d.get("lat"), d.get("lon"))
-        if nearest_tid:
-            live = live_by_tid.get(nearest_tid)
-            match_method, live_tid = "location", nearest_tid
-
-    if not live:
-        d["live"] = False
-        return
-
-    d["live"] = True
-    d["live_match"] = match_method
-    d["live_tid"] = live_tid  # реальный tid BTech — нужен для /cassettes и /history, когда он отличается от terminal_id
-    if live.get("balance") is not None:
-        d["balance"] = live["balance"]
-    d["agent_status"] = live.get("agent_status")
-    d["forecast_hours"] = live.get("forecast_hours")
-    d["balance_polled_at"] = live.get("polled_at")
-    d["last_incassation"] = live.get("last_incassation")
-    if cassettes_by_tid is not None:
-        # Список, не словарь по номиналу — у части моделей бывает несколько
-        # кассет одного номинала (см. atm_live.cassettes_by_tid), их нельзя терять.
-        d["cassettes"] = cassettes_by_tid.get(live_tid) or []
+    """Накладывает живые данные BTech на одну строку реестра (см. atm_live.match_live_to_rows)."""
+    atm_live.match_live_to_rows([d], live_by_tid, cassettes_by_tid)
 
 
 def _decorate_atm(d: Dict[str, Any]) -> Dict[str, Any]:
@@ -355,15 +324,11 @@ def list_atms(
     sql += " ORDER BY id LIMIT ? OFFSET ?"
     params.extend([limit, offset])
 
-    live_by_tid = atm_live.latest_states_by_tid()
-    cassettes_by_tid = atm_live.all_latest_cassettes()
     with _connect() as conn:
         raw_rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
 
-    rows = []
-    for r in raw_rows:
-        _apply_live_state(r, live_by_tid, cassettes_by_tid)
-        rows.append(_decorate_atm(r))
+    atm_live.attach_live_to_rows(raw_rows)
+    rows = [_decorate_atm(r) for r in raw_rows]
 
     if status:
         rows = [r for r in rows if r["status"] == status]
@@ -376,7 +341,7 @@ def get_atm(terminal_id: str) -> Optional[Dict[str, Any]]:
     if not row:
         return None
     d = dict(row)
-    _apply_live_state(d, atm_live.latest_states_by_tid(), atm_live.all_latest_cassettes())
+    atm_live.attach_live_to_rows([d])
     return _decorate_atm(d)
 
 

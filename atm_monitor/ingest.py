@@ -17,6 +17,18 @@ def _iso(dt):
     return dt.astimezone(timezone.utc).isoformat()
 
 
+def _cassette_nominal(c: dict):
+    """BTech отдаёт номинал то как values, то как value/nominal; иногда список."""
+    raw = c.get("values")
+    if raw is None:
+        raw = c.get("value")
+    if raw is None:
+        raw = c.get("nominal")
+    if isinstance(raw, list):
+        raw = raw[0] if raw else None
+    return parse_int(raw)
+
+
 def _insert(conn, table: str, values: dict, upsert_on: str = None) -> int:
     cols = ", ".join(values)
     marks = ", ".join("?" for _ in values)
@@ -129,7 +141,7 @@ def _save_snapshot(conn, item: dict, poll_run_id: int, polled_at: str):
                 status=c.get("status"),
                 count=parse_int(c.get("count")),
                 currency=c.get("currency"),
-                nominal=parse_int(c.get("values")),
+                nominal=_cassette_nominal(c),
             ),
         )
 

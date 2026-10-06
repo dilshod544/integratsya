@@ -250,26 +250,19 @@ const UZ_BOUNDS = L.latLngBounds([37.18, 55.99], [45.59, 73.15]);
 
 const map = L.map('map', {
   zoomControl: true,
-  // Плавный зум: дробные уровни, колесо крутит медленнее, без рывков
-  zoomSnap: 0.25,
-  zoomDelta: 0.5,
-  wheelPxPerZoomLevel: 45,
-  wheelDebounceTime: 30,
-  // Мягкое торможение при перетаскивании
+  zoomSnap: 1,
+  zoomDelta: 1,
   inertia: true,
-  inertiaDeceleration: 2200,
-  easeLinearity: 0.2,
-  // Не уезжать за пределы страны
   maxBounds: UZ_BOUNDS.pad(0.25),
   maxBoundsViscosity: 0.9,
   maxZoom: 19,
 }).setView([41.3510, 69.2900], 14);
 
-L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-  attribution: '© OpenStreetMap © CARTO',
-  subdomains: 'abcd', maxZoom: 19,
-  keepBuffer: 4,          // меньше «пустых» плиток при движении
-  updateWhenZooming: false,
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '© OpenStreetMap contributors',
+  subdomains: 'abc',
+  maxZoom: 19,
+  keepBuffer: 2,
 }).addTo(map);
 
 // Максимальное отдаление = весь Узбекистан на экране (пересчёт при изменении окна)
@@ -282,7 +275,7 @@ map.on('resize', fitMinZoomToUzbekistan);
 
 // Плавный перелёт вместо резкого прыжка
 function smoothFitBounds(bounds, opts = {}) {
-  map.flyToBounds(bounds, { duration: 0.9, easeLinearity: 0.25, ...opts });
+  map.flyToBounds(bounds, { duration: 0.35, easeLinearity: 0.25, ...opts });
 }
 
 // Явно показываем, что проект ограничен только Юнусабадским районом.
@@ -1128,6 +1121,32 @@ function hideLoader() {
   loader.style.pointerEvents = 'none';
 }
 
+function hashStr(s) {
+  let h = 0;
+  const t = String(s || '');
+  for (let i = 0; i < t.length; i++) h = ((h << 5) - h) + t.charCodeAt(i);
+  return Math.abs(h);
+}
+
+// Живых остатков нет (atm_monitor не запущен) — стабильный демо-остаток,
+// чтобы маркеры и KPI снова показывали, где деньги есть / нет.
+function applyDemoBalances(atms) {
+  const list = atms || [];
+  // Как только есть живые данные atm_monitor — не подмешиваем выдуманные остатки
+  // к несматченным ATM, иначе карта врёт «деньги есть».
+  if (list.some((a) => a.live)) return;
+  list.forEach((atm) => {
+    if (atm.balance != null) return;
+    const cap = atm.capacity || 400000000;
+    const pct = 0.08 + (hashStr(atm.id) % 80) / 100;
+    atm.balance = Math.round(cap * pct);
+    atm.demoBalance = true;
+    if (pct < 0.2) atm.status = 'critical';
+    else if (pct < 0.4) atm.status = 'warning';
+    else atm.status = 'ok';
+  });
+}
+
 async function loadAtmsFromDb() {
   try {
     const res = await fetch(`${API_BASE}/api/atms?limit=5000`);
@@ -1175,6 +1194,7 @@ async function loadAtmsFromDb() {
           cassettes:       Array.isArray(a.cassettes) && a.cassettes.length ? a.cassettes : null,
         };
       });
+      applyDemoBalances(ATM_META);
       console.log(`Loaded ${ATM_META.length} ATMs from DB (${ATM_META.filter(a => a.live).length} с живыми данными atm_monitor)`);
       return true;
     }
@@ -1259,7 +1279,7 @@ function updateFreshnessLabel() {
   const d = latest ? new Date(latest) : new Date();
   el.textContent = d.toLocaleString('ru-RU', {
     day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
-  }) + (latest ? '' : ' (реестр)');
+  }) + (latest ? '' : (ATM_META.some(a => a.demoBalance) ? ' (демо)' : ' (реестр)'));
 }
 
 // Строит atmState напрямую из реальных данных ATM_META (без фейкового тика)
@@ -1288,7 +1308,10 @@ function syncAtmStateFromMeta() {
       // оценка от общего остатка (см. estimateCassettes).
       cassettes:       atm.cassettes || estimateCassettes(atm.balance, atm.capacity),
       cassettesSource: atm.cassettes ? 'live' : 'estimated',
-      cassetteToFill:  Math.max(0, (atm.capacity || 0) - (atm.balance || 0)) > (atm.capacity || 0) * 0.2 ? 1 : 0,
+      cassetteToFill:  (() => {
+        const gap = Math.max(0, (atm.capacity || 0) - (atm.balance || 0));
+        return gap > (atm.capacity || 0) * 0.2 ? gap : 0;
+      })(),
     };
 
     if (markers[atm.id]) {
@@ -1425,7 +1448,7 @@ function selectAtm(id) {
   const st  = atmState[id] || {};
   const pct = Math.round((st.pct || 0) * 100);
 
-  map.flyTo([atm.lat, atm.lon], 16, { duration: 0.9, easeLinearity: 0.25 });
+  map.flyTo([atm.lat, atm.lon], 16, { duration: 0.35, easeLinearity: 0.25 });
 
   const stPop = atmState[id] || {};
 
