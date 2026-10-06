@@ -61,6 +61,8 @@
   }
 
   async function init() {
+    // TEMP: login/roles off for local testing. Remove this return to restore.
+    return;
     let me;
     try {
       const res = await fetch('/api/auth/me');

@@ -255,6 +255,10 @@ async def auth_gate(request: Request, call_next):
     файлу (после этого декоратора), поэтому оборачивает auth_gate снаружи —
     request.session уже заполнен из подписанной cookie к моменту, когда этот
     код его читает (Starlette оборачивает в обратном порядке регистрации)."""
+    # TEMP: login/roles off for local testing. Uncomment the gate body below
+    # and remove this return to restore auth.
+    return _no_cache(request.url.path, await call_next(request))
+
     path = request.url.path
 
     if path in auth.PUBLIC_PATHS:
