@@ -179,6 +179,15 @@ def num(v: Any) -> float:
             return 0.0
 
 
+_EMPTY_MARKS = frozenset({'', '0', 'нет', 'yoq', 'йук', 'йок', 'none', 'null', 'nan'})
+
+
+def optional_text(v: Any) -> Optional[str]:
+    """Cell text, or None for placeholders: reports fill "no penalty" cells with 0 or "-"."""
+    s = sval(v)
+    return None if norm(s) in _EMPTY_MARKS else s
+
+
 def sval(v: Any) -> str:
     """Safely convert a cell value to a stripped string, removing Excel artefacts."""
     if v is None:
@@ -253,7 +262,8 @@ def parse_hr_status(raw_note: str, position: str = '', full_name: str = '') -> D
 
     if empty_seat or any(w in n_str for w in ('vacant', 'вакант', 'вакансия', 'свобод', 'vakant', 'vakansiya')):
         code, label = 'vacant', '⚪ Вакансия (Свободная ставка)'
-    elif any(w in n_str for w in ('dekret', 'декрет')):
+    elif any(w in n_str for w in ('dekret', 'декрет', 'деккас', 'dekkas')):
+        # "(дек. кас.)" — декрет касаллик: maternity leave on a sick-leave certificate.
         code, label = 'maternity', '🟣 В декрете'
     elif any(w in n_str for w in ('mexnat', 'мехнат', 'отпуск', 'tatil', 'татил')):
         code, label = 'vacation', '🔵 В отпуске (Трудовой отпуск)'

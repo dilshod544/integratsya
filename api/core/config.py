@@ -5,21 +5,26 @@
   * Cashier Intelligence — аналитика кассиров
   * ATM Monitor         — реестр банкоматов, остатки, инкассация
 
-Хранилище — SQLite: обычный файл, никаких серверов и настройки окружения.
+Хранилище — PostgreSQL (строка подключения в DATABASE_URL).
 """
 
 import os
 import secrets
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 # ── Пути ────────────────────────────────────────────────────
 BASE_DIR = Path(__file__).resolve().parents[2]   # корень проекта
 DATA_DIR = BASE_DIR / "data"
 DATA_DIR.mkdir(exist_ok=True)
+load_dotenv(BASE_DIR / ".env")
 
-# ── База данных (SQLite) ─────────────────────────────────────
-# Путь можно переопределить переменной окружения DB_PATH.
-DB_PATH = Path(os.getenv("DB_PATH", str(DATA_DIR / "bank.db")))
+# ── База данных (PostgreSQL) ─────────────────────────────────
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://localhost:5432/bank_intelligence")
+DB_POOL_MIN = int(os.getenv("DB_POOL_MIN", "1"))
+DB_POOL_MAX = int(os.getenv("DB_POOL_MAX", "10"))
+DB_POOL_TIMEOUT = float(os.getenv("DB_POOL_TIMEOUT", "30"))
 
 # ── Бизнес-пороги ATM ────────────────────────────────────────
 LOW_CASH_PCT      = float(os.getenv("LOW_CASH_PCT", "0.20"))      # критичный уровень (cash-out)

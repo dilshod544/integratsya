@@ -677,8 +677,7 @@
 
     async function openCashierModal(reportId) {
       try {
-        const importQs = selectedImport ? `?import_id=${encodeURIComponent(selectedImport)}` : '';
-        const r = await fetch(base + '/api/cashiers/' + reportId + importQs);
+        const r = await fetch(base + '/api/cashiers/' + reportId);
         if (!r.ok) throw new Error('Не удалось загрузить данные кассира');
         const x = await r.json();
 

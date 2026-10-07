@@ -9,6 +9,24 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: bank
+          POSTGRES_PASSWORD: bank
+          POSTGRES_DB: bank_intelligence_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U bank"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      TEST_DATABASE_URL: postgresql://bank:bank@localhost:5432/bank_intelligence_test
+
     steps:
       - uses: actions/checkout@v4
 

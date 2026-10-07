@@ -8,7 +8,7 @@ __pycache__/
 .venv/
 venv/
 
-# База данных SQLite
+# Локальные данные (пароль admin, старые SQLite-файлы и их резервные копии)
 data/
 *.db
 *.db-wal

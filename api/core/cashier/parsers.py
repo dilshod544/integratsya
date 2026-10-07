@@ -1,4 +1,4 @@
-"""Excel and CSV report parsers for cashier KPI reports and HR staff registries."""
+"""Excel and CSV parser for the monthly cashier KPI report."""
 from __future__ import annotations
 
 import csv
@@ -15,31 +15,18 @@ from .helpers import (
     SUMMARY_KEYWORDS,
     norm,
     num,
+    optional_text,
     parse_hr_status,
     sval,
 )
 
 _FIO_HEADER_KEYS = ('ф и ш', 'фиш', 'ф и о', 'фио', 'fish', 'fio', 'f i sh')
+# Excel files keep their sheets in this order; the report sheet is found by its header.
 _KPI_HEADER_KEYS = _FIO_HEADER_KEYS + ('табел', 'tabel')
-
-
-def _is_vacancy_text(n: str) -> bool:
-    """Normalised text marks an empty seat; "bo'sh" must be a whole word (not "Boboshev")."""
-    if any(w in n for w in ('вакант', 'вакансия', 'vakant', 'vakansiya', 'свобод')):
-        return True
-    return re.search(r'\b(bosh|bush|бош|буш)\b', n) is not None
 
 
 def _rows_text(rows: list, limit: int = 30) -> List[str]:
     return [norm(' '.join(str(c or '') for c in r)) for r in rows[:limit]]
-
-
-def _looks_like_kpi(rows: list) -> bool:
-    """KPI reports have a sub-header with 'Сони' / 'минутда' under each operation."""
-    return any(
-        ('сони' in t or 'soni' in t) and ('минут' in t or 'minut' in t)
-        for t in _rows_text(rows)
-    )
 
 
 def _read_csv(path: Path) -> list:
@@ -400,9 +387,9 @@ def parse_cashiers_xlsx(path: str | Path) -> dict:
             load_pct = computed_load
         load_difference = round(abs(load_pct - computed_load), 1) if load_pct and computed_load else 0.0
 
-        disc_type = sval(get(fx.get('disc_type'))) if fx.get('disc_type') is not None else ''
-        disc_date_order = sval(get(fx.get('disc_date_order'))) if fx.get('disc_date_order') is not None else ''
-        disc_reason = sval(get(fx.get('disc_reason'))) if fx.get('disc_reason') is not None else ''
+        disc_type = optional_text(get(fx.get('disc_type')))
+        disc_date_order = optional_text(get(fx.get('disc_date_order')))
+        disc_reason = optional_text(get(fx.get('disc_reason')))
 
         rec = {
             'full_name': name,
@@ -492,250 +479,3 @@ def parse_cashiers_xlsx(path: str | Path) -> dict:
         'header_rows': [header_idx + 1, sub_header_idx + 1 if sub_header_idx >= 0 else header_idx + 1],
         'columns': [op['name'] for op in ops_def],
     }
-
-
-def parse_cashier_status_xlsx(path: str | Path) -> dict:
-    """Parse the HR staff registry Excel (Штат.xlsx)."""
-    all_rows = _read_rows(Path(path), _FIO_HEADER_KEYS)
-    if _looks_like_kpi(all_rows):
-        raise ValueError(
-            'Это месячный отчёт KPI (есть колонки «Сони» / «минутда»), а не реестр штата. '
-            'Загрузите его во вкладке «Отчёт KPI» с выбором месяца.'
-        )
-
-    fio_col = None
-    pos_col = None
-    mfo_col = None
-    note_col = None
-    bname_col = None
-    header_row_idx = None
-
-    for r_idx in range(min(30, len(all_rows))):
-        row = all_rows[r_idx]
-        if not row:
-            continue
-        r_vals = [sval(x) for x in row]
-        n_vals = [norm(x) for x in r_vals]
-
-        f_c = p_c = m_c = n_c = b_c = None
-        for idx, nv in enumerate(n_vals):
-            nv_nospace = nv.replace(' ', '')
-            if any(w in nv_nospace for w in ('фиш', 'фио', 'fio', 'fish', 'сотрудник', 'работник', 'xodim', 'ф и ш', 'ф и о')):
-                f_c = idx
-            elif any(w in nv_nospace for w in ('таркибий', 'лавозим', 'должность', 'lavozim', 'position')) and \
-                    not any(k in nv_nospace for k in ('маош', 'оклад', 'разряд', 'коэффициент')):
-                p_c = idx
-            elif any(w in nv_nospace for w in ('mfo', 'мфо', 'кодфилиала')):
-                m_c = idx
-            elif any(w in nv_nospace for w in ('филиал', 'бхм', 'бхо', 'подразделение', 'наименованиефилиала', 'bhm', 'branch')):
-                b_c = idx
-            elif any(w in nv_nospace for w in ('изох', 'примечание', 'статус', 'причина', 'note')):
-                n_c = idx
-
-        if f_c is not None or p_c is not None:
-            fio_col, pos_col, mfo_col, note_col, bname_col = f_c, p_c, m_c, n_c, b_c
-            header_row_idx = r_idx
-            break
-
-    if fio_col is None:
-        fio_col = 7
-    if pos_col is None:
-        pos_col = 2
-    if mfo_col is None:
-        mfo_col = 1
-    if note_col is None:
-        note_col = 10
-
-    raw_parsed = []
-    current_branch = 'Не указан'
-    current_pos = ''
-    current_mfo = ''
-
-    start_idx = (header_row_idx + 1) if header_row_idx is not None else 0
-
-    SKIP_FIO = frozenset({
-        'ф и ш', 'ф и о', 'фио', 'фиш', 'jami', 'итого', 'сони', 'минут',
-        'номер', '№', 'ставка', 'всего', 'жами',
-    })
-
-    for rn in range(start_idx, len(all_rows)):
-        row = all_rows[rn]
-        if not row or not any(v not in (None, '') for v in row):
-            continue
-
-        r_str = [sval(cell) for cell in row]
-
-        def gcol(idx, r=r_str):
-            return r[idx] if idx is not None and idx < len(r) else ''
-
-        first_val = r_str[0] if r_str else ''
-        n_first = norm(first_val)
-
-        if any(w in n_first for w in ('регион', 'region')):
-            continue
-        if first_val.startswith('Филиал:') or any(w in n_first for w in ('филиал', 'бхм', 'бхо', 'центр', 'офис')):
-            current_branch = first_val.replace('Филиал:', '').strip()
-            current_mfo = gcol(mfo_col)
-            continue
-        if first_val.startswith('**'):
-            current_pos = first_val.replace('**', '').strip()
-            continue
-        if any(w in n_first for w in ('жами:', 'жами', 'итого', 'total')) and len(first_val) < 20:
-            continue
-
-        fio_val = gcol(fio_col)
-        pos_val = gcol(pos_col)
-        mfo_val = gcol(mfo_col)
-        bname_val = gcol(bname_col) if bname_col is not None else ''
-        note_val = gcol(note_col)
-
-        is_subrow = not pos_val.strip() or pos_val.strip() in ('-', '—')
-
-        if not is_subrow:
-            current_pos = pos_val
-
-        if is_subrow:
-            pos_val = current_pos
-
-        if bname_val and bname_val not in ('-', '—') and len(bname_val) > 2:
-            current_branch = bname_val
-
-        if not mfo_val or mfo_val in ('-', '—'):
-            mfo_val = current_mfo
-        else:
-            current_mfo = mfo_val
-
-        if not fio_val:
-            for test_idx in (7, 6, 5, 3, 2):
-                val = r_str[test_idx] if len(r_str) > test_idx else ''
-                n_v = norm(val)
-                if val and len(val) >= 3 and n_v not in SKIP_FIO:
-                    if _is_vacancy_text(n_v) or len(val.split()) >= 2:
-                        fio_val = val
-                        break
-
-        n_fio = norm(fio_val)
-        if not fio_val or len(fio_val) < 3 or n_fio in SKIP_FIO:
-            continue
-        if not re.search(r'[^\W\d_]', fio_val):
-            continue
-
-        is_vacant = _is_vacancy_text(n_fio)
-        full_name = f"ВАКАНСИЯ ({pos_val if pos_val else 'Кассир'})" if is_vacant else fio_val
-
-        mfo_clean = mfo_val.replace('\xa0', '').strip()
-        branch_label = current_branch
-        if mfo_clean and mfo_clean not in current_branch:
-            branch_label = f"{mfo_clean} - {current_branch}"
-
-        clean_note = note_val.replace('\xa0', '').strip()
-        if clean_note.isdigit():
-            clean_note = ''
-
-        raw_parsed.append((rn, is_subrow, {
-            'branch_name': branch_label,
-            'position': pos_val if pos_val else 'Кассир',
-            'full_name': full_name,
-            'raw_note': clean_note,
-            'status_code': 'vacant' if is_vacant else 'active',
-            'status_label': '⚪ Вакант (Свободная ставка)' if is_vacant else '🟢 Ишлаяпти',
-            'replacing_full_name': None,
-            'replaced_by_full_name': None,
-            'has_replacement': 0,
-        }))
-
-    records = [rec for _, _, rec in raw_parsed]
-
-    if not records:
-        raise ValueError('Не найдено ни одной валидной строки с ФИО кассиров или вакансиями в реестре штата.')
-
-    # Pass 1: Determine status_code from raw_note
-    for r in records:
-        if r['status_code'] == 'vacant':
-            continue
-        n_flat = norm(f"{r['position']} {r['raw_note']}").replace(' ', '')
-        if 'dekret' in n_flat or 'декрет' in n_flat:
-            r['status_code'] = 'maternity'
-        elif any(w in n_flat for w in ('mexnattat', 'мехнатtat', 'мехнаттатил', 'mexnattatil', 'татил', 'tatil')):
-            r['status_code'] = 'vacation'
-        elif any(w in n_flat for w in ('mexnat', 'мехнат', 'отпуск')):
-            r['status_code'] = 'vacation'
-        elif any(w in n_flat for w in ('vakt', 'вакт', 'zamesh', 'замещ')):
-            r['status_code'] = 'temporary'
-        elif any(w in n_flat for w in ('kasal', 'касал', 'больн')):
-            r['status_code'] = 'sick'
-
-    # Pass 2: Sub-row adjacency pairing
-    for i in range(len(raw_parsed) - 1):
-        _, is_sub_curr, r_curr = raw_parsed[i]
-        _, is_sub_next, r_next = raw_parsed[i + 1]
-
-        if (r_curr['status_code'] == 'temporary'
-                and is_sub_next
-                and r_next['status_code'] in ('maternity', 'vacation')
-                and not r_curr.get('replacing_full_name')
-                and not r_next.get('replaced_by_full_name')):
-            r_curr['replacing_full_name'] = r_next['full_name']
-            r_next['replaced_by_full_name'] = r_curr['full_name']
-            r_next['has_replacement'] = 1
-        elif (is_sub_curr
-                and r_curr['status_code'] in ('maternity', 'vacation')
-                and r_next['status_code'] == 'temporary'
-                and not r_curr.get('replaced_by_full_name')
-                and not r_next.get('replacing_full_name')):
-            r_next['replacing_full_name'] = r_curr['full_name']
-            r_curr['replaced_by_full_name'] = r_next['full_name']
-            r_curr['has_replacement'] = 1
-
-    # Pass 3: Within same branch pairing
-    branch_recs: dict[str, list] = {}
-    for r in records:
-        bk = r.get('branch_name') or 'Default'
-        branch_recs.setdefault(bk, []).append(r)
-
-    for bk, b_list in branch_recs.items():
-        pos_groups: dict[str, list] = {}
-        for r in b_list:
-            pg = norm(r.get('position', '')).replace(' ', '')
-            pos_groups.setdefault(pg, []).append(r)
-
-        for pg, pg_list in pos_groups.items():
-            unmatched_temps = [r for r in pg_list if r['status_code'] == 'temporary' and not r.get('replacing_full_name')]
-            unmatched_absents = [r for r in pg_list if r['status_code'] in ('maternity', 'vacation') and not r.get('replaced_by_full_name')]
-            for temp_r, abs_r in zip(unmatched_temps, unmatched_absents):
-                temp_r['replacing_full_name'] = abs_r['full_name']
-                abs_r['replaced_by_full_name'] = temp_r['full_name']
-                abs_r['has_replacement'] = 1
-
-        for r in b_list:
-            if r['status_code'] in ('maternity', 'vacation') and not r.get('replaced_by_full_name'):
-                r['has_replacement'] = 0
-
-    # Pass 4: Build readable labels
-    for r in records:
-        sc = r['status_code']
-        if sc == 'vacant':
-            r['status_label'] = '⚪ Вакант (Свободная ставка)'
-        elif sc == 'temporary':
-            r['status_label'] = (
-                f"🟡 Вақтинча (ўринбосар: {r['replacing_full_name']})"
-                if r.get('replacing_full_name') else '🟡 Вақтинча ходим'
-            )
-        elif sc == 'maternity':
-            r['status_label'] = (
-                f"🟣 Декретда (ўрнида: {r['replaced_by_full_name']})"
-                if r.get('replaced_by_full_name') else '🟣 Декретда (без замены!)'
-            )
-        elif sc == 'vacation':
-            r['status_label'] = (
-                f"🔵 Меҳнат татилда (ўрнида: {r['replaced_by_full_name']})"
-                if r.get('replaced_by_full_name') else '🔵 Меҳнат татилда (без замены!)'
-            )
-        elif sc == 'sick':
-            r['status_label'] = '🔴 Касал (Больничный)'
-        else:
-            r['status_code'] = 'active'
-            r['status_label'] = '🟢 Ишлаяпти'
-            r['has_replacement'] = 1
-
-    return {'records': records, 'total_rows': len(all_rows)}

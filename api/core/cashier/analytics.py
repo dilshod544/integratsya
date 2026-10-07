@@ -1,12 +1,11 @@
 """Analytics calculation engine for cashier performance, workload, and report generation."""
 from __future__ import annotations
 
-import json
-from collections import Counter, defaultdict
+from collections import defaultdict
 from typing import Any, Dict, List, Optional
 
-from ..db import _connect, dict_cursor
-from .helpers import clean_branch_name, norm, search_fold
+from ..db import connect
+from .helpers import clean_branch_name, norm, optional_text, search_fold
 from .parsers import _classify_op_group
 from .repository import get_cashier_import, list_cashier_imports
 
@@ -37,13 +36,8 @@ def is_uncovered_absence(row: Dict[str, Any]) -> bool:
 
 
 def apply_replacement_pairing(rows: List[Dict[str, Any]]) -> None:
-    """Pair вакт. temps only to empty seats (0 operations). Mutates rows in place.
-
-    Replacements stated explicitly in the staff registry are kept as they are.
-    """
+    """Pair вакт. temps only to empty seats (0 operations). Mutates rows in place."""
     for x in rows:
-        if x.get('replacement_source') == 'registry':
-            continue
         st = x.get('hr_status_code')
         if st == 'temporary':
             x['replacing_full_name'] = None
@@ -56,23 +50,20 @@ def apply_replacement_pairing(rows: List[Dict[str, Any]]) -> None:
         absent['replaced_by_full_name'] = temp.get('full_name')
         absent['has_replacement'] = 1
 
+    # In the KPI report the вакт. row sits directly above the seat it covers, so that
+    # direction is paired over the whole list first; "absent above temp" only fills
+    # what is left (otherwise "декрет / вакт. / декрет" pairs the wrong neighbour).
     ordered = sorted(rows, key=lambda z: (int(z.get('id') or 0), z.get('full_name') or ''))
-    for i in range(len(ordered) - 1):
-        a, b = ordered[i], ordered[i + 1]
-        if (
-            a.get('hr_status_code') == 'temporary'
-            and _is_true_absent(b)
-            and not a.get('replacing_full_name')
-            and not b.get('replaced_by_full_name')
-        ):
-            pair(a, b)
-        elif (
-            _is_true_absent(a)
-            and b.get('hr_status_code') == 'temporary'
-            and not a.get('replaced_by_full_name')
-            and not b.get('replacing_full_name')
-        ):
-            pair(b, a)
+    for temp_first in (True, False):
+        for i in range(len(ordered) - 1):
+            temp, absent = (ordered[i], ordered[i + 1]) if temp_first else (ordered[i + 1], ordered[i])
+            if (
+                temp.get('hr_status_code') == 'temporary'
+                and _is_true_absent(absent)
+                and not temp.get('replacing_full_name')
+                and not absent.get('replaced_by_full_name')
+            ):
+                pair(temp, absent)
 
     def _zip_pair(groups: dict) -> None:
         for lst in groups.values():
@@ -95,6 +86,27 @@ def apply_replacement_pairing(rows: List[Dict[str, Any]]) -> None:
     for x in rows:
         by_branch[(x.get('branch_name') or '').strip()].append(x)
     _zip_pair(by_branch)
+
+
+_ABSENCE_LABELS = {'maternity': '🟣 В декрете', 'vacation': '🔵 В отпуске'}
+
+
+def refresh_status_labels(rows: List[Dict[str, Any]]) -> None:
+    """Rebuild status labels from the final pairing so the text never contradicts
+    the counters (labels saved at import time reflect the parser's own pairing)."""
+    for x in rows:
+        st = x.get('hr_status_code')
+        if st == 'temporary':
+            rep = x.get('replacing_full_name')
+            x['hr_status_label'] = f"🟡 Временный (замещает {rep})" if rep else '🟡 Временный сотрудник'
+        elif st in _ABSENCE_LABELS:
+            base = _ABSENCE_LABELS[st]
+            if not _is_true_absent(x):
+                x['hr_status_label'] = base
+            elif x.get('replaced_by_full_name'):
+                x['hr_status_label'] = f"{base} (замена: {x['replaced_by_full_name']})"
+            else:
+                x['hr_status_label'] = f"{base} (без замены!)"
 
 
 def infer_absent_roles(rows: List[Dict[str, Any]]) -> None:
@@ -167,7 +179,7 @@ def _enrich(x: dict, detail: bool = False):
     x['avg_seconds_per_operation'] = round(ops_min * 60 / ops_cnt, 1) if ops_cnt else 0
     x['operations_per_day'] = round(ops_cnt / days, 1) if days else 0
 
-    raw = json.loads(x.get('metrics_json') or '{}')
+    raw = x.get('metrics_json') or {}
     ops = raw.get('operations') if isinstance(raw, dict) and 'operations' in raw else (raw if isinstance(raw, dict) else {})
     if not x.get('employee_number'):
         x['employee_number'] = raw.get('employee_number', '') if isinstance(raw, dict) else ''
@@ -219,17 +231,15 @@ def _enrich(x: dict, detail: bool = False):
     x['top_direction'] = x['metrics'][0]['name'] if x['metrics'] else '—'
 
     # Discipline / punishment data (pass-through from DB)
-    x['discipline_type'] = x.get('discipline_type') or None
-    x['discipline_date_order'] = x.get('discipline_date_order') or None
-    x['discipline_reason'] = x.get('discipline_reason') or None
+    x['discipline_type'] = optional_text(x.get('discipline_type'))
+    x['discipline_date_order'] = optional_text(x.get('discipline_date_order'))
+    x['discipline_reason'] = optional_text(x.get('discipline_reason'))
     x['has_discipline'] = bool(x['discipline_type'] or x['discipline_date_order'] or x['discipline_reason'])
 
     return x, ops
 
 
 _VACANT_KEYWORDS = ('вакант', 'вакансия', 'vakant', 'vakansiya', 'бош урин', 'буш урин', 'свобод')
-_KASSIR_KEYWORDS = ('kassir', 'кассир', 'kassa', 'касса', 'gazna', "g'azna")
-_REGISTRY_ABSENT_CODES = ('maternity', 'vacation', 'sick', 'vacant')
 _SUMMARY_OP_KEYS = ('жамибек', 'jamibek', 'жамифронт', 'jamfront', 'жамиамали',
                     'beкфарк', 'фронтфарк', 'bekfark', 'frontfark', 'жами')
 
@@ -238,184 +248,28 @@ def _branch_key(branch: Any) -> str:
     return search_fold(clean_branch_name(str(branch or '')))
 
 
-def _vacancy_key(position: Any, branch: Any) -> str:
-    return f"{norm(position)}|{_branch_key(branch)}"
-
-
-def _load_status_registry(cur) -> List[Dict[str, Any]]:
-    cur.execute('SELECT id FROM cashier_status_imports ORDER BY id DESC LIMIT 1')
-    st_import = cur.fetchone()
-    if not st_import:
-        return []
-    cur.execute('SELECT * FROM cashier_statuses WHERE import_id=%s', (st_import['id'],))
-    return [dict(s) for s in cur.fetchall()]
-
-
-def _match_status(
-    row: Dict[str, Any],
-    by_full: Dict[str, List[Dict[str, Any]]],
-    by_two: Dict[str, List[Dict[str, Any]]],
-    used: set,
-    same_branch_only: bool,
-) -> Optional[Dict[str, Any]]:
-    """Find the registry entry for a KPI row; each entry is used at most once.
-
-    With same_branch_only the entry must be in the row's branch. Otherwise a full-name
-    match is accepted when it is the only free candidate (the person may have moved
-    branch); a first-two-words match must still not contradict the branch, so
-    namesakes never swap statuses.
-    """
-    n_fn = norm(row.get('full_name'))
-    x_branch = _branch_key(row.get('branch_name'))
-
-    def free(cands):
-        return [s for s in cands if s['id'] not in used]
-
-    def same_branch(cands):
-        return [s for s in cands if _branch_key(s.get('branch_name')) == x_branch]
-
-    words = n_fn.split()
-    two_key = f"{words[0]} {words[1]}" if len(words) >= 2 else None
-    full = free(by_full.get(n_fn, []))
-    two = free(by_two.get(two_key, [])) if two_key else []
-
-    if same_branch_only:
-        for cands in (full, two):
-            same = same_branch(cands)
-            if len(same) == 1:
-                return same[0]
-        return None
-
-    if len(full) == 1:
-        return full[0]
-    if len(two) == 1 and (not x_branch or not _branch_key(two[0].get('branch_name'))):
-        return two[0]
-    return None
-
-
-def _registry_row(import_id: Optional[int], st: Dict[str, Any]) -> Dict[str, Any]:
-    """A cashier known only from the staff registry (no KPI row this month)."""
-    code = st.get('status_code', 'active')
-    return {
-        'id': 900000 + st['id'],
-        'import_id': import_id,
-        'tab_number': '—',
-        'employee_number': '',
-        'full_name': st['full_name'],
-        'position': st.get('position') or 'Кассир',
-        'days_worked': 0,
-        'std_days': 0,
-        'operations_count': 0,
-        'operations_minutes': 0,
-        'bek_count': 0,
-        'bek_minutes': 0,
-        'front_count': 0,
-        'front_minutes': 0,
-        'load_percent': 0,
-        'load_difference': 0,
-        'metrics_json': '{}',
-        'raw_note': st.get('raw_note') or '',
-        'hr_status_code': code,
-        'hr_status_label': '⚪ Вакант (Свободная ставка)' if code == 'vacant' else st['status_label'],
-        'branch_name': st.get('branch_name') or '',
-        'replacing_full_name': st.get('replacing_full_name'),
-        'replaced_by_full_name': st.get('replaced_by_full_name'),
-        'has_replacement': 0 if code == 'vacant' else st.get('has_replacement', 0),
-        'replacement_source': 'registry' if (st.get('replacing_full_name') or st.get('replaced_by_full_name')) else None,
-        'discipline_type': None,
-        'discipline_date_order': None,
-        'discipline_reason': None,
-        'source': 'registry',
-    }
-
-
-def build_cashier_rows(cur, import_id: int) -> List[Dict[str, Any]]:
+def build_cashier_rows(conn, import_id: int) -> List[Dict[str, Any]]:
     """All cashiers of one monthly import, fully enriched and before any UI filter.
 
     Every list, counter and the detail view are derived from this single set, so the
     numbers agree no matter which filters are selected.
     """
-    cur.execute('SELECT * FROM cashier_reports WHERE import_id=%s ORDER BY id', (import_id,))
-    rows = [dict(z) for z in cur.fetchall()]
-    registry = _load_status_registry(cur)
+    rows = conn.execute('SELECT * FROM cashier_reports WHERE import_id=%s ORDER BY id', (import_id,)).fetchall()
 
-    by_full: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
-    by_two: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
-    for s in registry:
-        n = norm(s['full_name'])
-        by_full[n].append(s)
-        w = n.split()
-        if len(w) >= 2:
-            by_two[f"{w[0]} {w[1]}"].append(s)
-
-    people = []
     for x in rows:
         _enrich(x)
-        x['source'] = 'kpi'
         if any(w in norm(x['full_name']) for w in _VACANT_KEYWORDS):
             x['hr_status_code'] = 'vacant'
             x['hr_status_label'] = '⚪ Вакант (Свободная ставка)'
             x['full_name'] = f"ВАКАНСИЯ ({x.get('position') or 'Кассир'})"
-        else:
-            people.append(x)
-
-    # Two passes: same-branch matches first, so a namesake elsewhere cannot take
-    # the registry entry that belongs to this branch.
-    matched_ids: set = set()
-    matches: Dict[int, Dict[str, Any]] = {}
-    namesakes = Counter(norm(x['full_name']) for x in people)
-    for same_branch_only in (True, False):
-        for x in people:
-            if x['id'] in matches:
-                continue
-            if not same_branch_only and namesakes[norm(x['full_name'])] > 1:
-                continue
-            st = _match_status(x, by_full, by_two, matched_ids, same_branch_only)
-            if st:
-                matches[x['id']] = st
-                matched_ids.add(st['id'])
-
-    for x in people:
-        st = matches.get(x['id'])
-        if st:
-            x['hr_status_code'] = st['status_code']
-            x['hr_status_label'] = st['status_label']
-            st_b = clean_branch_name(st.get('branch_name') or '')
-            if st_b and 'не указан' not in st_b.lower():
-                x['branch_name'] = st_b
-            x['replacing_full_name'] = st.get('replacing_full_name')
-            x['replaced_by_full_name'] = st.get('replaced_by_full_name')
-            x['has_replacement'] = st.get('has_replacement', 0)
-            if st.get('replacing_full_name') or st.get('replaced_by_full_name'):
-                x['replacement_source'] = 'registry'
         else:
             x['hr_status_code'] = x.get('hr_status_code') or 'active'
             x['hr_status_label'] = x.get('hr_status_label') or '🟢 Работает'
         if not x.get('branch_name'):
             x['branch_name'] = 'Не указан'
 
-    kpi_vacancies = Counter(
-        _vacancy_key(x.get('position'), x.get('branch_name'))
-        for x in rows if x.get('hr_status_code') == 'vacant'
-    )
-    for st in registry:
-        if st['id'] in matched_ids:
-            continue
-        code = st.get('status_code')
-        if code not in _REGISTRY_ABSENT_CODES:
-            continue
-        if not any(kw in norm(st.get('position')) for kw in _KASSIR_KEYWORDS):
-            continue
-        if code == 'vacant':
-            key = _vacancy_key(st.get('position'), st.get('branch_name'))
-            if kpi_vacancies[key] > 0:
-                kpi_vacancies[key] -= 1
-                continue
-        dummy = _registry_row(import_id, st)
-        _enrich(dummy)
-        rows.append(dummy)
-
     apply_replacement_pairing(rows)
+    refresh_status_labels(rows)
     infer_absent_roles(rows)
     return rows
 
@@ -474,7 +328,7 @@ def _operation_totals(rows: List[Dict[str, Any]], role_q: str):
     allowed_group = role_q if role_q in ('back', 'front') else None
     bek_tot = front_tot = 0.0
     for x in rows:
-        m_json = json.loads(x.get('metrics_json') or '{}')
+        m_json = x.get('metrics_json') or {}
         ops_data = m_json.get('operations') if isinstance(m_json, dict) and 'operations' in m_json else (m_json if isinstance(m_json, dict) else {})
         row_has_ops = False
         for n, v in ops_data.items():
@@ -570,10 +424,8 @@ def cashier_analytics(
     if not info:
         return {**_EMPTY_RESPONSE, 'imports': imports}
 
-    with _connect() as c:
-        cur = dict_cursor(c)
-        universe = build_cashier_rows(cur, info['id'])
-        cur.close()
+    with connect() as c:
+        universe = build_cashier_rows(c, info['id'])
 
     positions_list = sorted({(x.get('position') or '').strip() or 'Прочее' for x in universe})
     branches_list = sorted({(x.get('branch_name') or '').strip() for x in universe if (x.get('branch_name') or '').strip()})
@@ -608,34 +460,22 @@ def cashier_analytics(
     }
 
 
-def cashier_detail(report_id: int, import_id: Optional[int] = None) -> Optional[Dict[str, Any]]:
-    """One cashier, computed exactly like in the list (status, replacement, role).
-
-    Registry-only rows (id >= 900000) belong to the month given by import_id, or the
-    latest month.
-    """
-    if report_id < 900000:
-        with _connect() as c:
-            cur = dict_cursor(c)
-            cur.execute('SELECT import_id FROM cashier_reports WHERE id=%s', (report_id,))
-            r = cur.fetchone()
-            cur.close()
-        if not r:
-            return None
-        import_id = r['import_id']
-    # Separate connections: _connect holds a non-reentrant lock.
-    info = get_cashier_import(import_id)
+def cashier_detail(report_id: int) -> Optional[Dict[str, Any]]:
+    """One cashier, computed exactly like in the list (status, replacement, role)."""
+    with connect() as c:
+        r = c.execute('SELECT import_id FROM cashier_reports WHERE id=%s', (report_id,)).fetchone()
+    if not r:
+        return None
+    info = get_cashier_import(r['import_id'])
     if not info:
         return None
-    with _connect() as c:
-        cur = dict_cursor(c)
-        rows = build_cashier_rows(cur, info['id'])
-        cur.close()
+    with connect() as c:
+        rows = build_cashier_rows(c, info['id'])
 
     x = next((z for z in rows if z['id'] == report_id), None)
     if not x:
         return None
-    x['filename'] = info.get('filename') if x.get('source') == 'kpi' else 'Реестр штата'
+    x['filename'] = info.get('filename')
     x['imported_at'] = info.get('imported_at')
     x['period'] = info.get('period')
     x['period_label'] = info.get('period_label')

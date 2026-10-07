@@ -25,7 +25,7 @@ def _format_forecast(hours) -> "str | None":
 @router.get("/atms", summary="Все банкоматы с последним снимком состояния")
 def list_atms():
     try:
-        with connect(readonly=True) as conn:
+        with connect() as conn:
             atms = conn.execute("SELECT * FROM atms ORDER BY tid").fetchall()
             snaps = conn.execute(
                 """

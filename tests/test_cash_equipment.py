@@ -9,7 +9,7 @@ from api.core.cash_equipment import (
     parse_cash_equipment_xlsx,
     replace_cash_equipment,
 )
-from api.core.db import bulk_insert_branches, init_db, truncate_branches
+from api.core.db import bulk_insert_branches
 
 HEADERS = [
     "№",
@@ -45,14 +45,7 @@ def _write_sample(path: Path) -> None:
     wb.save(path)
 
 
-def test_parse_and_group(tmp_path, monkeypatch):
-    db_file = tmp_path / "t.db"
-    import api.core.config as cfg
-    import api.core.db as dbmod
-    monkeypatch.setattr(cfg, "DB_PATH", db_file)
-    monkeypatch.setattr(dbmod, "DB_PATH", db_file)
-    init_db()
-    truncate_branches()
+def test_parse_and_group(pg_db, tmp_path):
     bulk_insert_branches([{"local_code": "11084", "region": "Самарқанд", "address": "Самарқанд БХО. 140158 Самарқанд",
                            "lat": 39.65, "lon": 66.96, "incassation": 1}])
 

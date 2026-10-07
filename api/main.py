@@ -2,7 +2,7 @@
 Bank Intelligence Platform — FastAPI Backend
 =============================================
 
-Объединяет два продукта в одном приложении и одной базе SQLite:
+Объединяет два продукта в одном приложении и одной базе PostgreSQL:
 
   ATM Monitor (реестр банкоматов, остатки, инкассация)
     GET   /api/atms                         → список ATM из БД
@@ -34,7 +34,6 @@ Bank Intelligence Platform — FastAPI Backend
 
   Cashier Intelligence (аналитика кассиров)
     POST  /api/cashiers/import              → импорт Excel-отчёта KPI кассиров
-    POST  /api/cashiers/import-status       → импорт реестра штата и статусов
     GET   /api/cashiers/analytics           → аналитика и структура операций
     GET   /api/cashiers/{report_id}         → углублённая аналитика кассира
 
@@ -66,6 +65,7 @@ from pydantic import BaseModel
 from starlette.middleware.sessions import SessionMiddleware
 
 import atm_monitor.api as atm_monitor_api
+import atm_monitor.db as atm_monitor_db
 import atm_monitor.scheduler as atm_collector
 from core import atm_live, auth
 from core.config import BASE_DIR, SECRET_KEY
@@ -74,6 +74,7 @@ from core.db import (
     bulk_insert_atms,
     bulk_insert_branches,
     bulk_update_balances,
+    close_pool,
     count_atms,
     count_branches,
     get_atm,
@@ -122,10 +123,8 @@ from core.cashier import (
     detect_period,
     list_cashier_imports,
     normalize_period,
-    parse_cashier_status_xlsx,
     parse_cashiers_xlsx,
     save_cashier_import,
-    save_cashier_status_import,
 )
 
 logging.basicConfig(
@@ -139,7 +138,7 @@ log = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    log.info("Инициализация БД Bank Intelligence Platform (SQLite)...")
+    log.info("Инициализация БД Bank Intelligence Platform (PostgreSQL)...")
     try:
         init_db()
     except DatabaseUnavailableError as e:
@@ -152,6 +151,8 @@ async def lifespan(app: FastAPI):
     atm_collector.start_background()   # atm_monitor: почасовой опрос BTech в фоне
     yield
     atm_collector.stop_background()
+    close_pool()
+    atm_monitor_db.close_pool()
     log.info("Сервер остановлен.")
 
 
@@ -1153,27 +1154,6 @@ async def remove_cashier_import(import_id: int):
     return {"ok": True}
 
 
-@app.post("/api/cashiers/import-status", summary="Импорт реестра штата и статусов кассиров")
-async def import_cashier_status(file: UploadFile = File(..., description="Excel-реестр штата кассиров")):
-    if not file.filename:
-        raise HTTPException(status_code=400, detail="Имя файла не указано.")
-
-    tmp_dir = tempfile.mkdtemp(prefix="cashier_status_import_")
-    tmp_path = Path(tmp_dir) / Path(file.filename).name
-    try:
-        tmp_path.write_bytes(await file.read())
-        try:
-            parsed = parse_cashier_status_xlsx(tmp_path)
-        except ValueError as e:
-            raise HTTPException(status_code=422, detail=str(e))
-        except Exception:
-            log.exception("Не удалось разобрать реестр штата %s", file.filename)
-            raise HTTPException(status_code=422, detail=_UNREADABLE_CASHIER_FILE)
-        return {"ok": True, "filename": file.filename, **save_cashier_status_import(file.filename, parsed)}
-    finally:
-        shutil.rmtree(tmp_dir, ignore_errors=True)
-
-
 @app.get("/api/cashiers/analytics", summary="KPI и структура операций кассиров")
 async def get_cashier_analytics(
     import_id: Optional[int] = Query(None, description="ID импорта KPI (None = последний)"),
@@ -1189,11 +1169,8 @@ async def get_cashier_analytics(
 
 
 @app.get("/api/cashiers/{report_id}", summary="Углублённая аналитика одного кассира")
-async def get_cashier_detail(
-    report_id: int,
-    import_id: Optional[int] = Query(None, description="Месяц для записей из реестра штата"),
-):
-    item = cashier_detail(report_id, import_id)
+async def get_cashier_detail(report_id: int):
+    item = cashier_detail(report_id)
     if not item:
         raise HTTPException(status_code=404, detail="Запись кассира не найдена.")
     return item

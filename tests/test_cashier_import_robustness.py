@@ -7,10 +7,9 @@ from datetime import date, datetime
 import openpyxl
 import pytest
 
-from api.core import db as core_db
 from api.core.cashier import repository
-from api.core.cashier.helpers import detect_period, parse_hr_status, sval
-from api.core.cashier.parsers import parse_cashier_status_xlsx, parse_cashiers_xlsx
+from api.core.cashier.helpers import detect_period, optional_text, parse_hr_status, sval
+from api.core.cashier.parsers import parse_cashiers_xlsx
 
 HEADER = [
     '№', 'Табел рақами', 'Лавозим', 'Ф.И.Ш', 'Изох', 'Локал код', 'БХМ номи',
@@ -105,31 +104,27 @@ def test_csv_semicolon_cp1251(tmp_path):
     assert recs[0]['branch_name'] == '11088 - Бунёдкор БХМ'
 
 
-def test_kpi_file_is_rejected_as_staff_registry(tmp_path):
-    with pytest.raises(ValueError, match='Отчёт KPI'):
-        parse_cashier_status_xlsx(_write_xlsx(tmp_path / 'kpi.xlsx', _kpi_rows()))
-
-
-def test_registry_skips_numeric_names(tmp_path):
-    rows = [
-        ['МФО', 'Лавозим', 'Ф.И.Ш', 'Изох'],
-        ['11088', 'Universal kassir', 'ALIYEVA MALIKA', ''],
-        ['11088', 'Universal kassir', '3398539', ''],
-        ['11088', 'Universal kassir', 'BOBOSHEV ANVAR', ''],
-        ['11088', 'Universal kassir', "Bo'sh", ''],
-    ]
-    recs = parse_cashier_status_xlsx(_write_xlsx(tmp_path / 'shtat.xlsx', rows))['records']
-    names = {r['full_name']: r['status_code'] for r in recs}
-    assert '3398539' not in names
-    assert names['BOBOSHEV ANVAR'] == 'active'
-    assert names['ВАКАНСИЯ (Universal kassir)'] == 'vacant'
-
-
 def test_empty_seat_word_vs_chief_cashier():
     assert parse_hr_status('', 'Bosh kassir', 'ALIYEVA MALIKA')['status_code'] == 'active'
     assert parse_hr_status('', 'Universal kassir', 'TOSHBOSHEV BOBUR')['status_code'] == 'active'
     assert parse_hr_status("bo'sh o'rin", 'Universal kassir', '-')['status_code'] == 'vacant'
     assert parse_hr_status('', 'Universal kassir', '(Вакант)')['status_code'] == 'vacant'
+
+
+def test_maternity_sick_leave_note():
+    assert parse_hr_status('(дек. кас.)', 'Universal kassir', 'ALIYEVA MALIKA')['status_code'] == 'maternity'
+    assert parse_hr_status('(c содер.)', 'Universal kassir', 'ALIYEVA MALIKA')['status_code'] == 'active'
+
+
+def test_zero_in_discipline_columns_is_no_penalty(tmp_path):
+    rows = _kpi_rows()
+    rows[4] = rows[4][:7] + [0, 0, 0] + rows[4][10:]
+    rows[6] = rows[6][:7] + ['-', '-', '-'] + rows[6][10:]
+    recs = {r['full_name']: r for r in parse_cashiers_xlsx(_write_xlsx(tmp_path / 'kpi.xlsx', rows))['records']}
+    assert recs['ALIYEVA MALIKA']['discipline_type'] is None
+    assert recs['KARIMOVA NODIRA']['discipline_reason'] is None
+    assert recs['BOBOSHEV ANVAR']['discipline_type'] == 'Хайфсан'
+    assert optional_text(0) is None and optional_text('Нет') is None and optional_text('Xayfsan') == 'Xayfsan'
 
 
 def test_cell_values_to_text():
@@ -145,15 +140,7 @@ def test_short_date_in_filename():
     assert detect_period('31.08.2026 kassirlar', today) == '2026-08'
 
 
-@pytest.fixture
-def temp_db(tmp_path, monkeypatch):
-    monkeypatch.setattr(core_db, 'DB_PATH', tmp_path / 'bank.db')
-    monkeypatch.setattr(repository, '_tables_initialized', False)
-    yield
-    repository._tables_initialized = False
-
-
-def test_same_file_under_another_month_is_flagged(temp_db, tmp_path):
+def test_same_file_under_another_month_is_flagged(pg_db, tmp_path):
     parsed = parse_cashiers_xlsx(_write_xlsx(tmp_path / 'kpi.xlsx', _kpi_rows()))
     jul = repository.save_cashier_import('Kassirlar.xlsx', parsed, '2026-07')
     assert jul['same_data_as'] == []

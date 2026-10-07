@@ -11,6 +11,7 @@ from api.core.cashier.analytics import (
     cashier_role,
     infer_absent_roles,
     is_uncovered_absence,
+    refresh_status_labels,
     _enrich,
 )
 from api.core.cashier.parsers import _classify_op_group
@@ -193,3 +194,25 @@ def test_infer_absent_roles_from_replacement():
     assert by_name["DEKRET NO TEMP"]["cashier_type"] is None
     assert by_name["ACTIVE"]["cashier_type"] == "front"
     assert by_name["ACTIVE"]["cashier_type_inferred"] is False
+
+
+def test_temp_covers_the_seat_below_and_label_follows_pairing():
+    def row(i, name, status, ops=0):
+        return {"id": i, "full_name": name, "hr_status_code": status, "operations_count": ops,
+                "branch_name": "BXM-1", "position": "Universal kassir", "source": "kpi",
+                "hr_status_label": "stale label"}
+
+    rows = [
+        row(1, "DEKRET A", "maternity"),
+        row(2, "VAKT B", "temporary", 500),
+        row(3, "DEKRET C", "maternity"),
+    ]
+    apply_replacement_pairing(rows)
+    refresh_status_labels(rows)
+    a, b, c = rows
+    assert b["replacing_full_name"] == "DEKRET C"
+    assert c["replaced_by_full_name"] == "VAKT B"
+    assert a["replaced_by_full_name"] is None and is_uncovered_absence(a)
+    assert a["hr_status_label"] == "🟣 В декрете (без замены!)"
+    assert c["hr_status_label"] == "🟣 В декрете (замена: VAKT B)"
+    assert b["hr_status_label"] == "🟡 Временный (замещает DEKRET C)"

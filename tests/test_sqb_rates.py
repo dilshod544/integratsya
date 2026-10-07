@@ -9,7 +9,6 @@ from api.core.sqb_rates import (
     replace_sqb_rates,
     uzs_equivalent,
 )
-from api.core.db import init_db
 
 
 def _write_sample(path: Path) -> None:
@@ -36,14 +35,7 @@ def test_parse_sqb_rates_table(tmp_path):
     assert cur["sell"] == 11900
 
 
-def test_latest_and_equivalent(tmp_path, monkeypatch):
-    db_file = tmp_path / "t.db"
-    monkeypatch.setenv("DB_PATH", str(db_file))
-    import api.core.config as cfg
-    import api.core.db as dbmod
-    monkeypatch.setattr(cfg, "DB_PATH", db_file)
-    monkeypatch.setattr(dbmod, "DB_PATH", db_file)
-    init_db()
+def test_latest_and_equivalent(pg_db, tmp_path):
 
     xlsx = tmp_path / "rates.xlsx"
     _write_sample(xlsx)

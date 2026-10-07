@@ -84,6 +84,10 @@ echo [+] Установка библиотек из requirements.txt...
 :: 4. Настройка PYTHONPATH
 set PYTHONPATH=%~dp0api;%PYTHONPATH%
 
+:: База данных: PostgreSQL должен быть установлен и запущен.
+:: Строка подключения - DATABASE_URL в .env (по умолчанию postgresql://localhost:5432/bank_intelligence).
+if "%DATABASE_URL%"=="" set DATABASE_URL=postgresql://localhost:5432/bank_intelligence
+
 :: 5. Запуск
 echo.
 echo ===================================================

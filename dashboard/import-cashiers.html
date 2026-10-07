@@ -129,43 +129,6 @@
       line-height: 1.6;
     }
 
-    /* Mode Selector Segmented Tabs */
-    .mode-tabs {
-      display: flex;
-      background: #e2e8f0;
-      padding: 5px;
-      border-radius: 16px;
-      gap: 6px;
-      margin-bottom: 24px;
-    }
-
-    .tab-btn {
-      flex: 1;
-      padding: 12px 16px;
-      border: none;
-      border-radius: 12px;
-      font-size: 13px;
-      font-weight: 800;
-      color: var(--text-muted);
-      background: transparent;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-      transition: all 0.2s ease;
-    }
-
-    .tab-btn.active {
-      background: #ffffff;
-      color: var(--text);
-      box-shadow: var(--shadow-sm);
-    }
-
-    .tab-btn.active.kpi-tab { color: #059669; }
-    .tab-btn.active.status-tab { color: #7c3aed; }
-    .tab-btn.active.auto-tab { color: #2563eb; }
-
     /* Upload Box */
     .upload-card {
       background: var(--surface);
@@ -299,13 +262,9 @@
     /* Helper specs */
     .specs-grid {
       display: grid;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: 1fr;
       gap: 20px;
       margin-top: 28px;
-    }
-
-    @media (max-width: 700px) {
-      .specs-grid { grid-template-columns: 1fr; }
     }
 
     .spec-card {
@@ -425,24 +384,11 @@
         <i data-lucide="sparkles" style="width:14px;height:14px"></i> Единый Центр Импорта
       </span>
       <h1>Импорт Excel-отчётов кассиров</h1>
-      <p>Загружайте любые отчёты (KPI касс или Реестр штата) в один клик. Система автоматически распознает структуру колонок и добавит данные в базу.</p>
+      <p>Загрузите месячный отчёт KPI кассиров «Kassirlar bo‘yicha». Система распознаёт колонки, статусы из «Изох» и сохраняет каждый месяц отдельно.</p>
     </div>
 
     <!-- Upload Card -->
     <div class="upload-card">
-      <!-- Mode Tabs -->
-      <div class="mode-tabs">
-        <button class="tab-btn auto-tab active" onclick="setMode('auto', this)">
-          <i data-lucide="zap" style="width:16px;height:16px"></i> ✨ Авто-определение
-        </button>
-        <button class="tab-btn kpi-tab" onclick="setMode('kpi', this)">
-          <i data-lucide="calculator" style="width:16px;height:16px"></i> 1. KPI & Операции
-        </button>
-        <button class="tab-btn status-tab" onclick="setMode('status', this)">
-          <i data-lucide="user-check" style="width:16px;height:16px"></i> 2. Штат & Отпуска
-        </button>
-      </div>
-
       <!-- Drag & Drop Zone -->
       <div class="dropzone" id="dropzone" onclick="document.getElementById('file-input').click()">
         <div class="drop-icon" id="drop-icon"><i data-lucide="file-up" style="width:28px;height:28px"></i></div>
@@ -499,54 +445,16 @@
     <!-- Specifications Grid -->
     <div class="specs-grid">
       <div class="spec-card">
-        <h4 style="color:#059669"><i data-lucide="calculator"></i> 1. Отчёт KPI и операций</h4>
+        <h4 style="color:#059669"><i data-lucide="calculator"></i> Отчёт KPI и операций</h4>
         <p>Операционный отчёт кассиров из системы. Содержит ФИО, табельный номер, рабочие дни, число операций, БЭК/ФРОНТ, нагрузку %, а также новые поля: <b>Интизомий жазо тури</b>, <b>Сана ва буйруқ рақами</b>, <b>Жазо сабаблари</b>.</p>
-      </div>
-
-      <div class="spec-card">
-        <h4 style="color:#7c3aed"><i data-lucide="user-check"></i> 2. Реестр штата и статусов</h4>
-        <p>Реестр кассиров по филиалам с отметками о трудовых отпусках <code>(мехнат.тат.)</code>, декретах <code>(декрет2)</code> и временных замещениях <code>(вакт.)</code>.</p>
       </div>
     </div>
   </div>
 
   <script>
-    let activeMode = 'auto'; // 'auto' | 'kpi' | 'status'
+    const IMPORT_URL = '/api/cashiers/import';
     let selectedFile = null;
     let loadedMonths = [];
-
-    const STATUS_FILE_HINTS = ['status', 'штат', 'отпуск', 'декрет', 'реестр'];
-
-    function resolveEndpoint() {
-      if (activeMode === 'status') return '/api/cashiers/import-status';
-      if (activeMode === 'kpi') return '/api/cashiers/import';
-      const fname = (selectedFile ? selectedFile.name : '').toLowerCase();
-      return STATUS_FILE_HINTS.some(h => fname.includes(h)) ? '/api/cashiers/import-status' : '/api/cashiers/import';
-    }
-
-    function isKpiUpload() {
-      return resolveEndpoint() === '/api/cashiers/import';
-    }
-
-    function refreshPeriodRow() {
-      document.getElementById('period-row').style.display = isKpiUpload() ? 'flex' : 'none';
-    }
-
-    function setMode(mode, btn) {
-      activeMode = mode;
-      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-
-      const icon = document.getElementById('drop-icon');
-      if (mode === 'kpi') {
-        icon.style.background = 'linear-gradient(135deg, #059669, #10b981)';
-      } else if (mode === 'status') {
-        icon.style.background = 'linear-gradient(135deg, #7c3aed, #8b5cf6)';
-      } else {
-        icon.style.background = 'linear-gradient(135deg, #2563eb, #3b82f6)';
-      }
-      refreshPeriodRow();
-    }
 
     const dropzone = document.getElementById('dropzone');
     dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('over'); });
@@ -565,12 +473,10 @@
 
       document.getElementById('preview-name').textContent = selectedFile.name;
       const sizeKB = (selectedFile.size / 1024).toFixed(1);
-      const detectedType = isKpiUpload() ? 'Операционный отчёт KPI' : 'Реестр штата кассиров';
-      document.getElementById('preview-meta').textContent = `Размер: ${sizeKB} KB · Тип: ${detectedType}`;
+      document.getElementById('preview-meta').textContent = `Размер: ${sizeKB} KB · Отчёт KPI кассиров`;
       document.getElementById('file-preview').classList.add('active');
       document.getElementById('submit-btn').style.display = 'flex';
       hideResult();
-      refreshPeriodRow();
 
       try {
         const r = await fetch(`${location.origin}/api/cashiers/imports/detect-period?filename=${encodeURIComponent(selectedFile.name)}`);
@@ -609,22 +515,18 @@
     async function startUpload() {
       if (!selectedFile) return;
 
-      const endpoint = resolveEndpoint();
-      const kpi = endpoint === '/api/cashiers/import';
       const periodRow = document.getElementById('period-row');
       const period = document.getElementById('period-input').value;
       periodRow.classList.remove('invalid');
 
-      if (kpi) {
-        if (!/^20\d{2}-(0[1-9]|1[0-2])$/.test(period)) {
-          periodRow.classList.add('invalid');
-          showResult('error', '<b>❌ Выберите отчётный месяц.</b><br>Без месяца отчёт нельзя отделить от других месяцев.');
-          return;
-        }
-        const existing = loadedMonths.find(m => m.period === period);
-        if (existing && !confirm(`${periodLabel(period)} уже загружен (файл «${existing.filename}»).\nЗаменить его новым файлом?`)) {
-          return;
-        }
+      if (!/^20\d{2}-(0[1-9]|1[0-2])$/.test(period)) {
+        periodRow.classList.add('invalid');
+        showResult('error', '<b>❌ Выберите отчётный месяц.</b><br>Без месяца отчёт нельзя отделить от других месяцев.');
+        return;
+      }
+      const existing = loadedMonths.find(m => m.period === period);
+      if (existing && !confirm(`${periodLabel(period)} уже загружен (файл «${existing.filename}»).\nЗаменить его новым файлом?`)) {
+        return;
       }
 
       const submitBtn = document.getElementById('submit-btn');
@@ -634,10 +536,10 @@
 
       const fd = new FormData();
       fd.append('file', selectedFile);
-      if (kpi) fd.append('period', period);
+      fd.append('period', period);
 
       try {
-        const res = await fetch(location.origin + endpoint, { method: 'POST', body: fd });
+        const res = await fetch(location.origin + IMPORT_URL, { method: 'POST', body: fd });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
           const detail = Array.isArray(data.detail) ? data.detail.map(d => d.msg).join('; ') : data.detail;
@@ -645,10 +547,8 @@
         }
 
         const saved = data.rows_saved ?? 0;
-        const what = kpi
-          ? `Отчётный месяц: <b>${escapeHtml(data.period_label || periodLabel(period))}</b>${data.replaced_previous ? ' (предыдущая загрузка этого месяца заменена)' : ''}.<br>`
-          : 'Реестр штата обновлён.<br>';
-        const link = kpi ? `/dashboard/cashiers.html?import=${encodeURIComponent(data.import_id)}` : '/dashboard/cashiers.html';
+        const what = `Отчётный месяц: <b>${escapeHtml(data.period_label || periodLabel(period))}</b>${data.replaced_previous ? ' (предыдущая загрузка этого месяца заменена)' : ''}.<br>`;
+        const link = `/dashboard/cashiers.html?import=${encodeURIComponent(data.import_id)}`;
         const sameAs = data.same_data_as || [];
         const warn = sameAs.length
           ? `<div style="margin-top:10px;padding:10px 12px;border-radius:10px;background:#fef3c7;color:#92400e;border:1px solid #fde68a">
@@ -725,7 +625,6 @@
       loadMonths();
     }
 
-    refreshPeriodRow();
     loadMonths();
     lucide.createIcons();
   </script>

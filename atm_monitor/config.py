@@ -28,8 +28,8 @@ class Settings:
     LOGIN_TOKEN_RESPONSE_FIELD = os.getenv("LOGIN_TOKEN_RESPONSE_FIELD", "token")
 
     # --- Database ---
-    # Отдельный SQLite-файл (в bank.db уже есть своя таблица atms — не смешиваем).
-    DB_PATH = os.getenv("ATM_MONITOR_DB_PATH", str(BASE_DIR / "data" / "atm_monitor.db"))
+    # Та же база PostgreSQL, что и у платформы; таблицы — в схеме atm_monitor.
+    DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://localhost:5432/bank_intelligence")
 
     # --- Scheduling ---
     POLL_INTERVAL_HOURS = int(os.getenv("POLL_INTERVAL_HOURS", "1"))

@@ -51,11 +51,11 @@ def run_once() -> bool:
 def _last_success_ts() -> float:
     """Unix-время последнего успешного опроса (0 — ещё не было)."""
     try:
-        with connect(readonly=True) as conn:
+        with connect() as conn:
             row = conn.execute(
-                "SELECT strftime('%s', MAX(finished_at)) FROM poll_runs WHERE status='success'"
+                "SELECT EXTRACT(EPOCH FROM MAX(finished_at)) AS ts FROM poll_runs WHERE status='success'"
             ).fetchone()
-        return float(row[0]) if row and row[0] else 0.0
+        return float(row["ts"]) if row and row["ts"] else 0.0
     except Exception:  # noqa: BLE001
         return 0.0
 

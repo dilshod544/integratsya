@@ -30,14 +30,6 @@ def _record(name, branch="Бунёдкор БХМ", position="Universal kassir",
     }
 
 
-@pytest.fixture
-def temp_db(tmp_path, monkeypatch):
-    monkeypatch.setattr(core_db, "DB_PATH", tmp_path / "bank.db")
-    monkeypatch.setattr(repository, "_tables_initialized", False)
-    yield
-    repository._tables_initialized = False
-
-
 def _july():
     return {"records": [
         _record("ALIYEVA MALIKA", bek=100, front=10),
@@ -72,7 +64,7 @@ def test_cross_script_search_and_branch_cleaning():
     assert search_fold("Жўрақулова") == search_fold("JO`RAQULOVA")
 
 
-def test_months_are_kept_separately_and_replaced_by_period(temp_db):
+def test_months_are_kept_separately_and_replaced_by_period(pg_db):
     jul = repository.save_cashier_import("Kassirlar-2.xlsx", _july(), "2026-07")
     aug = repository.save_cashier_import("Kassirlar avgust.xlsx", {"records": _july()["records"][:3]}, "2026-08")
     assert jul["replaced_previous"] is False
@@ -94,26 +86,17 @@ def test_months_are_kept_separately_and_replaced_by_period(temp_db):
 
     assert repository.delete_cashier_import(again["import_id"]) is True
     assert [i["period"] for i in repository.list_cashier_imports()] == ["2026-07"]
-    with core_db._connect() as c:
-        left = c.execute("SELECT COUNT(*) FROM cashier_reports").fetchone()[0]
+    with core_db.connect() as c:
+        left = c.execute("SELECT COUNT(*) AS n FROM cashier_reports").fetchone()["n"]
     assert left == 7
 
 
-def test_save_requires_valid_period(temp_db):
+def test_save_requires_valid_period(pg_db):
     with pytest.raises(ValueError):
         repository.save_cashier_import("x.xlsx", _july(), "2026-7")
 
 
-def test_legacy_import_gets_period_from_import_date(temp_db):
-    with core_db._connect() as c:
-        c.execute("CREATE TABLE cashier_imports (id INTEGER PRIMARY KEY AUTOINCREMENT, filename TEXT, "
-                  "imported_at TEXT NOT NULL, rows_count INTEGER NOT NULL, report_label TEXT)")
-        c.execute("INSERT INTO cashier_imports(filename, imported_at, rows_count) "
-                  "VALUES('Kassirlar-2.xlsx', '2026-08-13T18:21:03+00:00', 0)")
-    assert [i["period"] for i in repository.list_cashier_imports()] == ["2026-07"]
-
-
-def test_filters_partition_and_lists_ignore_filters(temp_db):
+def test_filters_partition_and_lists_ignore_filters(pg_db):
     iid = repository.save_cashier_import("jul.xlsx", _july(), "2026-07")["import_id"]
     full = analytics.cashier_analytics(import_id=iid, page_size=200)
     assert full["total"] == 7
@@ -135,7 +118,7 @@ def test_filters_partition_and_lists_ignore_filters(temp_db):
     assert "Хонобод БХМ" in full["branches"]
 
 
-def test_maternity_filter_excludes_uncovered_and_card_matches(temp_db):
+def test_maternity_filter_excludes_uncovered_and_card_matches(pg_db):
     iid = repository.save_cashier_import("jul.xlsx", _july(), "2026-07")["import_id"]
     d = analytics.cashier_analytics(import_id=iid)
     s = d["summary"]
@@ -147,7 +130,7 @@ def test_maternity_filter_excludes_uncovered_and_card_matches(temp_db):
     assert norep["total"] == s["no_replacement_cashiers"]
 
 
-def test_search_works_across_scripts(temp_db):
+def test_search_works_across_scripts(pg_db):
     iid = repository.save_cashier_import("jul.xlsx", _july(), "2026-07")["import_id"]
     for q in ("Тошкент шаҳар", "Tошкент", "toshkent", "Каримова", "karimova"):
         d = analytics.cashier_analytics(import_id=iid, search=q)
@@ -155,7 +138,7 @@ def test_search_works_across_scripts(temp_db):
     assert analytics.cashier_analytics(import_id=iid, search="Хонобод")["total"] == 1
 
 
-def test_detail_matches_list(temp_db):
+def test_detail_matches_list(pg_db):
     iid = repository.save_cashier_import("jul.xlsx", _july(), "2026-07")["import_id"]
     rows = {x["full_name"]: x for x in analytics.cashier_analytics(import_id=iid, page_size=200)["cashiers"]}
     for name in ("DEKRET AYOL", "YOLG'IZ DEKRET", "TEMP ISHCHI"):
@@ -165,23 +148,16 @@ def test_detail_matches_list(temp_db):
         assert detail["period_label"] == "Июль 2026"
 
 
-def test_registry_vacancies_and_namesakes(temp_db):
+def test_namesakes_and_vacancies_come_from_kpi_only(pg_db):
     iid = repository.save_cashier_import("jul.xlsx", {"records": [
         _record("ALIYEVA MALIKA", bek=10, branch="Бунёдкор БХМ"),
         _record("ALIYEVA MALIKA", bek=10, branch="Хонобод БХМ"),
         _record("ВАКАНСИЯ", branch="Бунёдкор БХМ"),
     ]}, "2026-07")["import_id"]
-    repository.save_cashier_status_import("shtat.xlsx", {"records": [
-        {"full_name": "ALIYEVA MALIKA", "branch_name": "Хонобод БХМ", "position": "Universal kassir",
-         "status_code": "vacation", "status_label": "🔵 В отпуске"},
-        {"full_name": "Вакант 1", "branch_name": "Бунёдкор БХМ", "position": "Universal kassir",
-         "status_code": "vacant", "status_label": "⚪ Вакансия"},
-        {"full_name": "Вакант 2", "branch_name": "Жиззах БХО", "position": "Universal kassir",
-         "status_code": "vacant", "status_label": "⚪ Вакансия"},
-    ]})
     d = analytics.cashier_analytics(import_id=iid, page_size=200)
+    assert d["total"] == 3
     by_branch = {(x["full_name"], x["branch_name"]): x for x in d["cashiers"]}
-    assert by_branch[("ALIYEVA MALIKA", "Хонобод БХМ")]["hr_status_code"] == "vacation"
+    assert by_branch[("ALIYEVA MALIKA", "Хонобод БХМ")]["hr_status_code"] == "active"
     assert by_branch[("ALIYEVA MALIKA", "Бунёдкор БХМ")]["hr_status_code"] == "active"
-    vacancies = sorted(x["branch_name"] for x in d["cashiers"] if x["hr_status_code"] == "vacant")
-    assert vacancies == ["Бунёдкор БХМ", "Жиззах БХО"]
+    vacancies = [x["branch_name"] for x in d["cashiers"] if x["hr_status_code"] == "vacant"]
+    assert vacancies == ["Бунёдкор БХМ"]

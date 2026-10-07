@@ -1,12 +1,14 @@
 #!/bin/bash
 # Bank Intelligence Platform — Startup Script
 #
-# Никаких серверов баз данных: используется SQLite (файл data/bank.db).
-# Скрипт ставит зависимости, освобождает порт и запускает сервер.
+# База данных — PostgreSQL (DATABASE_URL в .env, по умолчанию
+# postgresql://localhost:5432/bank_intelligence; базу приложение создаёт само).
+# Скрипт ставит зависимости, при необходимости запускает PostgreSQL (Homebrew),
+# освобождает порт и запускает сервер.
 #
 # Полезные переменные:
-#   APP_PORT=8001 ./run.sh     — другой порт
-#   DB_PATH=/tmp/bank.db ./run.sh — другой файл базы
+#   APP_PORT=8001 ./run.sh                                   — другой порт
+#   DATABASE_URL=postgresql://user:pass@host:5432/db ./run.sh — другая база
 
 set -e
 cd "$(dirname "$0")"
@@ -31,9 +33,20 @@ if [ -d ".venv" ]; then
 fi
 
 APP_PORT="${APP_PORT:-8000}"
+export DATABASE_URL="${DATABASE_URL:-postgresql://localhost:5432/bank_intelligence}"
 
 echo "📦 Installing dependencies..."
 python3 -m pip install -q -r requirements.txt 2>&1 | grep -Ev "already satisfied|WARNING: You are using pip|You should consider upgrading|Defaulting to user installation" || true
+
+# ── PostgreSQL ───────────────────────────────────────────────
+if command -v pg_isready >/dev/null 2>&1 && ! pg_isready -q -d "$DATABASE_URL"; then
+  PG_FORMULA="$(brew services list 2>/dev/null | awk '/^postgresql/ {print $1; exit}')"
+  if [ -n "$PG_FORMULA" ]; then
+    echo "🐘 PostgreSQL не запущен — запускаю $PG_FORMULA..."
+    brew services start "$PG_FORMULA" >/dev/null
+    for _ in $(seq 1 20); do pg_isready -q -d "$DATABASE_URL" && break; sleep 0.5; done
+  fi
+fi
 
 # ── Освобождаем порт приложения ──────────────────────────────
 port_busy() {
@@ -75,7 +88,7 @@ fi
 export PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}$(pwd)/api"
 
 echo ""
-echo "🗄️  База данных: SQLite — ${DB_PATH:-data/bank.db}"
+echo "🗄️  База данных: PostgreSQL — $(printf '%s' "$DATABASE_URL" | sed -E 's#://([^:/@]+):[^@]*@#://\1:***@#')"
 echo "🌐 Starting FastAPI server on http://localhost:$APP_PORT"
 echo "   Главная:        http://localhost:$APP_PORT/dashboard/index.html"
 echo "   Карта ATM:      http://localhost:$APP_PORT/dashboard/map.html"

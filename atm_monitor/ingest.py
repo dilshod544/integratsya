@@ -9,7 +9,7 @@ logger = logging.getLogger("atm_monitor.ingest")
 
 
 def _iso(dt):
-    """datetime -> ISO-строка UTC (в SQLite время хранится текстом; сортируется корректно)."""
+    """datetime -> ISO-строка UTC для колонок TIMESTAMPTZ."""
     if dt is None:
         return None
     if dt.tzinfo is None:
@@ -31,12 +31,13 @@ def _cassette_nominal(c: dict):
 
 def _insert(conn, table: str, values: dict, upsert_on: str = None) -> int:
     cols = ", ".join(values)
-    marks = ", ".join("?" for _ in values)
+    marks = ", ".join("%s" for _ in values)
     sql = f"INSERT INTO {table} ({cols}) VALUES ({marks})"
     if upsert_on:
-        upd = ", ".join(f"{c}=excluded.{c}" for c in values if c != upsert_on)
+        upd = ", ".join(f"{c}=EXCLUDED.{c}" for c in values if c != upsert_on)
         sql += f" ON CONFLICT({upsert_on}) DO UPDATE SET {upd}"
-    return conn.execute(sql, list(values.values())).lastrowid
+    sql += " RETURNING id"
+    return conn.execute(sql, list(values.values())).fetchone()["id"]
 
 
 def _upsert_atm_dimension(conn, item: dict, seen_at: str):
@@ -183,7 +184,7 @@ def ingest(items: list) -> int:
                 _upsert_atm_dimension(conn, item, polled_at)
                 _save_snapshot(conn, item, poll_run_id, polled_at)
             conn.execute(
-                "UPDATE poll_runs SET status='success', finished_at=? WHERE id=?",
+                "UPDATE poll_runs SET status='success', finished_at=%s WHERE id=%s",
                 (_iso(datetime.now(timezone.utc)), poll_run_id),
             )
         return poll_run_id

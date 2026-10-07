@@ -1,7 +1,7 @@
 """
 Реальные данные банкоматов от сборщика atm_monitor (пакет `atm_monitor/` в
-этом же проекте: опрашивает monitoring.btech.uz раз в час и пишет в SQLite
-`data/atm_monitor.db`; стартует вместе с сервером, см. atm_monitor/scheduler.py).
+этом же проекте: опрашивает monitoring.btech.uz раз в час и пишет в схему
+`atm_monitor` базы PostgreSQL; стартует вместе с сервером, см. atm_monitor/scheduler.py).
 
 Этот модуль — read-only клиент той базы. Если данных ещё нет (сборщик не
 настроен или первый опрос не завершён) — функции возвращают пустой результат,
@@ -37,8 +37,8 @@ _LAST_SNAPSHOT_ID = (
 
 def _query(sql: str, params: tuple = ()) -> List[Dict[str, Any]]:
     try:
-        with connect(readonly=True) as conn:
-            return [dict(r) for r in conn.execute(sql, params).fetchall()]
+        with connect() as conn:
+            return conn.execute(sql, params).fetchall()
     except Exception as e:  # noqa: BLE001 — база сборщика может быть ещё пустой
         log.warning("База atm_monitor недоступна: %s", e)
         return []
@@ -256,7 +256,7 @@ def _row_to_cassette(r: Dict[str, Any]) -> Dict[str, Any]:
 # Только "живые" кассеты купюр: REJECTCASSETTE/RETRACTCASSETTE/RECYCLING — это
 # отбракованные/принятые при депозите купюры, а не выдаваемый остаток, и мы их
 # не показываем как деньги, которые можно снять.
-_CASSETTE_FILTER_SQL = "c.cassette_type = 'BILLCASSETTE' AND c.nominal >= ?"
+_CASSETTE_FILTER_SQL = "c.cassette_type = 'BILLCASSETTE' AND c.nominal >= %s"
 
 
 def cassettes_by_tid(tid: str) -> List[Dict[str, Any]]:
@@ -270,7 +270,7 @@ def cassettes_by_tid(tid: str) -> List[Dict[str, Any]]:
         SELECT c.cassette_index, c.cassette_type, c.status, c.count, c.currency, c.nominal
         FROM atms a
         JOIN cassette_snapshots c ON c.atm_snapshot_id = ({_LAST_SNAPSHOT_ID})
-        WHERE a.tid = ? AND {_CASSETTE_FILTER_SQL}
+        WHERE a.tid = %s AND {_CASSETTE_FILTER_SQL}
         ORDER BY c.cassette_index
         """,
         (str(tid), MIN_REAL_NOMINAL),
@@ -313,7 +313,7 @@ def balance_history_by_tid(tid: str, days: int = 30) -> List[Dict[str, Any]]:
         SELECT s.polled_at, s.cdm_total_uzs
         FROM atms a
         JOIN atm_snapshots s ON s.atm_id = a.id
-        WHERE a.tid = ? AND s.polled_at >= ?
+        WHERE a.tid = %s AND s.polled_at >= %s
         ORDER BY s.polled_at
         """,
         (str(tid), since),

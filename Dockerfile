@@ -10,7 +10,6 @@ COPY . .
 RUN mkdir -p /app/data
 
 ENV PYTHONPATH=/app/api
-ENV DB_PATH=/app/data/bank.db
 
 # Railway / PaaS inject $PORT — must listen on it (not hardcoded 8000)
 EXPOSE 8000

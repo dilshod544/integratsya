@@ -8,7 +8,7 @@ from api.core.branch_balance import (
     parse_branch_balances_xlsx,
     replace_branch_balances,
 )
-from api.core.db import bulk_insert_branches, init_db, truncate_branches
+from api.core.db import bulk_insert_branches
 
 
 def _write_sample(path: Path, code_header: str = "Код БХМ") -> None:
@@ -51,17 +51,7 @@ def test_parse_amount_empty_dash_zero():
     assert _parse_amount("1 200,5") == 1200.5
 
 
-def test_parse_and_match(tmp_path, monkeypatch):
-    db_file = tmp_path / "t.db"
-    monkeypatch.setenv("DB_PATH", str(db_file))
-    # re-bind config path used by db
-    import api.core.config as cfg
-    import api.core.db as dbmod
-    monkeypatch.setattr(cfg, "DB_PATH", db_file)
-    monkeypatch.setattr(dbmod, "DB_PATH", db_file)
-
-    init_db()
-    truncate_branches()
+def test_parse_and_match(pg_db, tmp_path):
     bulk_insert_branches([{
         "local_code": "11084",
         "region": "Самарқанд",
@@ -98,14 +88,7 @@ def test_parse_latin_bxm_header(tmp_path):
     assert parsed["records"][0]["bxm_code"] == "11084"
 
 
-def test_analytics_region_sum(tmp_path, monkeypatch):
-    db_file = tmp_path / "t3.db"
-    import api.core.config as cfg
-    import api.core.db as dbmod
-    monkeypatch.setattr(cfg, "DB_PATH", db_file)
-    monkeypatch.setattr(dbmod, "DB_PATH", db_file)
-    init_db()
-    truncate_branches()
+def test_analytics_region_sum(pg_db, tmp_path):
     bulk_insert_branches([
         {"local_code": "11084", "region": "Самарқанд шаҳри", "address": "A", "lat": 39.6, "lon": 66.9, "incassation": 1},
         {"local_code": "11091", "region": "Самарқанд шаҳри", "address": "B", "lat": 39.7, "lon": 66.8, "incassation": 1},
@@ -130,14 +113,7 @@ def test_analytics_region_sum(tmp_path, monkeypatch):
     assert sam["branches"] == 2
 
 
-def test_match_only_by_bxm_not_by_name(tmp_path, monkeypatch):
-    db_file = tmp_path / "t2.db"
-    import api.core.config as cfg
-    import api.core.db as dbmod
-    monkeypatch.setattr(cfg, "DB_PATH", db_file)
-    monkeypatch.setattr(dbmod, "DB_PATH", db_file)
-    init_db()
-    truncate_branches()
+def test_match_only_by_bxm_not_by_name(pg_db, tmp_path):
     bulk_insert_branches([{
         "local_code": "11084",
         "region": "Самарқанд",
@@ -160,14 +136,7 @@ def test_match_only_by_bxm_not_by_name(tmp_path, monkeypatch):
     assert stats["unmatched"] == 1
 
 
-def test_clear_branch_balances(tmp_path, monkeypatch):
-    db_file = tmp_path / "clear.db"
-    import api.core.config as cfg
-    import api.core.db as dbmod
-    monkeypatch.setattr(cfg, "DB_PATH", db_file)
-    monkeypatch.setattr(dbmod, "DB_PATH", db_file)
-    init_db()
-    truncate_branches()
+def test_clear_branch_balances(pg_db, tmp_path):
     bulk_insert_branches([{
         "local_code": "11084",
         "region": "Самарқанд",

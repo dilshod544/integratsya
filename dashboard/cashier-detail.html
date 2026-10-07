@@ -746,8 +746,7 @@
 
     async function fetchCashierDetail(id) {
       try {
-        const importId = new URLSearchParams(window.location.search).get('import');
-        const resp = await fetch(`${baseApi}/api/cashiers/${id}${importId ? `?import_id=${encodeURIComponent(importId)}` : ''}`);
+        const resp = await fetch(`${baseApi}/api/cashiers/${id}`);
         if (!resp.ok) {
           throw new Error('Данные кассира не найдены.');
         }
