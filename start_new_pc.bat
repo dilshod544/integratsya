@@ -34,7 +34,7 @@ echo [+] Python: %PY_CMD%
 
 echo [+] Kutubxonalar tekshirilmoqda - requirements.txt ...
 "%PY_CMD%" -m pip install --disable-pip-version-check -q -r requirements.txt
-if errorlevel 1 (
+if not "%errorlevel%"=="0" (
     echo [!] Kutubxonalarni o'rnatib bo'lmadi. Internet aloqasini tekshiring.
     goto fail
 )
@@ -46,51 +46,50 @@ if defined DATABASE_URL (
     goto db_ready
 )
 
-if exist "%PG_DIR%\bin\pg_ctl.exe" goto pg_installed
+rem Exit codes are compared with "%errorlevel%"=="0": a program that cannot start (missing DLL)
+rem returns a negative code, which "if errorlevel 1" silently treats as success.
+
+rem pgsql\.complete is written only after a verified extraction; a half-extracted folder is reinstalled.
+if exist "%PG_DIR%\.complete" goto pg_installed
+if exist "%PG_DATA%\postmaster.pid" if exist "%PG_DIR%\bin\pg_ctl.exe" "%PG_DIR%\bin\pg_ctl.exe" -D "%PG_DATA%" -m fast stop >nul 2>&1
+if exist "%PG_DIR%" rmdir /s /q "%PG_DIR%"
 echo.
 echo [+] Portativ PostgreSQL %PG_VERSION% yuklanmoqda - taxminan 320 MB, faqat birinchi marta.
 call :download "https://get.enterprisedb.com/postgresql/postgresql-%PG_VERSION%-windows-x64-binaries.zip" "%ROOT%\pgsql.zip"
-if errorlevel 1 goto fail
-echo [+] Arxivdan chiqarilmoqda, bir necha daqiqa ketishi mumkin...
-where tar.exe >nul 2>&1
-if errorlevel 1 goto pg_unzip_ps
-tar.exe -xf "%ROOT%\pgsql.zip" -C "%ROOT%" --exclude "pgsql/pgAdmin 4" --exclude "pgsql/StackBuilder" --exclude "pgsql/symbols" --exclude "pgsql/doc"
-tar.exe -xf "%ROOT%\pgsql.zip" -C "%ROOT%" "pgsql/pgAdmin 4/python/vcruntime140.dll" "pgsql/pgAdmin 4/python/vcruntime140_1.dll" >nul 2>&1
-:pg_unzip_ps
-if not exist "%PG_DIR%\bin\pg_ctl.exe" powershell -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -LiteralPath '%ROOT%\pgsql.zip' -DestinationPath '%ROOT%' -Force"
+if not "%errorlevel%"=="0" goto fail
+echo [+] Arxiv tekshirilmoqda va chiqarilmoqda, bir necha daqiqa ketishi mumkin...
+call :extract_pg
+set "RC=%errorlevel%"
 del /q "%ROOT%\pgsql.zip" >nul 2>&1
-if not exist "%PG_DIR%\bin\pg_ctl.exe" (
-    echo [!] PostgreSQL arxivini ochib bo'lmadi.
+if not "%RC%"=="0" goto fail
+:pg_installed
+
+"%PG_DIR%\bin\postgres.exe" -V >nul 2>&1
+if not "%errorlevel%"=="0" call :add_vc_runtime
+"%PG_DIR%\bin\postgres.exe" -V >nul 2>&1
+if not "%errorlevel%"=="0" (
+    echo [!] PostgreSQL dasturlari bu kompyuterda ishga tushmayapti.
+    echo     Visual C++ Redistributable o'rnatib, qayta urinib ko'ring:
+    echo     https://aka.ms/vs/17/release/vc_redist.x64.exe
     goto fail
 )
-rem PostgreSQL needs the Visual C++ runtime; take it from the archive when Windows does not have it.
-if not exist "%SystemRoot%\System32\vcruntime140.dll" copy /y "%PG_DIR%\pgAdmin 4\python\vcruntime140.dll" "%PG_DIR%\bin\" >nul 2>&1
-if not exist "%SystemRoot%\System32\vcruntime140_1.dll" copy /y "%PG_DIR%\pgAdmin 4\python\vcruntime140_1.dll" "%PG_DIR%\bin\" >nul 2>&1
-:pg_installed
 
 if exist "%PG_DATA%\PG_VERSION" goto pg_initialized
 echo [+] Yangi baza yaratilmoqda: data\pgdata
+if exist "%PG_DATA%" rmdir /s /q "%PG_DATA%"
 if not exist "%ROOT%\data" mkdir "%ROOT%\data"
 "%PG_DIR%\bin\initdb.exe" -D "%PG_DATA%" -U postgres -A trust -E UTF8 --locale=C > "%ROOT%\data\initdb.log" 2>&1
-if errorlevel 1 (
-    type "%ROOT%\data\initdb.log"
-    echo.
-    echo [!] Bazani yaratib bo'lmadi. Ko'pincha Visual C++ Redistributable yetishmaydi:
-    echo     https://aka.ms/vs/17/release/vc_redist.x64.exe
-    rmdir /s /q "%PG_DATA%" >nul 2>&1
-    goto fail
-)
+if not "%errorlevel%"=="0" goto pg_init_failed
+if not exist "%PG_DATA%\PG_VERSION" goto pg_init_failed
 :pg_initialized
 
 "%PG_DIR%\bin\pg_isready.exe" -q -h localhost -p %PG_PORT%
-if not errorlevel 1 goto pg_running
+if "%errorlevel%"=="0" goto pg_running
 echo [+] PostgreSQL ishga tushirilmoqda - port %PG_PORT% ...
 "%PG_DIR%\bin\pg_ctl.exe" -D "%PG_DATA%" -l "%PG_LOG%" -o "-p %PG_PORT% -c listen_addresses=localhost" -w -t 60 start >nul
-if errorlevel 1 (
-    echo [!] PostgreSQL ishga tushmadi. Log: data\postgres.log
-    if exist "%PG_LOG%" type "%PG_LOG%"
-    goto fail
-)
+if not "%errorlevel%"=="0" goto pg_start_failed
+"%PG_DIR%\bin\pg_isready.exe" -q -h localhost -p %PG_PORT%
+if not "%errorlevel%"=="0" goto pg_start_failed
 set "PG_STARTED_HERE=1"
 :pg_running
 set "DATABASE_URL=postgresql://postgres@localhost:%PG_PORT%/bank_intelligence"
@@ -105,12 +104,12 @@ choice /c YN /m "    Tiklaymi"
 if errorlevel 2 goto db_ready
 "%PG_DIR%\bin\dropdb.exe" -h localhost -p %PG_PORT% -U postgres --if-exists --force bank_intelligence
 "%PG_DIR%\bin\createdb.exe" -h localhost -p %PG_PORT% -U postgres -E UTF8 -T template0 bank_intelligence
-if errorlevel 1 (
+if not "%errorlevel%"=="0" (
     echo [!] Bazani yaratib bo'lmadi.
     goto fail
 )
 "%PG_DIR%\bin\pg_restore.exe" -h localhost -p %PG_PORT% -U postgres -d bank_intelligence --no-owner --no-privileges --exit-on-error "%ROOT%\bank_intelligence.dump"
-if errorlevel 1 (
+if not "%errorlevel%"=="0" (
     echo [!] Faylni tiklab bo'lmadi. Fayl to'liq ko'chirilganini tekshiring.
     goto fail
 )
@@ -147,6 +146,18 @@ echo [!] Server to'xtadi. Agar bu kutilmagan bo'lsa, yuqoridagi xabarni ko'ring.
 pause
 exit /b 0
 
+:pg_init_failed
+if exist "%ROOT%\data\initdb.log" type "%ROOT%\data\initdb.log"
+echo.
+echo [!] Bazani yaratib bo'lmadi. Log: data\initdb.log
+if exist "%PG_DATA%" rmdir /s /q "%PG_DATA%"
+goto fail
+
+:pg_start_failed
+echo [!] PostgreSQL ishga tushmadi. Log: data\postgres.log
+if exist "%PG_LOG%" type "%PG_LOG%"
+goto fail
+
 :fail
 echo.
 echo [!] Ishga tushirish to'xtatildi. Yuqoridagi xabarni ko'ring.
@@ -159,14 +170,49 @@ rem ================= subroutines =================
 :try_python
 rem The Microsoft Store "python" alias exists but does not run, so the candidate is executed, not just located.
 %1 -c "import sys; sys.exit(0 if sys.version_info >= (3, 9) else 1)" >nul 2>&1
-if not errorlevel 1 set "PY_CMD=%1"
+if "%errorlevel%"=="0" set "PY_CMD=%1"
+exit /b 0
+
+:extract_pg
+where tar.exe >nul 2>&1
+if not "%errorlevel%"=="0" goto extract_pg_ps
+tar.exe -xf "%ROOT%\pgsql.zip" -C "%ROOT%" --exclude "pgsql/pgAdmin 4" --exclude "pgsql/StackBuilder" --exclude "pgsql/symbols" --exclude "pgsql/doc"
+if not "%errorlevel%"=="0" goto extract_pg_bad
+goto extract_pg_check
+:extract_pg_ps
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; Expand-Archive -LiteralPath '%ROOT%\pgsql.zip' -DestinationPath '%ROOT%' -Force"
+if not "%errorlevel%"=="0" goto extract_pg_bad
+:extract_pg_check
+for %%f in (bin\postgres.exe bin\initdb.exe bin\pg_ctl.exe bin\pg_isready.exe bin\pg_restore.exe bin\libpq.dll share\postgres.bki) do if not exist "%PG_DIR%\%%f" goto extract_pg_bad
+call :add_vc_runtime
+echo ok> "%PG_DIR%\.complete"
+exit /b 0
+:extract_pg_bad
+echo [!] PostgreSQL arxivi chala yuklangan yoki buzilgan.
+echo     Internet aloqasini tekshirib, skriptni qayta ishga tushiring.
+if exist "%PG_DIR%" rmdir /s /q "%PG_DIR%"
+exit /b 1
+
+:add_vc_runtime
+rem Visual C++ runtime DLLs placed next to the PostgreSQL programs, so no system install (admin) is needed.
+echo [+] Visual C++ runtime fayllari qo'shilmoqda...
+set "VC_TMP=%ROOT%\data\vc_runtime"
+if exist "%VC_TMP%" rmdir /s /q "%VC_TMP%"
+mkdir "%VC_TMP%"
+"%PY_CMD%" -m pip download msvc-runtime --no-deps --only-binary=:all: --platform win_amd64 --python-version 3.11 --implementation cp --abi cp311 -d "%VC_TMP%" -q --disable-pip-version-check
+if not "%errorlevel%"=="0" goto add_vc_runtime_done
+for %%w in ("%VC_TMP%\*.whl") do copy /y "%%~w" "%VC_TMP%\vc.zip" >nul
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; Expand-Archive -LiteralPath '%VC_TMP%\vc.zip' -DestinationPath '%VC_TMP%\x' -Force"
+for /d %%d in ("%VC_TMP%\x\*.data") do copy /y "%%~d\data\Scripts\*.dll" "%PG_DIR%\bin\" >nul
+:add_vc_runtime_done
+if exist "%VC_TMP%" rmdir /s /q "%VC_TMP%"
 exit /b 0
 
 :install_python
 echo [!] Kompyuterda mos Python 3.9+ topilmadi.
 echo [+] Portativ Python %PY_VERSION% yuklanmoqda - o'rnatishsiz...
 call :download "https://www.python.org/ftp/python/%PY_VERSION%/python-%PY_VERSION%-embed-amd64.zip" "%ROOT%\python_embed.zip"
-if errorlevel 1 exit /b 1
+if not "%errorlevel%"=="0" exit /b 1
 powershell -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -LiteralPath '%ROOT%\python_embed.zip' -DestinationPath '%PY_DIR%' -Force"
 del /q "%ROOT%\python_embed.zip" >nul 2>&1
 if not exist "%PY_DIR%\python.exe" (
@@ -182,9 +228,9 @@ rem Embedded Python ignores PYTHONPATH; its search path comes only from this fil
     echo import site
 )
 call :download "https://bootstrap.pypa.io/get-pip.py" "%PY_DIR%\get-pip.py"
-if errorlevel 1 exit /b 1
+if not "%errorlevel%"=="0" exit /b 1
 "%PY_DIR%\python.exe" "%PY_DIR%\get-pip.py" --no-warn-script-location -q
-if errorlevel 1 (
+if not "%errorlevel%"=="0" (
     echo [!] pip o'rnatilmadi.
     exit /b 1
 )
@@ -193,16 +239,18 @@ set "PY_CMD=%PY_DIR%\python.exe"
 exit /b 0
 
 :download
+rem PowerShell goes first: it uses the Windows proxy settings (corporate networks); curl.exe does not.
 echo     %~1
 if exist "%~2" del /q "%~2" >nul 2>&1
-where curl.exe >nul 2>&1
-if errorlevel 1 goto download_ps
-curl.exe -L --fail --retry 3 --progress-bar -o "%~2" "%~1"
-if not errorlevel 1 exit /b 0
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; $w=New-Object Net.WebClient; $w.Proxy=[Net.WebRequest]::GetSystemWebProxy(); $w.Proxy.Credentials=[Net.CredentialCache]::DefaultNetworkCredentials; $w.DownloadFile('%~1','%~2')"
+if "%errorlevel%"=="0" if exist "%~2" exit /b 0
 if exist "%~2" del /q "%~2" >nul 2>&1
-:download_ps
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$ProgressPreference='SilentlyContinue'; [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -UseBasicParsing -Uri '%~1' -OutFile '%~2'"
-if not errorlevel 1 if exist "%~2" exit /b 0
+where curl.exe >nul 2>&1
+if not "%errorlevel%"=="0" goto download_failed
+curl.exe -L --fail --retry 3 --ssl-no-revoke --progress-bar -o "%~2" "%~1"
+if "%errorlevel%"=="0" if exist "%~2" exit /b 0
+if exist "%~2" del /q "%~2" >nul 2>&1
+:download_failed
 echo [!] Yuklab bo'lmadi: %~1
 echo     Internet aloqasini yoki proxy sozlamalarini tekshiring.
 exit /b 1
