@@ -96,6 +96,27 @@ set "PG_STARTED_HERE=1"
 set "DATABASE_URL=postgresql://postgres@localhost:%PG_PORT%/bank_intelligence"
 echo [+] Baza: portativ PostgreSQL, localhost:%PG_PORT%
 
+rem A bank_intelligence.dump next to this script (made by export_db.sh on the other computer) is restored once.
+if not exist "%ROOT%\bank_intelligence.dump" goto db_ready
+echo.
+echo [?] bank_intelligence.dump topildi - boshqa kompyuterdan ko'chirilgan baza.
+echo     Bu kompyuterdagi baza shu fayldagi ma'lumotlar bilan almashtiriladi.
+choice /c YN /m "    Tiklaymi"
+if errorlevel 2 goto db_ready
+"%PG_DIR%\bin\dropdb.exe" -h localhost -p %PG_PORT% -U postgres --if-exists --force bank_intelligence
+"%PG_DIR%\bin\createdb.exe" -h localhost -p %PG_PORT% -U postgres -E UTF8 -T template0 bank_intelligence
+if errorlevel 1 (
+    echo [!] Bazani yaratib bo'lmadi.
+    goto fail
+)
+"%PG_DIR%\bin\pg_restore.exe" -h localhost -p %PG_PORT% -U postgres -d bank_intelligence --no-owner --no-privileges --exit-on-error "%ROOT%\bank_intelligence.dump"
+if errorlevel 1 (
+    echo [!] Faylni tiklab bo'lmadi. Fayl to'liq ko'chirilganini tekshiring.
+    goto fail
+)
+move /y "%ROOT%\bank_intelligence.dump" "%ROOT%\data\bank_intelligence.dump.restored" >nul
+echo [+] Ma'lumotlar tiklandi. Fayl data\bank_intelligence.dump.restored ga ko'chirildi.
+
 :db_ready
 
 rem ---------------- 3. Server ----------------

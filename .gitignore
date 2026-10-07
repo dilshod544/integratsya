@@ -20,6 +20,10 @@ pgsql/
 python_embed.zip
 pgsql.zip
 
+# Выгрузка базы (export_db.sh) — содержит персональные данные сотрудников
+*.dump
+*.dump.restored
+
 # Локальные ключи агента
 .arena-keys/
 
