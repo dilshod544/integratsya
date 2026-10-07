@@ -40,8 +40,7 @@ if errorlevel 1 (
 )
 
 rem ---------------- 2. PostgreSQL ----------------
-if not defined DATABASE_URL if exist ".env" for /f "usebackq eol=# tokens=1,* delims==" %%a in (".env") do if /i "%%a"=="DATABASE_URL" set "DATABASE_URL=%%b"
-if defined DATABASE_URL set "DATABASE_URL=%DATABASE_URL:"=%"
+if not defined DATABASE_URL if exist ".env" for /f "usebackq eol=# tokens=1,* delims==" %%a in (".env") do if /i "%%a"=="DATABASE_URL" set "DATABASE_URL=%%~b"
 if defined DATABASE_URL (
     echo [+] Baza: .env dagi DATABASE_URL ishlatiladi.
     goto db_ready
@@ -108,18 +107,22 @@ for /f "tokens=5" %%p in ('netstat -ano ^| findstr /r /c:":%APP_PORT% .*LISTENIN
 set "PYTHONPATH=%ROOT%;%ROOT%\api"
 echo.
 echo ===================================================
-echo   Server ishga tushmoqda
-echo   Dashboard: http://localhost:%APP_PORT%/dashboard/index.html
-echo   Swagger:   http://localhost:%APP_PORT%/docs
+echo   Server ishga tushmoqda...
+echo   Brauzer server tayyor bo'lganda o'zi ochiladi:
+echo   http://localhost:%APP_PORT%/dashboard/index.html
 echo   To'xtatish: Ctrl+C
 echo ===================================================
 echo.
-start "" /b cmd /c "ping -n 6 127.0.0.1 >nul & start "" http://localhost:%APP_PORT%/dashboard/index.html"
-"%PY_CMD%" -m uvicorn api.main:app --host 0.0.0.0 --port %APP_PORT%
+rem The browser is opened only after /api/health answers, so a failed start never shows a dead page.
+start "" /b powershell -NoProfile -ExecutionPolicy Bypass -Command "for ($i = 0; $i -lt 120; $i++) { try { Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 -Uri 'http://127.0.0.1:%APP_PORT%/api/health' | Out-Null; Start-Process 'http://localhost:%APP_PORT%/dashboard/index.html'; break } catch { Start-Sleep -Seconds 1 } }"
+rem 127.0.0.1: the link printed by uvicorn opens in a browser, and with login disabled the app is not exposed to the network.
+rem For access from other computers run:  set APP_HOST=0.0.0.0  before this script.
+if not defined APP_HOST set "APP_HOST=127.0.0.1"
+"%PY_CMD%" -m uvicorn api.main:app --host %APP_HOST% --port %APP_PORT%
 
 if defined PG_STARTED_HERE "%PG_DIR%\bin\pg_ctl.exe" -D "%PG_DATA%" -m fast stop >nul 2>&1
 echo.
-echo Server to'xtadi.
+echo [!] Server to'xtadi. Agar bu kutilmagan bo'lsa, yuqoridagi xabarni ko'ring.
 pause
 exit /b 0
 
