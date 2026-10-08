@@ -6,11 +6,11 @@
 
 ## 1. Среда выполнения (Python)
 
-Проект разработан на базе **Python 3.10+**.
+Проект разработан на базе **Python 3.13**.
 
-* **Windows (с правами администратора):** [Python 3.10.11 (64-bit)](https://www.python.org/ftp/python/3.10.11/python-3.10.11-amd64.exe) — отметьте **«Add Python to PATH»**.
+* **Windows (с правами администратора):** [Python 3.13.16 (64-bit)](https://www.python.org/ftp/python/3.13.16/python-3.13.16-amd64.exe) — отметьте **«Add Python to PATH»**.
 * **Windows (без прав администратора):** используйте `start_new_pc.bat` (портативный Python).
-* **macOS / Linux:** `python3 --version` должен показывать 3.10 или выше.
+* **macOS / Linux:** `python3 --version` должен показывать 3.13.
 
 ---
 
@@ -70,7 +70,7 @@ pip install -r requirements.txt
 
 ## 5. Входные данные (Excel XLSX)
 
-Система принимает два типа файлов через `http://localhost:8000/dashboard/import.html`:
+Система принимает два типа файлов через `http://localhost:8080/dashboard/import.html`:
 
 ### KPI-отчёт кассиров
 Многострочная шапка, колонки A:AV. Рекомендуемые поля:

@@ -7,7 +7,7 @@
 # освобождает порт и запускает сервер.
 #
 # Полезные переменные:
-#   APP_PORT=8001 ./run.sh                                   — другой порт
+#   APP_PORT=8081 ./run.sh                                   — другой порт
 #   DATABASE_URL=postgresql://user:pass@host:5432/db ./run.sh — другая база
 
 set -e
@@ -32,7 +32,7 @@ if [ -d ".venv" ]; then
   source .venv/bin/activate
 fi
 
-APP_PORT="${APP_PORT:-8000}"
+APP_PORT="${APP_PORT:-8080}"
 export DATABASE_URL="${DATABASE_URL:-postgresql://localhost:5432/bank_intelligence}"
 
 echo "📦 Installing dependencies..."
@@ -80,7 +80,7 @@ if port_busy; then
   else
     echo "⚠️  Порт $APP_PORT занят другим процессом."
     echo "   Освободите его:  lsof -ti:$APP_PORT | xargs kill -9"
-    echo "   Или запустите на другом порту:  APP_PORT=8001 ./run.sh"
+    echo "   Или запустите на другом порту:  APP_PORT=8081 ./run.sh"
     exit 1
   fi
 fi

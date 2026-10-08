@@ -41,8 +41,8 @@
 ```
 
 Скрипт установит зависимости, при необходимости запустит PostgreSQL
-(Homebrew), освободит порт 8000, если его занял прошлый запуск, и поднимет
-сервер. Откройте <http://localhost:8000>.
+(Homebrew), освободит порт 8080, если его занял прошлый запуск, и поднимет
+сервер. Откройте <http://localhost:8080>.
 
 База берётся из `DATABASE_URL` (в `.env` или окружении), по умолчанию
 `postgresql://localhost:5432/bank_intelligence`. Если такой базы ещё нет,
@@ -51,7 +51,7 @@
 Полезные переменные:
 
 ```bash
-APP_PORT=8001 ./run.sh                                     # другой порт
+APP_PORT=8081 ./run.sh                                     # другой порт
 DATABASE_URL=postgresql://user:pass@host:5432/db ./run.sh  # другая база
 ```
 
@@ -59,7 +59,7 @@ DATABASE_URL=postgresql://user:pass@host:5432/db ./run.sh  # другая баз
 
 Двойной клик по `start_new_pc.bat` (или `start.bat` — то же самое). Права
 администратора не нужны. При первом запуске скрипт сам скачивает в папку
-проекта портативный Python (если в системе нет Python 3.9+) и портативный
+проекта портативный Python 3.13 (если в системе нет Python 3.13) и портативный
 PostgreSQL 16 (~320 МБ), создаёт базу в `data\pgdata` и поднимает её на порту
 5433; повторные запуски стартуют сразу. Если в `.env` задан `DATABASE_URL`,
 используется указанная база, а портативный PostgreSQL не скачивается.
@@ -69,7 +69,7 @@ PostgreSQL 16 (~320 МБ), создаёт базу в `data\pgdata` и подн�
 
 ### Требования
 
-* Python 3.9+
+* Python 3.13
 * PostgreSQL 13+ (macOS: `brew install postgresql@16 && brew services start postgresql@16`)
 * Всё остальное ставится из `requirements.txt`
 
@@ -91,7 +91,7 @@ PYTHONPATH=. python3 migrations/sqlite_to_postgres.py \
 
 | Симптом | Решение |
 |---|---|
-| `Address already in use` | `./run.sh` сам освободит порт. Иначе: `lsof -ti:8000 \| xargs kill -9` или `APP_PORT=8001 ./run.sh` |
+| `Address already in use` | `./run.sh` сам освободит порт. Иначе: `lsof -ti:8080 \| xargs kill -9` или `APP_PORT=8081 ./run.sh` |
 | `PostgreSQL недоступен` при старте | Запустите сервер БД (`brew services start postgresql@16`) или проверьте `DATABASE_URL` |
 | Нужно начать с чистой базы | `dropdb bank_intelligence` — база и таблицы создадутся заново при следующем запуске |
 | Хочу запустить в контейнере | `docker compose up` — поднимает и приложение, и PostgreSQL 16 (данные в томе `pgdata`) |
@@ -214,7 +214,7 @@ CI (`.github/workflows/ci.yml`) прогоняет тесты на каждый 
 | `DATABASE_URL` | `postgresql://localhost:5432/bank_intelligence` | Подключение к PostgreSQL |
 | `DB_POOL_MIN` / `DB_POOL_MAX` | `1` / `10` | Размер пула соединений |
 | `DB_POOL_TIMEOUT` | `30` | Сколько секунд ждать свободное соединение |
-| `APP_PORT` | `8000` | Порт приложения |
+| `APP_PORT` | `8080` | Порт приложения |
 | `LOW_CASH_PCT` | `0.20` | Порог статуса critical |
 | `WARNING_CASH_PCT` | `0.40` | Порог статуса warning |
 | `DEFAULT_CAPACITY` | `400000000` | Ёмкость банкомата по умолчанию, UZS |

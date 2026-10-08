@@ -24,7 +24,7 @@ services:
     environment:
       DATABASE_URL: postgresql://bank:${POSTGRES_PASSWORD:-bank}@db:5432/bank_intelligence
     ports:
-      - "8000:8000"
+      - "8080:8080"
     volumes:
       - ./data:/app/data      # admin_credentials.txt и прочие файлы приложения
 

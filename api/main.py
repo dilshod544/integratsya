@@ -37,7 +37,7 @@ Bank Intelligence Platform — FastAPI Backend
     GET   /api/cashiers/analytics           → аналитика и структура операций
     GET   /api/cashiers/{report_id}         → углублённая аналитика кассира
 
-Docs: http://localhost:8000/docs
+Docs: http://localhost:8080/docs
 """
 
 from __future__ import annotations
@@ -1207,4 +1207,4 @@ async def get_uzb_geojson():
 # ═══════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
-    uvicorn.run("api.main:app", host="0.0.0.0", port=8000, reload=False, log_level="info")
+    uvicorn.run("api.main:app", host="0.0.0.0", port=8080, reload=False, log_level="info")

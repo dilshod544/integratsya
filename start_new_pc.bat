@@ -7,8 +7,8 @@ title Bank Intelligence Platform
 cd /d "%~dp0"
 set "ROOT=%CD%"
 
-set "APP_PORT=8000"
-set "PY_VERSION=3.11.9"
+set "APP_PORT=8080"
+set "PY_VERSION=3.13.16"
 set "PY_DIR=%ROOT%\python_embed"
 set "PG_VERSION=16.10-1"
 set "PG_PORT=5433"
@@ -26,7 +26,7 @@ echo.
 rem ---------------- 1. Python ----------------
 set "PY_CMD="
 if exist "%PY_DIR%\python.exe" set "PY_CMD=%PY_DIR%\python.exe"
-if not defined PY_CMD call :try_python py
+if not defined PY_CMD call :find_py_launcher
 if not defined PY_CMD call :try_python python
 if not defined PY_CMD call :install_python
 if not defined PY_CMD goto fail
@@ -135,14 +135,19 @@ exit /b 1
 
 rem ================= subroutines =================
 
+:find_py_launcher
+rem The py launcher may hold several versions (e.g. 3.14); ask it for 3.13 explicitly.
+for /f "delims=" %%i in ('py -3.13 -c "import sys; print(sys.executable)" 2^>nul') do set "PY_CMD=%%i"
+exit /b 0
+
 :try_python
 rem The Microsoft Store "python" alias exists but does not run, so the candidate is executed, not just located.
-%1 -c "import sys; sys.exit(0 if sys.version_info >= (3, 9) else 1)" >nul 2>&1
+%1 -c "import sys; sys.exit(0 if sys.version_info[:2] == (3, 13) else 1)" >nul 2>&1
 if not errorlevel 1 set "PY_CMD=%1"
 exit /b 0
 
 :install_python
-echo [!] Kompyuterda mos Python 3.9+ topilmadi.
+echo [!] Kompyuterda Python 3.13 topilmadi.
 echo [+] Portativ Python %PY_VERSION% yuklanmoqda - o'rnatishsiz...
 call :download "https://www.python.org/ftp/python/%PY_VERSION%/python-%PY_VERSION%-embed-amd64.zip" "%ROOT%\python_embed.zip"
 if errorlevel 1 exit /b 1
@@ -153,8 +158,8 @@ if not exist "%PY_DIR%\python.exe" (
     exit /b 1
 )
 rem Embedded Python ignores PYTHONPATH; its search path comes only from this file.
-> "%PY_DIR%\python311._pth" (
-    echo python311.zip
+> "%PY_DIR%\python313._pth" (
+    echo python313.zip
     echo .
     echo ..
     echo Lib\site-packages
