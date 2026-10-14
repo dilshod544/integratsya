@@ -14,7 +14,7 @@
   <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.min.js"></script>
 
   <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
-  <link rel="stylesheet" href="/dashboard/css/map.css?v=osm3" />
+  <link rel="stylesheet" href="/dashboard/css/map.css?v=vash4" />
 
 </head>
 <body>
@@ -167,24 +167,58 @@
       <i data-lucide="credit-card"></i>
     </button>
 
-    <!-- Floating Branches Toggle Button -->
-    <button id="branches-toggle-btn" class="map-floating-btn" onclick="toggleBranchesLayer()" title="Показать/скрыть филиалы" style="top:164px;">
+    <!-- Branches menu: Филиалы · ВАШ · Со складом -->
+    <button id="branches-toggle-btn" class="map-floating-btn" onclick="toggleBranchMenu()" title="Филиалы · ВАШ · склад" style="top:164px;">
       <i data-lucide="building-2"></i>
     </button>
-
-    <!-- Only branches with warehouse/cash -->
-    <button id="warehouse-toggle-btn" class="map-floating-btn" onclick="toggleWarehouseOnly()" title="Только филиалы с остатками (склад)" style="top:206px;">
-      <i data-lucide="warehouse"></i>
-    </button>
+    <div id="branch-menu" class="branch-menu" style="top:160px;">
+      <button id="bm-branches" class="branch-menu-item" type="button" onclick="setBranchMode('all')" title="Все филиалы">
+        <i data-lucide="building-2"></i><span>Филиалы</span>
+      </button>
+      <button id="bm-vash" class="branch-menu-item" type="button" onclick="toggleVashLayer()" title="ВАШ — валюта айирбошлаш шохобчалари">
+        <i data-lucide="arrow-left-right"></i><span>ВАШ</span>
+      </button>
+      <button id="bm-warehouse" class="branch-menu-item" type="button" onclick="setBranchMode('warehouse')" title="Только филиалы с остатками (склад)">
+        <i data-lucide="warehouse"></i><span>Со складом</span>
+      </button>
+    </div>
 
     <!-- Cash analytics table -->
-    <a id="cash-analytics-btn" class="map-floating-btn" href="/dashboard/branch-cash.html" title="Анализ кассы филиалов — отдельная страница" style="top:248px;text-decoration:none;">
+    <a id="cash-analytics-btn" class="map-floating-btn" href="/dashboard/branch-cash.html" title="Анализ кассы филиалов — отдельная страница" style="top:206px;text-decoration:none;">
       <i data-lucide="table-2"></i>
     </a>
 
+    <div id="map-legends">
+    <!-- ВАШ Legend -->
+    <div id="vash-legend" class="map-legend compact" style="display:none;">
+      <div class="legend-head" onclick="toggleLegend(this)" title="Подробнее / свернуть">
+        <span class="legend-dot" style="background:#4f46e5;border-radius:50%"></span>
+        <span class="legend-title">ВАШ</span>
+        <span id="vash-legend-summary" class="legend-summary" style="color:#4338ca"></span>
+        <span class="legend-chevron">▾</span>
+      </div>
+      <div class="legend-body">
+      <div style="display:flex;align-items:center;gap:7px;margin-bottom:4px;">
+        <span style="width:14px;height:14px;border-radius:50%;background:#4f46e5;display:inline-block;border:2px solid #fff;box-shadow:0 0 6px #4f46e599;"></span>
+        <span style="color:var(--muted);">ВАШ (цвет = филиал, пунктир — к филиалу)</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:7px;">
+        <span style="padding:0 6px;height:16px;border-radius:999px;background:#fff;border:2px solid #4f46e5;display:inline-flex;align-items:center;font-size:9px;font-weight:800;color:#1e1b4b;">6</span>
+        <span style="color:var(--muted);">Филиал и число его ВАШ</span>
+      </div>
+      <div id="vash-legend-count" class="legend-count" style="color:#4338ca"></div>
+      </div>
+    </div>
+
     <!-- Branches Legend -->
-    <div id="branches-legend" style="display:none;position:absolute;bottom:14px;left:10px;z-index:1000;background:rgba(255,255,255,.95);border:1px solid var(--border);border-radius:14px;padding:10px 14px;font-size:11px;box-shadow:var(--shadow-md);backdrop-filter:blur(12px);">
-      <div style="font-weight:800;color:var(--text);margin-bottom:6px;font-size:11px;text-transform:uppercase;letter-spacing:.5px;">Филиалы</div>
+    <div id="branches-legend" class="map-legend compact" style="display:none;">
+      <div class="legend-head" onclick="toggleLegend(this)" title="Подробнее / свернуть">
+        <span class="legend-dot" style="background:#7c3aed;border-radius:3px"></span>
+        <span class="legend-title">Филиалы</span>
+        <span id="branches-legend-summary" class="legend-summary" style="color:var(--primary)"></span>
+        <span class="legend-chevron">▾</span>
+      </div>
+      <div class="legend-body">
       <div style="display:flex;align-items:center;gap:7px;margin-bottom:4px;">
         <span style="width:14px;height:14px;border-radius:4px;background:#7c3aed;display:inline-block;border:2px solid #fff;box-shadow:0 0 6px #7c3aed99;"></span>
         <span style="color:var(--muted);">Для выезда инкассаторов</span>
@@ -193,8 +227,14 @@
         <span style="width:14px;height:14px;border-radius:4px;background:#64748b;display:inline-block;border:2px solid #fff;box-shadow:0 0 6px #64748b99;"></span>
         <span style="color:var(--muted);">Обычный филиал</span>
       </div>
+      <div style="display:flex;align-items:center;gap:7px;margin-top:4px;">
+        <span style="min-width:16px;height:16px;border-radius:999px;background:#4f46e5;display:inline-flex;align-items:center;justify-content:center;border:2px solid #fff;font-size:9px;font-weight:800;color:#fff;">6</span>
+        <span style="color:var(--muted);">Число ВАШ филиала</span>
+      </div>
       <div id="branches-legend-mode" style="margin-top:6px;font-size:10px;color:#0d9488;font-weight:700;display:none">Режим: только со складом / остатками</div>
-      <div id="branches-legend-count" style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border);color:var(--primary);font-weight:700;"></div>
+      <div id="branches-legend-count" class="legend-count" style="color:var(--primary)"></div>
+      </div>
+    </div>
     </div>
 
     <!-- Route Sidebar -->
@@ -274,7 +314,7 @@
   </div>
 </div>
 
-<script src="/dashboard/js/map-app.js?v=osm4"></script>
+<script src="/dashboard/js/map-app.js?v=vash5"></script>
 <script src="/dashboard/js/auth-nav.js"></script>
 </body>
 </html>

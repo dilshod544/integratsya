@@ -822,6 +822,102 @@ select, button, input {
   margin-bottom: 0;
 }
 
+/* ── Branches menu: Филиалы · ВАШ · Со складом ── */
+.branch-menu {
+  position: absolute;
+  left: 52px;
+  z-index: 1200;
+  display: none;
+  gap: 6px;
+  padding: 5px;
+  background: rgba(255,255,255,.97);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-md);
+  backdrop-filter: blur(12px);
+}
+.branch-menu.open { display: flex; }
+.branch-menu-item {
+  --accent: #7c3aed;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 11px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: #fff;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.branch-menu-item svg { width: 15px; height: 15px; }
+.branch-menu-item:hover { border-color: var(--accent); color: var(--accent); }
+.branch-menu-item.active, .branch-menu-item.active:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
+#bm-vash { --accent: #4f46e5; }
+#bm-warehouse { --accent: #0d9488; }
+
+#map-legends {
+  position: absolute;
+  bottom: 22px;
+  left: 10px;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  max-width: calc(100% - 20px);
+  pointer-events: none;
+}
+.map-legend {
+  pointer-events: auto;
+  background: rgba(255,255,255,.94);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 8px 11px;
+  font-size: 10.5px;
+  line-height: 1.45;
+  box-shadow: var(--shadow-md);
+  backdrop-filter: blur(12px);
+  max-width: 270px;
+}
+.legend-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 6px;
+  font-size: 10.5px;
+  font-weight: 800;
+  color: var(--text);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.legend-dot { width: 10px; height: 10px; flex: none; border: 2px solid #fff; box-shadow: 0 0 0 1px #0002; }
+.legend-title { text-transform: uppercase; letter-spacing: .4px; }
+.legend-summary { font-weight: 700; overflow: hidden; text-overflow: ellipsis; }
+.legend-chevron { margin-left: auto; padding-left: 4px; color: var(--muted); font-size: 11px; transition: transform .15s; }
+.legend-count { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border); font-weight: 700; }
+.map-legend.compact { padding: 4px 10px; border-radius: 999px; }
+.map-legend.compact .legend-head { margin-bottom: 0; }
+.map-legend.compact .legend-body { display: none; }
+.map-legend.compact .legend-chevron { transform: rotate(-90deg); }
+.map-legend:not(.compact) .legend-summary { display: none; }
+
+.vash-marker-icon, .vash-hub-icon { background: none; border: 0; }
+.vash-item {
+  margin-top: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+  cursor: pointer;
+}
+.vash-item:hover { border-color: #a5b4fc; background: #f5f7ff; }
+.vash-item.no-coords { border-color: #fecaca; background: #fff7f7; cursor: default; }
+
 /* ── Marker Pulse Keyframes ── */
 @keyframes marker-pulse {
   0% { transform: scale(1); box-shadow: 0 0 12px #facc15, 0 0 4px rgba(0,0,0,0.1); }

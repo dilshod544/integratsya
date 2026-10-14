@@ -26,6 +26,9 @@ Bank Intelligence Platform — FastAPI Backend
     GET   /api/cash-equipment               → список (фильтр ?local_code=)
     GET   /api/cash-equipment/branches      → техника, сгруппированная по филиалам
     GET   /api/cash-equipment/replacement   → план замены (износ, дата списания)
+    POST  /api/vash/import                  → импорт списка ВАШ (валюта айирбошлаш шохобчалари)
+    POST  /api/vash/clear                   → очистить список ВАШ
+    GET   /api/vash/branches                → ВАШ, сгруппированные по филиалам (для карты)
     GET   /api/alerts                       → ATM в critical/warning
     GET   /api/baseline                     → сводный отчёт по остаткам
     POST  /api/routes/incassation           → региональные маршруты инкассации
@@ -109,6 +112,15 @@ from core.cash_equipment import (
     list_cash_equipment,
     parse_cash_equipment_xlsx,
     replace_cash_equipment,
+)
+from core.vash import (
+    clear_vash_zones,
+    count_vash_zones,
+    known_branch_codes,
+    parse_vash_xlsx,
+    replace_vash_zones,
+    vash_by_branch,
+    vash_counts_by_local_code,
 )
 from core.sqb_rates import (
     latest_rates,
@@ -646,6 +658,9 @@ async def get_branches(
     with_balance: bool = Query(True, description="Прикрепить кассовый остаток, если загружен"),
 ):
     rows = list_branches_full(region=region, incassation=incassation, limit=limit, offset=offset)
+    vash_counts = vash_counts_by_local_code()
+    for b in rows:
+        b["vash_count"] = vash_counts.get(str(b.get("local_code") or ""), 0)
     if with_balance:
         bal_map = balances_by_local_code_map()
         forecasts = get_all_branch_forecasts()
@@ -846,6 +861,69 @@ async def import_cash_equipment(
 @app.post("/api/cash-equipment/clear", summary="Очистить кассовую технику")
 async def clear_cash_equipment_endpoint():
     return {"ok": True, "deleted": clear_cash_equipment()}
+
+
+@app.get("/api/vash", summary="Сколько ВАШ загружено")
+async def get_vash_status():
+    return {"count": count_vash_zones()}
+
+
+@app.get("/api/vash/branches", summary="ВАШ (валюта айирбошлаш шохобчалари) по филиалам — для карты")
+async def get_vash_branches():
+    return vash_by_branch()
+
+
+@app.post("/api/vash/import", summary="Импорт списка ВАШ (XLSX)")
+async def import_vash(
+    file: UploadFile = File(..., description="XLSX: №, ВАШ рақами, БХМ коди, БХМ номи, манзил, локация"),
+):
+    if not file.filename or not file.filename.lower().endswith((".xlsx", ".xlsm")):
+        raise HTTPException(400, "Ожидается .xlsx файл")
+    tmp_dir = tempfile.mkdtemp(prefix="vash_import_")
+    tmp_path = os.path.join(tmp_dir, os.path.basename(file.filename))
+    try:
+        with open(tmp_path, "wb") as f:
+            shutil.copyfileobj(file.file, f)
+        try:
+            parsed = parse_vash_xlsx(tmp_path, known_branch_codes())
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        stats = replace_vash_zones(parsed["records"])
+        grouped = vash_by_branch()
+        return {
+            "ok": True,
+            "filename": file.filename,
+            "sheets": parsed["sheets"],
+            "imported": stats["saved"],
+            "matched_to_branches": stats["matched"],
+            "unmatched": stats["unmatched"],
+            "branches_with_vash": stats["branches_matched"],
+            "with_coords": stats["with_coords"],
+            "without_coords": stats["saved"] - stats["with_coords"],
+            "coords_swapped_fixed": parsed["coords_swapped"],
+            "coords_coarse": parsed["coords_coarse"],
+            "skipped_total_rows": parsed["skipped_total_rows"],
+            "per_branch": [
+                {"local_code": g["local_code"], "name": g["branch_name"], "region": g["region"], "count": g["count"],
+                 "with_coords": g["with_coords"]}
+                for g in grouped["branches"]
+            ],
+            "unmatched_branches": [
+                {"bxm_code": g["bxm_code"], "bxm_name": g["bxm_name"], "count": g["count"]}
+                for g in grouped["unmatched"]
+            ],
+            "validation_errors": parsed["errors"][:200],
+            "validation_errors_count": len(parsed["errors"]),
+            "warnings": parsed["warnings"][:100],
+            "warnings_count": len(parsed["warnings"]),
+        }
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+@app.post("/api/vash/clear", summary="Очистить список ВАШ")
+async def clear_vash_endpoint():
+    return {"ok": True, "deleted": clear_vash_zones()}
 
 
 @app.post("/api/branches/import", summary="Импорт филиалов из XLSX")
