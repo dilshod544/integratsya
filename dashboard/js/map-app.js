@@ -802,8 +802,9 @@ async function loadBranches() {
       plottedBranchCodes.add(String(b.local_code || ''));
 
       const vashCount = Number(b.vash_count) || 0;
-      const marker = L.marker([lat, lon], { icon: makeBranchIcon(isInc, vashCount) });
-      marker.bindPopup(`
+      const marker = L.marker([lat, lon], { icon: makeBranchIcon(isInc, vashVisible ? vashCount : 0) });
+      marker._branchIcon = { isInc, vashCount };
+      marker.bindPopup(() => `
         <div class="popup-title">${appIcon('building-2')}${b.local_code || ''}${b.number ? ' · №' + b.number : ''}</div>
         <div class="popup-row">Регион: <span>${b.region || '—'}</span></div>
         <div class="popup-row" style="max-width:220px">Адрес: <span>${b.address || '—'}</span></div>
@@ -814,11 +815,11 @@ async function loadBranches() {
           style="margin-top:10px;width:100%;padding:8px 10px;border:0;border-radius:10px;background:#0d9488;color:#fff;font-weight:800;font-size:12px;cursor:pointer">
           ${cash ? 'Открыть кассу филиала →' : 'Касса не загружена'}
         </button>
-        ${vashButtonHtml(b.local_code, vashCount)}
+        ${vashVisible ? vashButtonHtml(b.local_code, vashCount) : ''}
         ${equipmentButtonHtml(b.local_code)}
       `, { maxWidth: 260 });
       marker.on('click', () => {
-        if (cash || vashCount || equipmentByCode[String(b.local_code)]) openBranchCashPanel(b);
+        if (cash || (vashVisible && vashCount) || equipmentByCode[String(b.local_code)]) openBranchCashPanel(b);
       });
       branchesLayer.addLayer(marker);
     });
@@ -826,11 +827,9 @@ async function loadBranches() {
     const modeEl = document.getElementById('branches-legend-mode');
     if (modeEl) modeEl.style.display = warehouseOnly ? 'block' : 'none';
 
-    const withVash = branches.filter(b => Number(b.vash_count) > 0).length;
-    document.getElementById('branches-legend-count').textContent = (warehouseOnly
+    document.getElementById('branches-legend-count').textContent = warehouseOnly
       ? `Со складом на карте: ${plotted} · в файле остатков: ${withCash} · скрыто без остатков: ${skippedNoCash}`
-      : `На карте: ${plotted} · со складом: ${withCash} · инкассаторских: ${withInc} · всего: ${branches.length}`)
-      + (withVash ? ` · с ВАШ: ${withVash}` : '');
+      : `На карте: ${plotted} · со складом: ${withCash} · инкассаторских: ${withInc} · всего: ${branches.length}`;
     document.getElementById('branches-legend-summary').textContent =
       warehouseOnly ? `со складом: ${plotted}` : `${plotted} на карте`;
 
@@ -1047,7 +1046,20 @@ function buildVashLayer() {
   updateVashLegend();
 }
 
+// Число ВАШ на значке филиала — только пока включён слой ВАШ.
+function syncBranchVashBadges() {
+  if (branchesLayer) {
+    branchesLayer.eachLayer(m => {
+      const info = m._branchIcon;
+      if (info && info.vashCount) m.setIcon(makeBranchIcon(info.isInc, vashVisible ? info.vashCount : 0));
+    });
+  }
+  const row = document.getElementById('branches-legend-vash-row');
+  if (row) row.style.display = vashVisible ? 'flex' : 'none';
+}
+
 function syncVashHubs() {
+  syncBranchVashBadges();
   if (vashHubLayer) { map.removeLayer(vashHubLayer); vashHubLayer = null; }
   if (!vashVisible || !vashData) return;
   vashHubLayer = L.layerGroup();
@@ -1132,7 +1144,7 @@ function vashButtonHtml(localCode, count) {
 
 function vashSectionHtml(branch) {
   const count = Number(branch && branch.vash_count) || 0;
-  if (!count) return '';
+  if (!count || !vashVisible) return '';
   return `
     <div class="bcp-card" style="margin-top:12px;background:#eef2ff;border-color:#c7d2fe">
       <div class="bcp-label" style="color:#4338ca">ВАШ · валюта айирбошлаш шохобчалари</div>
