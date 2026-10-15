@@ -491,6 +491,7 @@ function setAtmMarkerIcon(marker, status, isHighlighted = false) {
 }
 
 let atmsVisible = true;
+let atmPopup = null;
 
 function clearAtmMarkers() {
   Object.values(markers).forEach((marker) => {
@@ -1882,7 +1883,15 @@ function selectAtm(id) {
 
   // Реальные кассеты уже приходят вместе со списком ATM (bulk-запрос в
   // /api/atms), отдельный запрос по клику больше не нужен.
-  markers[id].bindPopup(popupHtml(stPop.cassettes, stPop.cassettesSource)).openPopup();
+  // Отдельный попап, не bindPopup: привязанный попап добавляет маркеру свой
+  // click-toggle, и повторный клик по тому же ATM сразу закрывал открытое окно.
+  const marker = markers[id];
+  if (marker) {
+    if (!atmPopup) atmPopup = L.popup();
+    atmPopup.setLatLng(marker.getLatLng())
+      .setContent(popupHtml(stPop.cassettes, stPop.cassettesSource))
+      .openOn(map);
+  }
   hydrateIcons();
   renderList();
 }
