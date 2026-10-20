@@ -221,6 +221,7 @@ def init_db() -> None:
     from .cash_equipment import create_cash_equipment_tables
     from .cashier.repository import create_cashier_tables
     from .sqb_rates import create_sqb_rate_tables
+    from .ledger_vash import create_ledger_vash_tables
     from .vash import create_vash_tables
     from atm_monitor.db import create_schema as create_atm_monitor_schema
 
@@ -233,6 +234,7 @@ def init_db() -> None:
             create_cash_equipment_tables(conn)
             create_sqb_rate_tables(conn)
             create_vash_tables(conn)
+            create_ledger_vash_tables(conn)
             seeded_password = create_auth_tables(conn)
             create_atm_monitor_schema(conn)
         # Файл с паролем пишется только после commit — иначе при откате он не совпал бы с базой.

@@ -28,7 +28,8 @@
       display: inline-flex; align-items: center; gap: 7px; padding: 9px 12px; border-radius: 12px;
       border: 1px solid var(--border); background: #fff; color: var(--muted); text-decoration: none; font-size: 13px; font-weight: 700;
     }
-    .page { width: min(880px, calc(100vw - 32px)); margin: 32px auto 40px; }
+    .page { width: min(980px, calc(100vw - 32px)); margin: 32px auto 40px; display: flex; flex-direction: column; gap: 16px; }
+    .page > .back-link { margin-bottom: 0; }
     .back-link { display: inline-flex; gap: 6px; font-size: 13px; font-weight: 700; color: var(--muted); text-decoration: none; margin-bottom: 16px; }
     .card { background: var(--surface); border: 1px solid var(--border); border-radius: 18px; padding: 28px; box-shadow: var(--shadow-md); }
     .card h2 { font-size: 16px; font-weight: 800; margin-bottom: 6px; display: flex; align-items: center; gap: 8px; }
@@ -42,7 +43,7 @@
     .dropzone .hint { font-size: 12px; color: var(--muted); }
     .dropzone .file { margin-top: 12px; font-weight: 700; color: var(--success); }
     .actions { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
-    button {
+    button, a.btn-ghost {
       border: 0; border-radius: 12px; padding: 11px 16px; font-weight: 800; font-size: 13px;
       cursor: pointer; display: inline-flex; align-items: center; gap: 7px;
     }
@@ -123,8 +124,74 @@
       <code>АҚШ доллари 840</code>, <code>Йена 392</code>, <code>Россия рубли 643</code>,
       <code>Швейцария франки 756</code>, <code>Фунт стерлинг 826</code>, <code>Евро 978</code>,
       <code>Тенге 398</code>, <code>Юан 156</code>, <code>Сомони 972</code>.<br><br>
-      На карте: включите слой филиалов → клик по филиалу → блок «Касса филиала»
-      (остаток, лимиты, валюты с курсом).
+      На карте: включите слой филиалов → клик по филиалу → блок «Касса филиала».
+      Лимиты берутся отсюда. Сумма в кассе — из отчёта счетов ниже, на последнюю дату филиала.
+    </div>
+  </div>
+
+  <div class="card">
+    <h2><i data-lucide="file-spreadsheet" style="width:18px;height:18px"></i> Отчёт остатков по счетам</h2>
+    <p>
+      Строки идут как в файле: <code>oper_day</code>, <code>coa_code</code>, <code>code</code>,
+      <code>code_currency</code>, <code>acc_id</code>, <code>branch_id</code>, <code>saldo_out</code>.
+      Повторная загрузка той же даты заменяет только её. На карте остаток филиала берётся из
+      <b>последней даты этого филиала</b>. Лимиты не меняются.
+    </p>
+    <div class="dropzone" id="ledger-drop">
+      <i data-lucide="upload-cloud" style="width:48px;height:48px;color:#0d9488"></i>
+      <div class="label">Перетащите XLSX отчёта остатков</div>
+      <div class="hint">oper_day · coa_code · code · code_currency · acc_id · branch_id · saldo_out</div>
+      <div class="file" id="ledger-file" style="display:none"></div>
+      <input type="file" id="ledger-input" accept=".xlsx,.xlsm" style="display:none" />
+    </div>
+    <div class="actions">
+      <button class="btn-primary" id="ledger-upload" disabled><i data-lucide="play" style="width:16px;height:16px"></i> Загрузить отчёт</button>
+      <button class="btn-ghost" id="ledger-reset" type="button">Сбросить файл</button>
+      <button class="btn-danger" id="ledger-clear" type="button"><i data-lucide="trash-2" style="width:16px;height:16px"></i> Очистить отчёт</button>
+      <a class="btn-ghost" href="/dashboard/analytics.html#kassa" style="text-decoration:none">Аналитика кассы →</a>
+    </div>
+    <div class="status-line" id="ledger-status">В базе сейчас: загрузка…</div>
+    <div class="progress" id="ledger-progress"><div class="spinner"></div><span>Загружаю…</span></div>
+    <div class="result" id="ledger-result">
+      <div class="summary">
+        <div class="stat"><div class="v" id="ledger-imported">0</div><div class="l">Строк</div></div>
+        <div class="stat"><div class="v" id="ledger-days">0</div><div class="l">Дат</div></div>
+        <div class="stat"><div class="v" id="ledger-branches">0</div><div class="l">Филиалов</div></div>
+        <div class="stat"><div class="v" id="ledger-errors">0</div><div class="l">Пропущено</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2><i data-lucide="arrow-left-right" style="width:18px;height:18px"></i> Операции ВАШ</h2>
+    <p>
+      Каждая строка — операция пункта обмена: <code>ci_acc</code>, <code>co_acc</code>,
+      <code>obmen_punkt</code>, <code>branch</code>, <code>date</code>.
+      <code>obmen_punkt</code> связывается с уже загруженным списком ВАШ (номер точки на карте).
+      Аналитика показывает, где операций много, а где мало.
+    </p>
+    <div class="dropzone" id="vops-drop">
+      <i data-lucide="upload-cloud" style="width:48px;height:48px;color:#0d9488"></i>
+      <div class="label">Перетащите XLSX операций ВАШ</div>
+      <div class="hint">ci_acc · co_acc · obmen_punkt · branch · date</div>
+      <div class="file" id="vops-file" style="display:none"></div>
+      <input type="file" id="vops-input" accept=".xlsx,.xlsm" style="display:none" />
+    </div>
+    <div class="actions">
+      <button class="btn-primary" id="vops-upload" disabled><i data-lucide="play" style="width:16px;height:16px"></i> Загрузить операции</button>
+      <button class="btn-ghost" id="vops-reset" type="button">Сбросить файл</button>
+      <button class="btn-danger" id="vops-clear" type="button"><i data-lucide="trash-2" style="width:16px;height:16px"></i> Очистить операции</button>
+      <a class="btn-ghost" href="/dashboard/analytics.html#vash" style="text-decoration:none">Аналитика ВАШ →</a>
+    </div>
+    <div class="status-line" id="vops-status">В базе сейчас: загрузка…</div>
+    <div class="progress" id="vops-progress"><div class="spinner"></div><span>Загружаю…</span></div>
+    <div class="result" id="vops-result">
+      <div class="summary">
+        <div class="stat"><div class="v" id="vops-imported">0</div><div class="l">Операций</div></div>
+        <div class="stat"><div class="v" id="vops-days">0</div><div class="l">Дат</div></div>
+        <div class="stat"><div class="v" id="vops-points">0</div><div class="l">Пунктов</div></div>
+        <div class="stat"><div class="v" id="vops-errors">0</div><div class="l">Пропущено</div></div>
+      </div>
     </div>
   </div>
 </div>
@@ -212,6 +279,84 @@
       uploadBtn.disabled = !selectedFile;
     }
   };
+
+  function wireImport(prefix, url, clearUrl, statusUrl, statusText, onDone) {
+    const drop = document.getElementById(prefix + '-drop');
+    const input = document.getElementById(prefix + '-input');
+    const name = document.getElementById(prefix + '-file');
+    const upload = document.getElementById(prefix + '-upload');
+    let file = null;
+    const pick = (f) => {
+      file = f;
+      name.style.display = 'block';
+      name.textContent = f.name + ' · ' + Math.round(f.size / 1024) + ' КБ';
+      upload.disabled = false;
+    };
+    drop.addEventListener('click', () => input.click());
+    ['dragover', 'dragenter'].forEach(e => drop.addEventListener(e, ev => { ev.preventDefault(); drop.classList.add('drag-over'); }));
+    ['dragleave', 'drop'].forEach(e => drop.addEventListener(e, ev => { ev.preventDefault(); drop.classList.remove('drag-over'); }));
+    drop.addEventListener('drop', ev => { if (ev.dataTransfer.files[0]) pick(ev.dataTransfer.files[0]); });
+    input.addEventListener('change', () => { if (input.files[0]) pick(input.files[0]); });
+    document.getElementById(prefix + '-reset').onclick = () => {
+      file = null; input.value = ''; name.style.display = 'none'; upload.disabled = true;
+      document.getElementById(prefix + '-result').classList.remove('show');
+    };
+    async function status() {
+      const el = document.getElementById(prefix + '-status');
+      try {
+        const d = await (await fetch(API + statusUrl)).json();
+        el.textContent = statusText(d);
+      } catch (_) { el.textContent = 'В базе сейчас: не удалось проверить.'; }
+    }
+    status();
+    document.getElementById(prefix + '-clear').onclick = async () => {
+      if (!confirm('Удалить эти данные из базы? Остальные импорты не трогаются.')) return;
+      const res = await fetch(API + clearUrl, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) { alert(data.detail || 'Ошибка очистки'); return; }
+      alert('Удалено строк: ' + (data.deleted ?? 0));
+      document.getElementById(prefix + '-result').classList.remove('show');
+      status();
+    };
+    upload.onclick = async () => {
+      if (!file) return;
+      const progress = document.getElementById(prefix + '-progress');
+      progress.classList.add('show');
+      upload.disabled = true;
+      try {
+        const fd = new FormData();
+        fd.append('file', file);
+        const res = await fetch(API + url, { method: 'POST', body: fd });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'Ошибка импорта');
+        onDone(data);
+        document.getElementById(prefix + '-result').classList.add('show');
+        status();
+      } catch (e) {
+        alert(e.message || e);
+      } finally {
+        progress.classList.remove('show');
+        upload.disabled = !file;
+      }
+    };
+  }
+
+  wireImport('ledger', '/api/branch-ledger/import', '/api/branch-ledger/clear', '/api/branch-ledger/analytics',
+    (d) => d.rows ? `В базе на ${d.latest_day}: ${d.rows} строк, филиалов ${d.branch_count}.` : 'В базе сейчас: отчёта нет — загрузите Excel.',
+    (d) => {
+      document.getElementById('ledger-imported').textContent = d.imported ?? 0;
+      document.getElementById('ledger-days').textContent = d.days ?? 0;
+      document.getElementById('ledger-branches').textContent = d.branches ?? 0;
+      document.getElementById('ledger-errors').textContent = d.validation_errors_count ?? 0;
+    });
+  wireImport('vops', '/api/vash/operations/import', '/api/vash/operations/clear', '/api/vash/operations/analytics',
+    (d) => d.operations ? `В базе сейчас: ${d.operations} операций, пунктов ${d.point_count}.` : 'В базе сейчас: операций ВАШ нет.',
+    (d) => {
+      document.getElementById('vops-imported').textContent = d.imported ?? 0;
+      document.getElementById('vops-days').textContent = d.days ?? 0;
+      document.getElementById('vops-points').textContent = d.points ?? 0;
+      document.getElementById('vops-errors').textContent = d.validation_errors_count ?? 0;
+    });
 </script>
 <script src="/dashboard/js/auth-nav.js"></script>
 </body>

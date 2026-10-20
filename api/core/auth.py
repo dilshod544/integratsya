@@ -42,6 +42,7 @@ PAGE_DEFINITIONS: List[Dict[str, Any]] = [
         "api_prefixes": [
             "/api/atms", "/api/branches", "/api/routes", "/api/incassation", "/api/osrm",
             "/api/alerts", "/api/baseline", "/api/atm-monitor", "/api/cash-equipment",
+            "/api/vash",
         ],
     },
     {
@@ -58,7 +59,7 @@ PAGE_DEFINITIONS: List[Dict[str, Any]] = [
             "/dashboard/import-branch-balances.html",
             "/dashboard/import-sqb-rates.html",
         ],
-        "api_prefixes": ["/api/branch-balances", "/api/sqb-rates"],
+        "api_prefixes": ["/api/branch-balances", "/api/branch-ledger", "/api/sqb-rates"],
     },
     {
         "key": "hr_cashiers",

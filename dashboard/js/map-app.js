@@ -694,7 +694,7 @@ function openBranchCashPanel(branch) {
         Кассовый остаток для этого филиала не загружен.
         Импорт: <b>Импорт → Остатки филиалов</b>.
       </div>
-      ${vashSectionHtml(branch)}
+      ${branchVashToggleHtml(branch)}
       ${equipmentSectionHtml(branch.local_code)}`;
     panel.classList.add('open');
     hydrateIcons();
@@ -779,14 +779,28 @@ function openBranchCashPanel(branch) {
     <div class="popup-row">Тип: <span style="color:${isInc ? '#7c3aed' : '#64748b'};font-weight:700">
       ${isInc ? 'Для выезда инкассаторов' : 'Обычный филиал'}
     </span></div>
-    ${vashSectionHtml(branch)}
+    ${branchVashToggleHtml(branch)}
     ${equipmentSectionHtml(branch.local_code)}
 
     <div class="bcp-card" style="margin-top:12px;background:#f0fdf4;border-color:#bbf7d0">
       <div class="bcp-label" style="color:#15803d">Остаток (сўм)</div>
       <div class="bcp-value" style="color:#14532d">${fmtBranchMoney(cash.balance_uzs)}</div>
-      <div class="bcp-hint">Сейчас в кассе</div>
+      <div class="bcp-hint">${cash.balance_source === 'ledger'
+        ? 'Отчёт счетов на ' + (cash.ledger_as_of || '—')
+        : 'Сейчас в кассе'}</div>
     </div>
+    ${(cash.ledger_lines || []).length ? `
+      <div style="margin-top:8px;font-size:10px;font-weight:800;color:#334155;text-transform:uppercase;letter-spacing:.04em">Счета на ${cash.ledger_as_of || '—'}</div>
+      <table>
+        <thead><tr><th>Счёт</th><th>Валюта</th><th style="text-align:right">saldo_out</th></tr></thead>
+        <tbody>
+          ${cash.ledger_lines.map(line => `<tr>
+            <td>${escHtml(line.code || '—')}<br><span style="font-size:9px;color:#94a3b8">${escHtml(line.acc_id || '')}</span></td>
+            <td>${escHtml(line.code_currency || 'UZS')}</td>
+            <td style="text-align:right;font-weight:700">${fmtBranchMoney(line.saldo_out, 2)}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>` : ''}
 
     <div class="bcp-card" style="margin-top:8px;background:#eff6ff;border-color:#bfdbfe">
       <div class="bcp-label" style="color:#1d4ed8">Лимит сўм (максимум)</div>
@@ -1125,10 +1139,11 @@ function buildVashLayer() {
         .bindPopup(() => vashPopupHtml(it, g), { maxWidth: 280 });
       if (line) vashLayer.addLayer(line);
       vashLayer.addLayer(marker);
-      vashMarkers.push({ marker, line, key: g._key, id: it.id });
+      vashMarkers.push({ marker, line, key: g._key, id: it.id, number: it.vash_number });
     });
   });
   if (vashVisible) vashLayer.addTo(map);
+  applyBranchVashFilter();
   syncVashHubs();
   updateVashLegend();
 }
@@ -1181,6 +1196,9 @@ function updateVashLegend() {
 }
 
 async function toggleVashLayer() {
+  branchVashCode = null;
+  branchVashOwnedLayer = false;
+  applyBranchVashFilter();
   if (!vashVisible) {
     try {
       await loadVash();
@@ -1229,18 +1247,98 @@ function vashButtonHtml(localCode, count) {
   </button>`;
 }
 
-function vashSectionHtml(branch) {
+let branchVashCode = null;
+let branchVashOwnedLayer = false;
+
+function branchVashToggleHtml(branch) {
   const count = Number(branch && branch.vash_count) || 0;
-  if (!count || !vashVisible) return '';
+  const code = String(branch && branch.local_code || '');
+  const on = branchVashCode === code;
   return `
-    <div class="bcp-card" style="margin-top:12px;background:#eef2ff;border-color:#c7d2fe">
-      <div class="bcp-label" style="color:#4338ca">ВАШ · валюта айирбошлаш шохобчалари</div>
-      <div class="bcp-value" style="color:#312e81">${count} шт.</div>
-      <button onclick="openVashPanelByCode(${escHtml(JSON.stringify(String(branch.local_code ?? '')))})"
-        style="margin-top:8px;width:100%;padding:7px 10px;border:0;border-radius:10px;background:#4f46e5;color:#fff;font-weight:800;font-size:12px;cursor:pointer">
-        Показать ВАШ на карте →
-      </button>
-    </div>`;
+    <button type="button" class="bcp-vash-toggle${on ? ' on' : ''}" data-code="${escHtml(code)}"
+      onclick="toggleBranchVash(${escHtml(JSON.stringify(code))})">
+      <span>
+        <b>ВАШ зоны</b>
+        <small>${on ? 'Показаны только зоны этого филиала' : (count ? count + ' шт. · показать на карте' : 'Показать зоны этого филиала')}</small>
+      </span>
+      <span class="switch"></span>
+    </button>`;
+}
+
+function paintBranchVashToggle() {
+  document.querySelectorAll('.bcp-vash-toggle').forEach(btn => {
+    const on = btn.dataset.code === branchVashCode;
+    btn.classList.toggle('on', on);
+    const note = btn.querySelector('small');
+    if (note && on) note.textContent = 'Показаны только зоны этого филиала';
+  });
+}
+
+function applyBranchVashFilter() {
+  if (!vashLayer) return;
+  const key = branchVashCode ? vashKeyByCode[String(branchVashCode)] : null;
+  vashMarkers.forEach(v => {
+    const show = !key || v.key === key;
+    if (show) {
+      if (!vashLayer.hasLayer(v.marker)) vashLayer.addLayer(v.marker);
+      if (v.line && !vashLayer.hasLayer(v.line)) vashLayer.addLayer(v.line);
+      v.marker.setOpacity(1);
+    } else {
+      if (vashLayer.hasLayer(v.marker)) vashLayer.removeLayer(v.marker);
+      if (v.line && vashLayer.hasLayer(v.line)) vashLayer.removeLayer(v.line);
+    }
+  });
+}
+
+function zoomBranchVash(code) {
+  const key = vashKeyByCode[String(code)];
+  const g = key ? vashGroups[key] : null;
+  if (!g) return false;
+  const pts = (g.items || [])
+    .filter(it => it.lat != null && it.lon != null)
+    .map(it => L.latLng(it.lat, it.lon));
+  const hub = g.matched ? validLatLng(g) : null;
+  if (hub) pts.push(hub);
+  if (pts.length) smoothFitBounds(L.latLngBounds(pts), { padding: [70, 70], maxZoom: 15 });
+  return (g.items || []).some(it => it.lat != null && it.lon != null);
+}
+
+async function toggleBranchVash(localCode) {
+  const code = String(localCode);
+  if (branchVashCode === code) {
+    branchVashCode = null;
+    applyBranchVashFilter();
+    if (branchVashOwnedLayer && !vashVisible) {
+      if (vashLayer) map.removeLayer(vashLayer);
+      branchVashOwnedLayer = false;
+      clearVashHighlight();
+    }
+    paintBranchVashToggle();
+    const open = branchesCache.find(b => String(b.local_code) === code);
+    if (open) openBranchCashPanel(open);
+    return;
+  }
+  if (!vashData) {
+    try { await loadVash(); }
+    catch (err) { alert('Не удалось загрузить ВАШ: ' + (err.message || err)); return; }
+  }
+  if (!vashKeyByCode[code]) {
+    alert('У филиала ' + code + ' нет точек ВАШ. Загрузите список ВАШ с координатами.');
+    return;
+  }
+  if (vashLayer && !map.hasLayer(vashLayer)) {
+    vashLayer.addTo(map);
+    branchVashOwnedLayer = true;
+  } else {
+    branchVashOwnedLayer = false;
+  }
+  branchVashCode = code;
+  applyBranchVashFilter();
+  const hasPoints = zoomBranchVash(code);
+  if (!hasPoints) alert('Точки ВАШ этого филиала есть в списке, но без координат — на карте их не видно.');
+  paintBranchVashToggle();
+  const open = branchesCache.find(b => String(b.local_code) === code);
+  if (open) openBranchCashPanel(open);
 }
 
 function vashPopupHtml(it, g) {
@@ -1361,8 +1459,32 @@ function openVashUnmatchedPanel() {
 function focusVash(id) {
   const v = vashMarkers.find(x => x.id === id);
   if (!v) return;
-  map.flyTo(v.marker.getLatLng(), Math.max(map.getZoom(), 17), { duration: 0.35 });
-  setTimeout(() => v.marker.openPopup(), 380);
+  focusVashMarker(v);
+}
+
+function normVashNumber(value) {
+  return String(value ?? '').replace(/\s+/g, '').toUpperCase().replace(/^0+/, '');
+}
+
+function focusVashMarker(v) {
+  setVashHighlight(v.key);
+  map.flyTo(v.marker.getLatLng(), Math.max(map.getZoom(), 17), { duration: 0.45 });
+  setTimeout(() => v.marker.openPopup(), 420);
+}
+
+async function showVashFromQuery() {
+  const raw = new URLSearchParams(location.search).get('vash');
+  if (!raw) return false;
+  const ok = await ensureVashShown();
+  if (ok === false) return false;
+  const key = normVashNumber(raw);
+  const v = vashMarkers.find(x => normVashNumber(x.number) === key);
+  if (!v) {
+    alert('Пункт ВАШ «' + raw + '» есть в операциях, но его нет среди точек с координатами. Загрузите список ВАШ с локацией.');
+    return false;
+  }
+  focusVashMarker(v);
+  return true;
 }
 
 
@@ -1823,6 +1945,7 @@ async function initAtms() {
   hideLoader();
   loadExtraKpis();
   await showTripFromQuery();
+  await showVashFromQuery();
   startAutoRefresh();
 }
 
@@ -2548,6 +2671,8 @@ window.openVashPanel = openVashPanel;
 window.openVashPanelByCode = openVashPanelByCode;
 window.openVashUnmatchedPanel = openVashUnmatchedPanel;
 window.focusVash = focusVash;
+window.toggleBranchVash = toggleBranchVash;
+window.showVashFromQuery = showVashFromQuery;
 window.openRegionModal = openRegionModal;
 window.closeRegionModal = closeRegionModal;
 window.performRegionSearch = performRegionSearch;

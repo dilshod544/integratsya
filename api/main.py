@@ -119,6 +119,17 @@ from core.cash_equipment import (
     parse_cash_equipment_xlsx,
     replace_cash_equipment,
 )
+from core.ledger_vash import (
+    apply_ledger_to_branches,
+    branch_ledger_analytics,
+    clear_branch_ledger,
+    clear_vash_operations,
+    parse_branch_ledger_xlsx,
+    parse_vash_operations_xlsx,
+    replace_branch_ledger,
+    replace_vash_operations,
+    vash_operations_analytics,
+)
 from core.vash import (
     clear_vash_zones,
     count_vash_zones,
@@ -679,6 +690,7 @@ async def get_branches(
                 if code in forecasts:
                     cash["forecast"] = forecasts[code]
                 b["cash"] = cash
+        apply_ledger_to_branches(rows)
     return {
         "branches": rows,
         "count": len(rows),
@@ -711,6 +723,7 @@ async def get_branch_detail(local_code: str):
     cash = get_branch_balance_by_local_code(local_code)
     if cash:
         branch["cash"] = cash
+    apply_ledger_to_branches([branch])
     return branch
 
 
@@ -814,6 +827,87 @@ async def import_branch_balances(
 async def clear_branch_cash_balances():
     deleted = clear_branch_balances()
     return {"ok": True, "deleted": deleted, "balances_in_db": 0}
+
+
+def _save_upload(file: UploadFile, prefix: str) -> tuple[str, str]:
+    tmp_dir = tempfile.mkdtemp(prefix=prefix)
+    tmp_path = os.path.join(tmp_dir, os.path.basename(file.filename or "upload.xlsx"))
+    with open(tmp_path, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+    return tmp_dir, tmp_path
+
+
+@app.get("/api/branch-ledger/analytics", summary="Остатки счетов филиалов на последнюю дату")
+async def get_branch_ledger_analytics(
+    branch_id: Optional[str] = Query(None),
+    limit: int = Query(500, ge=1, le=2000),
+):
+    return branch_ledger_analytics(branch_id, limit)
+
+
+@app.post("/api/branch-ledger/import", summary="Импорт отчёта остатков: oper_day, coa_code, code, code_currency, acc_id, branch_id, saldo_out")
+async def import_branch_ledger(file: UploadFile = File(...)):
+    if not file.filename or not file.filename.lower().endswith((".xlsx", ".xlsm")):
+        raise HTTPException(400, "Ожидается .xlsx файл")
+    tmp_dir, tmp_path = _save_upload(file, "branch_ledger_")
+    try:
+        try:
+            parsed = parse_branch_ledger_xlsx(tmp_path)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        stats = replace_branch_ledger(parsed["records"])
+        return {
+            "ok": True,
+            "filename": file.filename,
+            "header_row": parsed["header_row"],
+            "imported": stats["saved"],
+            "days": stats["days"],
+            "branches": stats["branches"],
+            "validation_errors": parsed["errors"][:50],
+            "validation_errors_count": len(parsed["errors"]),
+        }
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+@app.post("/api/branch-ledger/clear", summary="Очистить отчёт остатков счетов")
+async def clear_branch_ledger_endpoint():
+    return {"ok": True, "deleted": clear_branch_ledger()}
+
+
+@app.get("/api/vash/operations/analytics", summary="Где операций ВАШ много и где мало")
+async def get_vash_operations_analytics():
+    return vash_operations_analytics()
+
+
+@app.post("/api/vash/operations/import", summary="Импорт операций ВАШ: ci_acc, co_acc, obmen_punkt, branch, date")
+async def import_vash_operations(file: UploadFile = File(...)):
+    if not file.filename or not file.filename.lower().endswith((".xlsx", ".xlsm")):
+        raise HTTPException(400, "Ожидается .xlsx файл")
+    tmp_dir, tmp_path = _save_upload(file, "vash_ops_")
+    try:
+        try:
+            parsed = parse_vash_operations_xlsx(tmp_path)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        stats = replace_vash_operations(parsed["records"])
+        return {
+            "ok": True,
+            "filename": file.filename,
+            "header_row": parsed["header_row"],
+            "imported": stats["saved"],
+            "days": stats["days"],
+            "points": stats["points"],
+            "validation_errors": parsed["errors"][:50],
+            "validation_errors_count": len(parsed["errors"]),
+        }
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+@app.post("/api/vash/operations/clear", summary="Очистить операции ВАШ")
+async def clear_vash_operations_endpoint():
+    return {"ok": True, "deleted": clear_vash_operations()}
 
 
 @app.get("/api/cash-equipment", summary="Кассовая техника (kassa jihozlari)")

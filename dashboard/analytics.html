@@ -245,6 +245,8 @@
       <button class="section-tab active" data-tab="status" onclick="switchTab('status')"><i data-lucide="activity" class="icon-inline"></i> Состояние сети</button>
       <button class="section-tab" data-tab="forecast" onclick="switchTab('forecast')"><i data-lucide="brain-circuit" class="icon-inline"></i> Прогноз снятий</button>
       <button class="section-tab" data-tab="withdrawals" onclick="switchTab('withdrawals')"><i data-lucide="banknote" class="icon-inline"></i> Снятия по дням</button>
+      <button class="section-tab" data-tab="kassa" onclick="switchTab('kassa')"><i data-lucide="wallet" class="icon-inline"></i> Касса филиалов</button>
+      <button class="section-tab" data-tab="vash" onclick="switchTab('vash')"><i data-lucide="arrow-left-right" class="icon-inline"></i> ВАШ</button>
     </nav>
 
     <!-- ── Состояние сети ── -->
@@ -347,6 +349,61 @@
     </section>
 
     <!-- ── Снятия по дням ── -->
+    <section id="tab-kassa" class="tab-panel">
+      <div class="stats-bar" id="kassa-kpis"></div>
+      <div class="grid-2">
+        <div class="panel">
+          <div class="panel-head"><i data-lucide="building-2" class="icon-inline"></i><h2>Филиалы на последнюю дату</h2><span class="spacer"></span></div>
+          <div class="table-wrap" style="max-height:520px;overflow:auto">
+            <table class="data">
+              <thead><tr><th>Филиал</th><th class="num">Счета</th><th class="num">UZS</th><th>Валюты</th></tr></thead>
+              <tbody id="kassa-branches"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><i data-lucide="coins" class="icon-inline"></i><h2>По валютам</h2></div>
+          <div class="panel-body" id="kassa-ccy"></div>
+        </div>
+      </div>
+      <div class="panel" style="margin-top:16px">
+        <div class="panel-head"><i data-lucide="list" class="icon-inline"></i><h2>Строки отчёта</h2><span class="spacer"></span><span class="sub" id="kassa-rows-note"></span></div>
+        <div class="toolbar">
+          <input id="kassa-q" placeholder="Филиал, счёт, валюта, acc_id…" oninput="renderLedgerRows()" />
+        </div>
+        <div class="table-wrap" style="max-height:480px;overflow:auto">
+          <table class="data">
+            <thead><tr>
+              <th>oper_day</th><th>branch_id</th><th>coa_code</th><th>code</th><th>code_currency</th><th>acc_id</th><th class="num">saldo_out</th>
+            </tr></thead>
+            <tbody id="kassa-rows"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="tab-vash" class="tab-panel">
+      <div class="stats-bar" id="vash-kpis"></div>
+      <div class="panel" style="margin-top:16px">
+        <div class="panel-head"><i data-lucide="arrow-left-right" class="icon-inline"></i><h2>Пункты обмена</h2></div>
+        <div class="toolbar">
+          <input id="vash-q" placeholder="Пункт или филиал…" oninput="renderVashPoints()" />
+          <button class="btn" id="vash-band-all" onclick="setVashBand('')">Все</button>
+          <button class="btn" onclick="setVashBand('high')">Много</button>
+          <button class="btn" onclick="setVashBand('mid')">Средне</button>
+          <button class="btn" onclick="setVashBand('low')">Мало</button>
+        </div>
+        <div class="table-wrap" style="max-height:640px;overflow:auto">
+          <table class="data">
+            <thead><tr>
+              <th>Пункт</th><th>Филиал</th><th class="num">Операций</th><th>Активность</th><th>Период</th><th></th>
+            </tr></thead>
+            <tbody id="vash-points"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
     <section id="tab-withdrawals" class="tab-panel">
       <div class="toolbar" style="margin-top:16px;border:1px solid var(--border);border-radius:16px;">
         <span class="stat-label">Период</span>
@@ -530,6 +587,8 @@
       document.querySelectorAll('.section-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
       document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === `tab-${tab}`));
       if (tab === 'withdrawals' && !document.getElementById('wd-chart').innerHTML) loadWithdrawals();
+      if (tab === 'kassa' && !ledgerData) loadLedger();
+      if (tab === 'vash' && !vashOps) loadVashOps();
       history.replaceState(null, '', tab === 'status' ? location.pathname : '#' + tab);
       icons();
     }
@@ -820,13 +879,126 @@
       icons();
     }
 
+    let ledgerData = null;
+    let ledgerBranch = '';
+    function renderLedgerRows() {
+      if (!ledgerData) return;
+      const q = (document.getElementById('kassa-q').value || '').trim().toLowerCase();
+      const rows = ledgerData.accounts.filter(r => {
+        if (ledgerBranch && String(r.branch_id) !== ledgerBranch) return false;
+        if (!q) return true;
+        return [r.branch_id, r.coa_code, r.code, r.code_currency, r.acc_id, r.currency_label].join(' ').toLowerCase().includes(q);
+      });
+      document.getElementById('kassa-rows-note').textContent = ledgerBranch
+        ? `филиал ${ledgerBranch} · ${rows.length}`
+        : `${rows.length} из ${ledgerData.accounts.length}`;
+      document.getElementById('kassa-rows').innerHTML = rows.slice(0, 400).map(r => `
+        <tr>
+          <td>${esc(r.oper_day)}</td>
+          <td class="strong">${esc(r.branch_id)}</td>
+          <td>${esc(r.coa_code)}</td>
+          <td>${esc(r.code)}</td>
+          <td>${esc(r.currency_label || r.code_currency)}</td>
+          <td>${esc(r.acc_id)}</td>
+          <td class="num strong">${money(r.saldo_out)}</td>
+        </tr>`).join('') || '<tr><td colspan="7" class="empty">Нет строк</td></tr>';
+    }
+    function selectLedgerBranch(code) {
+      ledgerBranch = ledgerBranch === code ? '' : code;
+      document.querySelectorAll('#kassa-branches tr').forEach(tr => tr.classList.toggle('selected', tr.dataset.code === ledgerBranch));
+      renderLedgerRows();
+    }
+    async function loadLedger() {
+      try {
+        ledgerData = await getJson('/api/branch-ledger/analytics?limit=2000');
+      } catch (e) {
+        document.getElementById('kassa-branches').innerHTML = `<tr><td colspan="4" class="empty">${esc(e.message)}</td></tr>`;
+        return;
+      }
+      const d = ledgerData;
+      document.getElementById('kassa-kpis').innerHTML = d.latest_day ? [
+        { label: 'Дата отчёта', value: d.latest_day, icon: 'calendar-days' },
+        { label: 'Филиалов', value: num(d.branch_count), icon: 'building-2' },
+        { label: 'Строк счетов', value: num(d.rows), icon: 'list' },
+        { label: 'Остаток UZS', value: money(d.total_uzs), icon: 'wallet', tone: 'success', hint: 'сумма счетов в сумах' },
+      ].map(statBox).join('') : '<div class="empty">Отчёт ещё не загружен. Импорт → Остатки филиалов → «Отчёт остатков по счетам».</div>';
+      const max = Math.max(1, ...(d.branches || []).map(b => Math.abs(b.uzs)));
+      document.getElementById('kassa-branches').innerHTML = (d.branches || []).map(b => `
+        <tr class="clickable" data-code="${esc(b.branch_id)}" onclick="selectLedgerBranch('${esc(b.branch_id)}')">
+          <td><div class="strong">${esc(b.branch_id)}${b.name ? ' · ' + esc(b.name) : ''}</div><div class="sub">${esc(b.region || '')}</div></td>
+          <td class="num">${b.accounts}</td>
+          <td class="num strong">${money(b.uzs)}</td>
+          <td><div class="hbar"><div class="track"><div class="fill" style="width:${Math.min(100, Math.abs(b.uzs) / max * 100)}%"></div></div></div></td>
+        </tr>`).join('') || '<tr><td colspan="4" class="empty">Нет данных</td></tr>';
+      document.getElementById('kassa-ccy').innerHTML = (d.by_currency || []).map(c => `
+        <div class="hbar"><div class="lbl">${esc(c.label)}</div><div class="track"><div class="fill" style="width:${Math.min(100, Math.abs(c.saldo) / Math.max(1, ...d.by_currency.map(x => Math.abs(x.saldo))) * 100)}%"></div></div><div class="val">${money(c.saldo)}</div></div>
+      `).join('') || '<div class="empty">Нет валют</div>';
+      renderLedgerRows();
+      icons();
+    }
+
+    let vashOps = null;
+    let vashBand = '';
+    function setVashBand(band) {
+      vashBand = band;
+      renderVashPoints();
+    }
+    function renderVashPoints() {
+      if (!vashOps) return;
+      const q = (document.getElementById('vash-q').value || '').trim().toLowerCase();
+      const bandName = { high: 'много', mid: 'средне', low: 'мало' };
+      const bandClass = { high: 'danger', mid: 'warning', low: 'success' };
+      const rows = (vashOps.points || []).filter(p => {
+        if (vashBand && p.band !== vashBand) return false;
+        if (!q) return true;
+        return [p.obmen_punkt, p.branch, p.address].join(' ').toLowerCase().includes(q);
+      });
+      const max = Math.max(1, ...rows.map(p => p.ops));
+      document.getElementById('vash-points').innerHTML = rows.map(p => `
+        <tr>
+          <td><div class="strong">ВАШ ${esc(p.obmen_punkt)}</div><div class="sub">${esc(p.address || (p.on_map ? '' : 'нет в списке точек на карте'))}</div></td>
+          <td>${esc(p.branch || '—')}</td>
+          <td class="num">
+            <div class="strong">${num(p.ops)}</div>
+            <div class="hbar"><div class="track"><div class="fill" style="width:${p.ops / max * 100}%;background:${p.band === 'high' ? 'var(--danger)' : p.band === 'low' ? 'var(--success)' : 'var(--warning)'}"></div></div></div>
+          </td>
+          <td><span class="pill ${bandClass[p.band] || ''}">${bandName[p.band] || p.band}</span></td>
+          <td><div>${esc(p.first_date || '—')}</div><div class="sub">${esc(p.last_date || '')}</div></td>
+          <td>${p.on_map
+            ? `<a class="btn" href="/dashboard/map.html?vash=${encodeURIComponent(p.obmen_punkt)}">На карте</a>`
+            : '<span class="sub">нет координат</span>'}</td>
+        </tr>`).join('') || '<tr><td colspan="6" class="empty">Нет операций. Импорт → Остатки филиалов → «Операции ВАШ».</td></tr>';
+    }
+    async function loadVashOps() {
+      try {
+        vashOps = await getJson('/api/vash/operations/analytics');
+      } catch (e) {
+        document.getElementById('vash-points').innerHTML = `<tr><td colspan="6" class="empty">${esc(e.message)}</td></tr>`;
+        return;
+      }
+      const d = vashOps;
+      document.getElementById('vash-kpis').innerHTML = d.operations ? [
+        { label: 'Операций', value: num(d.operations), icon: 'arrow-left-right', hint: d.from && d.to ? `${d.from} — ${d.to}` : '' },
+        { label: 'Пунктов', value: num(d.point_count), icon: 'map-pin' },
+        { label: 'Много операций', value: num(d.high), icon: 'trending-up', tone: 'danger', hint: 'верхняя четверть' },
+        { label: 'Мало операций', value: num(d.low), icon: 'trending-down', tone: 'success', hint: 'нижняя четверть' },
+      ].map(statBox).join('') : '<div class="empty">Операции ВАШ ещё не загружены.</div>';
+      renderVashPoints();
+      icons();
+    }
+
     async function reloadAll() {
       await Promise.all([loadStatus(), loadForecast()]);
       if (document.getElementById('tab-withdrawals').classList.contains('active')) loadWithdrawals();
+      if (document.getElementById('tab-kassa').classList.contains('active')) loadLedger();
+      if (document.getElementById('tab-vash').classList.contains('active')) loadVashOps();
     }
 
+    window.selectLedgerBranch = selectLedgerBranch;
+    window.setVashBand = setVashBand;
+
     icons();
-    if (['forecast', 'withdrawals'].includes(location.hash.slice(1))) switchTab(location.hash.slice(1));
+    if (['forecast', 'withdrawals', 'kassa', 'vash'].includes(location.hash.slice(1))) switchTab(location.hash.slice(1));
     loadForecast().then(loadStatus);
     setInterval(reloadAll, 5 * 60 * 1000);
   </script>
