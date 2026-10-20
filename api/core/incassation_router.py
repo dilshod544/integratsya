@@ -346,11 +346,21 @@ def _item_region(item: Dict[str, Any]) -> Optional[str]:
 
 
 def hours_to_low_cash(atm: Dict[str, Any]) -> Optional[float]:
-    """Conservative burn-rate from current fill. No transaction history / ML."""
+    """Часы до порога LOW_CASH_PCT. Если для ATM есть прогноз снятий
+    (atm_monitor/forecast.py, XGBoost по истории BTech) — по нему, иначе
+    консервативная оценка расхода от текущей заполненности."""
     cap = atm.get("capacity") or DEFAULT_CAPACITY
     bal = atm.get("balance")
     if bal is None or not cap:
         return None
+    ml_per_day = atm.get("ml_withdrawal_per_day")
+    if ml_per_day is not None:
+        low = cap * LOW_CASH_PCT
+        if bal <= low:
+            return 0.0
+        if ml_per_day <= 0:
+            return None  # снятий не ожидается — инкассация не нужна
+        return round((bal - low) / ml_per_day * 24, 1)
     pct = bal / cap
     burn_per_day = max(cap * 0.035, (1 - pct) * cap * 0.18)
     if burn_per_day <= 0:

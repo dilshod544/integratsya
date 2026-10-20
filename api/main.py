@@ -34,6 +34,10 @@ Bank Intelligence Platform — FastAPI Backend
     POST  /api/routes/incassation           → региональные маршруты инкассации
     POST  /api/osrm/route                   → геометрия маршрута по дорогам (OSRM)
     GET   /api/incassation/plan             → прогнозный план инкассации
+    GET   /api/analytics/atm-status         → состояние сети BTech: работают/заняты/офлайн/не заряжены
+    GET   /api/analytics/forecast           → прогноз снятий (XGBoost, переобучается раз в сутки)
+    GET   /api/analytics/withdrawals        → фактические снятия по дням
+    POST  /api/analytics/forecast/run       → переобучить модель сейчас
 
   Cashier Intelligence (аналитика кассиров)
     POST  /api/cashiers/import              → импорт Excel-отчёта KPI кассиров
@@ -50,6 +54,7 @@ import os
 import shutil
 import sys
 import tempfile
+import threading
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -69,8 +74,9 @@ from starlette.middleware.sessions import SessionMiddleware
 
 import atm_monitor.api as atm_monitor_api
 import atm_monitor.db as atm_monitor_db
+import atm_monitor.forecast as atm_forecast
 import atm_monitor.scheduler as atm_collector
-from core import atm_live, auth
+from core import atm_analytics, atm_live, auth
 from core.config import BASE_DIR, SECRET_KEY
 from core.db import (
     DatabaseUnavailableError,
@@ -161,8 +167,10 @@ async def lifespan(app: FastAPI):
         os._exit(1)
     log.info("БД готова. ATM в базе: %d, филиалов: %d", count_atms(), count_branches())
     atm_collector.start_background()   # atm_monitor: почасовой опрос BTech в фоне
+    atm_forecast.start_background()    # прогноз снятий: переобучение раз в сутки
     yield
     atm_collector.stop_background()
+    atm_forecast.stop_background()
     close_pool()
     atm_monitor_db.close_pool()
     log.info("Сервер остановлен.")
@@ -1160,6 +1168,7 @@ async def incassation_plan(days: int = Query(2, ge=1, le=14)):
             "hours_to_low_cash": hours,
             "priority": "critical" if hours < 12 else "high" if hours < 24 else "planned",
             "recommended_refill": round(max(0, cap * 0.8 - (bal or 0))),
+            "forecast_source": a.get("ml_method") if a.get("ml_withdrawal_per_day") is not None else "heuristic",
         })
     planned.sort(key=lambda x: x["hours_to_low_cash"])
     return {
@@ -1167,8 +1176,40 @@ async def incassation_plan(days: int = Query(2, ge=1, le=14)):
         "horizon_days": days,
         "planned_atms": planned,
         "count": len(planned),
-        "note": "Оценка по текущему остатку (без истории транзакций). Календарь рейсов — POST /api/routes/incassation.",
+        "note": (
+            "Часы до low-cash — по прогнозу снятий XGBoost (forecast_source), для ATM без прогноза — "
+            "оценка по текущему остатку. Календарь рейсов — POST /api/routes/incassation."
+        ),
     }
+
+
+# ═══════════════════════════════════════════════════════════
+# АНАЛИТИКА ATM (dashboard/analytics.html)
+# ═══════════════════════════════════════════════════════════
+
+@app.get("/api/analytics/atm-status", summary="Состояние сети: работают, заняты, офлайн, не заряжены, неисправности")
+def analytics_atm_status():
+    return atm_analytics.network_status()
+
+
+@app.get("/api/analytics/forecast", summary="Прогноз снятий наличных (XGBoost) и сроки cash-out")
+def analytics_forecast():
+    return atm_analytics.forecast_overview()
+
+
+@app.get("/api/analytics/withdrawals", summary="Фактические снятия по дням (по истории остатков BTech)")
+def analytics_withdrawals(days: int = Query(30, ge=1, le=180)):
+    return atm_analytics.withdrawals_history(days)
+
+
+@app.post("/api/analytics/forecast/run", summary="Переобучить модель прогноза сейчас (в фоне)")
+def analytics_forecast_run():
+    def job():
+        atm_forecast.run_forecast()
+        atm_analytics.invalidate_cache()
+
+    threading.Thread(target=job, name="atm-forecast-manual", daemon=True).start()
+    return {"started": True}
 
 
 # ═══════════════════════════════════════════════════════════

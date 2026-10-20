@@ -69,9 +69,14 @@ def latest_states_by_tid(force: bool = False) -> Dict[str, Dict[str, Any]]:
             (SELECT t.forecast_hours FROM turnover_snapshots t
               WHERE t.atm_id = a.id
                 AND (t.currency IS NULL OR UPPER(t.currency) = 'UZS')
-              ORDER BY t.polled_at DESC, t.id DESC LIMIT 1) AS forecast_hours
+              ORDER BY t.polled_at DESC, t.id DESC LIMIT 1) AS forecast_hours,
+            f.method AS ml_method,
+            f.withdrawal_horizon / NULLIF(fr.horizon_days, 0) AS ml_withdrawal_per_day
         FROM atms a
         JOIN atm_snapshots snap ON snap.id = ({_LAST_SNAPSHOT_ID})
+        LEFT JOIN forecast_runs fr
+               ON fr.id = (SELECT MAX(id) FROM forecast_runs WHERE status = 'success')
+        LEFT JOIN atm_forecast_summary f ON f.run_id = fr.id AND f.atm_id = a.id
         WHERE a.tid IS NOT NULL
         """
     )
@@ -90,6 +95,10 @@ def latest_states_by_tid(force: bool = False) -> Dict[str, Dict[str, Any]]:
             "last_incassation": r.get("last_incassation"),
             "btech_terminal_id": str(r["btech_terminal_id"]) if r.get("btech_terminal_id") else None,
             "serial": str(r["serial"]) if r.get("serial") else None,
+            "ml_method": r.get("ml_method"),
+            "ml_withdrawal_per_day": (
+                float(r["ml_withdrawal_per_day"]) if r.get("ml_withdrawal_per_day") is not None else None
+            ),
         }
 
     _states_cache["at"] = now
@@ -122,6 +131,9 @@ def _fill_live(
     row["forecast_hours"] = live.get("forecast_hours")
     row["balance_polled_at"] = live.get("polled_at")
     row["last_incassation"] = live.get("last_incassation")
+    # Прогноз снятий (atm_monitor/forecast.py) — его использует hours_to_low_cash.
+    row["ml_method"] = live.get("ml_method")
+    row["ml_withdrawal_per_day"] = live.get("ml_withdrawal_per_day")
     if cassettes_by_tid is not None:
         row["cassettes"] = cassettes_by_tid.get(tid) or []
 

@@ -134,3 +134,11 @@ def test_osrm_route_geometry_needs_two_valid_points():
     assert osrm_route_geometry([]) == (None, None)
     assert osrm_route_geometry([{"lat": 41.3, "lon": 69.2}]) == (None, None)
     assert osrm_route_geometry([{"lat": 0, "lon": 0}, {"lat": 0, "lon": 0}]) == (None, None)
+
+
+def test_hours_to_low_cash_uses_ml_forecast():
+    # 200 млн, порог 20% от 400 = 80 млн, прогноз снятий 60 млн/сутки → 48 ч
+    atm = {"capacity": 400_000_000, "balance": 200_000_000, "ml_withdrawal_per_day": 60_000_000}
+    assert hours_to_low_cash(atm) == 48.0
+    assert hours_to_low_cash({**atm, "ml_withdrawal_per_day": 0}) is None
+    assert hours_to_low_cash({**atm, "balance": 50_000_000}) == 0.0

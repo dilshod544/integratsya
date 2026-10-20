@@ -40,6 +40,16 @@ class Settings:
     COLLECTOR_ENABLED = _bool("ATM_COLLECTOR", "true")
     TIMEZONE = os.getenv("TIMEZONE", "Asia/Tashkent")
 
+    # --- Прогноз снятий (XGBoost, atm_monitor/forecast.py) ---
+    # Модель переобучается раз в сутки в FORECAST_HOUR:00 по TIMEZONE.
+    FORECAST_ENABLED = _bool("ATM_FORECAST", "true")
+    FORECAST_HOUR = int(os.getenv("FORECAST_HOUR", "0"))
+    FORECAST_DAYS = int(os.getenv("FORECAST_DAYS", "7"))
+    FORECAST_HISTORY_DAYS = int(os.getenv("FORECAST_HISTORY_DAYS", "120"))
+    # Те же пороги, что у карты (api/core/config.py читает те же переменные).
+    LOW_CASH_PCT = float(os.getenv("LOW_CASH_PCT", "0.20"))
+    DEFAULT_CAPACITY = int(os.getenv("DEFAULT_CAPACITY", "400000000"))
+
     # --- Query params (как в примере пользователя; agentConnectionStatus="all",
     # чтобы получать в т.ч. офлайн-банкоматы, а не только online) ---
     QUERY_PARAMS = {
