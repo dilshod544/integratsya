@@ -42,26 +42,112 @@ function appIcon(name, extra = '') {
 // REGION SEARCH & FILTER FUNCTIONS
 // ═══════════════════════════════════════════════════════════
 
+// KPI status filter from top cards: null = no filter, 'critical'|'warning'|'ok'
+let kpiStatusFilter = null;
+let kpiActive = null; // 'all'|'critical'|'warning'|'ok'|'branches'|'vash'
+
 function getFilteredATMs() {
   return ATM_META.filter(atm => {
     // 1. Filter by region/ATMs selected in modal if active
     if (selectedAtmIdsFromModal) {
       if (!selectedAtmIdsFromModal.has(atm.id)) return false;
     }
-    
-    // 2. Filter by search input query if typed
+
+    // 2. KPI status card (Всего / Критично / Предупреждение / В норме)
+    if (kpiStatusFilter) {
+      const st = atmState[atm.id]?.status || atm.status || 'ok';
+      if (st !== kpiStatusFilter) return false;
+    }
+
+    // 3. Filter by search input query if typed
     if (currentSearchQuery) {
       const q = currentSearchQuery.toLowerCase();
       const name = (atm.name || "").toLowerCase();
       const addr = (atm.address || "").toLowerCase();
       const reg = (atm.region || "").toLowerCase();
       const bank = (atm.bank || "").toLowerCase();
-      
+
       return name.includes(q) || addr.includes(q) || reg.includes(q) || bank.includes(q);
     }
-    
+
     return true;
   });
+}
+
+function syncKpiActive(mode) {
+  kpiActive = mode;
+  const mapIds = {
+    all: 'kpi-atm',
+    critical: 'kpi-critical',
+    warning: 'kpi-warning',
+    ok: 'kpi-ok',
+    branches: 'kpi-branches',
+    vash: 'kpi-vash',
+  };
+  Object.values(mapIds).forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.classList.toggle('active', mapIds[mode] === id);
+  });
+}
+
+async function ensureAtmsVisible() {
+  if (!atmsVisible) toggleAtmsLayer();
+}
+
+function setKpiFilter(mode) {
+  // mode: 'all' | 'critical' | 'warning' | 'ok'
+  ensureAtmsVisible();
+  kpiStatusFilter = mode === 'all' ? null : mode;
+  syncKpiActive(mode);
+  renderList();
+  const filtered = getFilteredATMs();
+  zoomToFiltered(filtered);
+  const labels = { all: 'все ATM', critical: 'критичные', warning: 'с предупреждением', ok: 'в норме' };
+  const countEl = document.getElementById('list-count');
+  if (countEl && mode !== 'all') {
+    countEl.textContent = `${filtered.length} ATM · ${labels[mode] || mode}`;
+  }
+}
+
+async function setKpiBranches() {
+  syncKpiActive('branches');
+  kpiStatusFilter = null;
+  renderList();
+  // setBranchMode toggles off if already on — force-show instead
+  if (!(branchesVisible && !warehouseOnly)) {
+    if (branchesVisible && warehouseOnly) {
+      // switch from warehouse-only to all
+      warehouseOnly = false;
+      const ok = await loadBranches();
+      if (ok) {
+        branchesVisible = true;
+        branchesLayer.addTo(map);
+        const legend = document.getElementById('branches-legend');
+        if (legend) legend.style.display = 'block';
+      }
+    } else {
+      await setBranchMode('all');
+    }
+    syncVashHubs();
+    syncBranchMenu();
+  }
+  if (branchesLayer && branchesLayer.getLayers().length) {
+    const pts = [];
+    branchesLayer.eachLayer(m => {
+      if (m.getLatLng) pts.push(m.getLatLng());
+    });
+    if (pts.length) smoothFitBounds(L.latLngBounds(pts), { padding: [50, 50], maxZoom: 12 });
+  }
+}
+
+async function setKpiVash() {
+  syncKpiActive('vash');
+  if (!vashVisible) {
+    await toggleVashLayer();
+  } else {
+    const pts = vashMarkers.map(v => v.marker.getLatLng());
+    if (pts.length) smoothFitBounds(L.latLngBounds(pts), { padding: [40, 40], maxZoom: 13 });
+  }
 }
 
 function updateMarkersHighlight(filtered) {
@@ -72,7 +158,7 @@ function updateMarkersHighlight(filtered) {
     return;
   }
 
-  const isFiltering = currentSearchQuery !== "" || selectedAtmIdsFromModal !== null;
+  const isFiltering = currentSearchQuery !== "" || selectedAtmIdsFromModal !== null || kpiStatusFilter !== null;
   const filteredSet = new Set(filtered.map(a => a.id));
   
   Object.entries(markers).forEach(([id, marker]) => {
@@ -1700,7 +1786,30 @@ function renderKpisAndMarkers(nCrit, nWarn, nOk, nInc) {
   set('s-critical', nCrit);
   set('s-warning', nWarn);
   set('s-ok', nOk);
-  set('s-inc', nInc);
+  if (nInc != null) set('s-inc', nInc);
+}
+
+async function loadExtraKpis() {
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  try {
+    const [br, vash, cal] = await Promise.all([
+      fetch(`${API_BASE}/api/branches/stats`).then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch(`${API_BASE}/api/vash`).then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch(`${API_BASE}/api/incassation/calendar`).then(r => r.ok ? r.json() : null).catch(() => null),
+    ]);
+    if (br && br.total != null) set('s-branches', br.total);
+    else if (branchesCache.length) set('s-branches', branchesCache.length);
+    if (vash && vash.count != null) set('s-vash', vash.count);
+    if (cal) {
+      const today = new Date();
+      const ymd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+      const events = cal.events || cal.trips || [];
+      const nToday = events.filter(e => (e.planned_date || (e.due_at || '').slice(0, 10)) === ymd).length;
+      set('s-inc', nToday);
+    }
+  } catch (err) {
+    console.warn('Extra KPIs failed:', err);
+  }
 }
 
 // Первичная загрузка: реестр + реальные данные, один раз строим маркеры.
@@ -1712,6 +1821,7 @@ async function initAtms() {
   initMarkers(true);
   renderList();
   hideLoader();
+  loadExtraKpis();
   await showTripFromQuery();
   startAutoRefresh();
 }
@@ -2431,6 +2541,9 @@ window.toggleBranchMenu = toggleBranchMenu;
 window.toggleLegend = toggleLegend;
 window.setBranchMode = setBranchMode;
 window.toggleVashLayer = toggleVashLayer;
+window.setKpiFilter = setKpiFilter;
+window.setKpiBranches = setKpiBranches;
+window.setKpiVash = setKpiVash;
 window.openVashPanel = openVashPanel;
 window.openVashPanelByCode = openVashPanelByCode;
 window.openVashUnmatchedPanel = openVashUnmatchedPanel;

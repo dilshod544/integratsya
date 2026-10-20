@@ -14,7 +14,7 @@
   <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.min.js"></script>
 
   <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
-  <link rel="stylesheet" href="/dashboard/css/map.css?v=vash4" />
+  <link rel="stylesheet" href="/dashboard/css/map.css?v=kpi1" />
 
 </head>
 <body>
@@ -43,53 +43,43 @@
 </header>
 
 <div class="app-shell">
-<!-- Stats bar -->
+<!-- Stats bar: clickable KPIs. ML / зарплата / кассеты → на странице календаря -->
 <div class="stats-bar">
-  <div class="stat-box">
-    <div class="kpi-icon"><i data-lucide="building-2"></i></div>
+  <button type="button" class="stat-box" id="kpi-atm" onclick="setKpiFilter('all')" title="Показать все банкоматы на карте">
+    <div class="kpi-icon"><i data-lucide="credit-card"></i></div>
     <span class="stat-label">Всего ATM</span>
     <span class="stat-value" id="s-total">—</span>
-  </div>
-  <div class="stat-box critical-tone">
+  </button>
+  <button type="button" class="stat-box branch-tone" id="kpi-branches" onclick="setKpiBranches()" title="Показать филиалы на карте">
+    <div class="kpi-icon"><i data-lucide="building-2"></i></div>
+    <span class="stat-label">Филиалы</span>
+    <span class="stat-value" id="s-branches">—</span>
+  </button>
+  <button type="button" class="stat-box critical-tone" id="kpi-critical" onclick="setKpiFilter('critical')" title="Только критичные ATM">
     <div class="kpi-icon"><i data-lucide="triangle-alert"></i></div>
     <span class="stat-label">Критично</span>
     <span class="stat-value red" id="s-critical">—</span>
-  </div>
-  <div class="stat-box warning-tone">
+  </button>
+  <button type="button" class="stat-box warning-tone" id="kpi-warning" onclick="setKpiFilter('warning')" title="Только с предупреждением">
     <div class="kpi-icon"><i data-lucide="circle-alert"></i></div>
     <span class="stat-label">Предупреждение</span>
     <span class="stat-value yellow" id="s-warning">—</span>
-  </div>
-  <div class="stat-box success-tone">
+  </button>
+  <button type="button" class="stat-box success-tone" id="kpi-ok" onclick="setKpiFilter('ok')" title="Только ATM в норме">
     <div class="kpi-icon"><i data-lucide="shield-check"></i></div>
     <span class="stat-label">В норме</span>
     <span class="stat-value green" id="s-ok">—</span>
-  </div>
-  <div class="stat-box">
+  </button>
+  <button type="button" class="stat-box vash-tone" id="kpi-vash" onclick="setKpiVash()" title="Показать ВАШ на карте">
+    <div class="kpi-icon"><i data-lucide="arrow-left-right"></i></div>
+    <span class="stat-label">ВАШ</span>
+    <span class="stat-value" id="s-vash">—</span>
+  </button>
+  <a class="stat-box" id="kpi-inc" href="/dashboard/incassation.html" title="Календарь инкассаций">
     <div class="kpi-icon"><i data-lucide="truck"></i></div>
     <span class="stat-label">Инкассаций сегодня</span>
     <span class="stat-value" id="s-inc">—</span>
-  </div>
-  <div class="stat-box purple-tone" style="border-left:2px solid #6366f1">
-    <div class="kpi-icon"><i data-lucide="brain-circuit"></i></div>
-    <span class="stat-label" style="color:#4f46e5">ML · Высокий риск</span>
-    <span class="stat-value" id="s-ml-high" style="color:#818cf8">—</span>
-  </div>
-  <div class="stat-box purple-tone" style="border-left:2px solid #6366f1">
-    <div class="kpi-icon"><i data-lucide="activity"></i></div>
-    <span class="stat-label" style="color:#4f46e5">ML · Средний риск</span>
-    <span class="stat-value" id="s-ml-med" style="color:#818cf8">—</span>
-  </div>
-  <div class="stat-box" style="border-left:2px solid #7c3aed" id="salary-box">
-    <div class="kpi-icon"><i data-lucide="calendar-days"></i></div>
-    <span class="stat-label" style="color:#7c3aed">Зарплатный день</span>
-    <span class="stat-value" id="s-salary" style="color:#a78bfa">—</span>
-  </div>
-  <div class="stat-box" style="border-left:2px solid #f59e0b">
-    <div class="kpi-icon"><i data-lucide="archive"></i></div>
-    <span class="stat-label" style="color:#d97706">Кассеты нужны</span>
-    <span class="stat-value" id="s-cassette" style="color:#fbbf24">—</span>
-  </div>
+  </a>
 </div>
 
 <div class="main">
@@ -314,7 +304,7 @@
   </div>
 </div>
 
-<script src="/dashboard/js/map-app.js?v=vash7"></script>
+<script src="/dashboard/js/map-app.js?v=kpi1"></script>
 <script src="/dashboard/js/auth-nav.js"></script>
 </body>
 </html>

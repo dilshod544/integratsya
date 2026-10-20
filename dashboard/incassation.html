@@ -6,131 +6,264 @@
   <title>Календарь инкассаций</title>
   <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
   <style>
-    * { box-sizing: border-box }
-    body { margin: 0; background: #fff; color: #202124; font: 14px Arial, sans-serif }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #f6f8fb;
+      --surface: #ffffff;
+      --surface-2: #f8fafc;
+      --surface-3: #eef4ff;
+      --border: #e5eaf3;
+      --border-strong: #d5ddec;
+      --text: #111827;
+      --muted: #667085;
+      --primary: #2563eb;
+      --success: #16a34a;
+      --warning: #d97706;
+      --danger: #dc2626;
+      --purple: #7c3aed;
+      --indigo: #4f46e5;
+      --shadow-sm: 0 1px 2px rgba(16, 24, 40, .06);
+      --shadow-md: 0 12px 28px rgba(16, 24, 40, .08);
+    }
+    body {
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(37, 99, 235, .10), transparent 30%),
+        linear-gradient(180deg, #fbfdff 0%, var(--bg) 42%, #eef3fb 100%);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
     header {
-      height: 64px; border-bottom: 1px solid #dadce0;
-      display: flex; align-items: center; padding: 0 24px; gap: 16px;
+      background: rgba(255, 255, 255, .86);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 24px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-shrink: 0;
+      backdrop-filter: blur(18px);
+      box-shadow: var(--shadow-sm);
+      z-index: 20;
     }
-    header h1 { font-size: 22px; font-weight: 400; margin: 0 }
-    .logo { color: #6f42c1; display: flex }
-    .nav {
-      border: 1px solid #dadce0; background: #fff; border-radius: 4px;
-      padding: 8px 12px; font-weight: 600; cursor: pointer;
+    header h1 {
+      font-size: 19px;
+      font-weight: 800;
+      letter-spacing: -.02em;
     }
-    .month { font-size: 20px; margin-left: 8px }
-    .spacer { flex: 1 }
-    .link { color: #3c4043; text-decoration: none; font-weight: 600 }
-    .layout { display: grid; grid-template-columns: 250px 1fr 380px; min-height: calc(100vh - 64px) }
-    aside { border-right: 1px solid #dadce0; padding: 18px 16px }
+    .logo {
+      width: 34px; height: 34px; border-radius: 12px;
+      background: linear-gradient(135deg, var(--purple), #a78bfa);
+      color: #fff; display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 8px 18px rgba(124, 58, 237, .25);
+    }
+    .logo svg { width: 18px; height: 18px; }
+    .badge {
+      background: linear-gradient(135deg, var(--primary), #60a5fa);
+      color: #fff; border-radius: 999px; padding: 4px 11px;
+      font-size: 12px; font-weight: 700;
+    }
+    .spacer { flex: 1; }
+    .top-nav { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .top-nav a, .nav-btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 8px 11px; border: 1px solid var(--border); border-radius: 12px;
+      color: var(--muted); background: #fff; text-decoration: none;
+      font-size: 12px; font-weight: 800; cursor: pointer;
+    }
+    .top-nav a:hover, .nav-btn:hover { border-color: #c7d2fe; color: var(--primary); }
+    .month-title { font-size: 15px; font-weight: 800; color: var(--text); min-width: 160px; }
+
+    .stats-bar {
+      display: flex; gap: 12px; padding: 12px 24px 0; flex-shrink: 0; flex-wrap: wrap;
+    }
+    .stat-box {
+      flex: 1; min-width: 140px;
+      background: rgba(255,255,255,.92);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 10px 12px;
+      display: flex; flex-direction: column; gap: 2px;
+      box-shadow: var(--shadow-sm);
+    }
+    .stat-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; font-weight: 700; }
+    .stat-value { font-size: 20px; font-weight: 800; letter-spacing: -.04em; }
+    .stat-hint { font-size: 10px; color: var(--muted); margin-top: 2px; line-height: 1.3; }
+    .kpi-icon {
+      width: 30px; height: 30px; border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      margin-bottom: 4px; background: var(--surface-3); color: var(--primary);
+    }
+    .kpi-icon svg { width: 16px; height: 16px; stroke-width: 2.4; }
+    .stat-box.critical-tone .kpi-icon { background:#fef2f2; color:var(--danger); }
+    .stat-box.warning-tone .kpi-icon { background:#fffbeb; color:var(--warning); }
+    .stat-box.purple-tone .kpi-icon { background:#f5f3ff; color:var(--purple); }
+    .stat-box.amber-tone .kpi-icon { background:#fffbeb; color:#d97706; }
+    .stat-box.indigo-tone .kpi-icon { background:#eef2ff; color:var(--indigo); }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 260px 1fr 360px;
+      gap: 14px;
+      padding: 14px 24px 24px;
+      flex: 1;
+      min-height: 0;
+    }
+    .panel-card {
+      background: rgba(255,255,255,.94);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      box-shadow: var(--shadow-md);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+    aside.side { padding: 18px 16px; }
     .create {
-      display: flex; align-items: center; gap: 11px; border: 0; border-radius: 24px;
-      background: #fff; box-shadow: 0 1px 5px #0004; padding: 13px 18px;
-      font-size: 14px; color: #3c4043; font-weight: 600; cursor: pointer; width: 100%;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+      width: 100%; border: 0; border-radius: 14px;
+      background: linear-gradient(135deg, var(--purple), #8b5cf6);
+      color: #fff; font-size: 13px; font-weight: 800;
+      padding: 12px 16px; cursor: pointer;
+      box-shadow: 0 10px 22px rgba(124, 58, 237, .28);
     }
-    .create i { color: #6f42c1 }
-    .create:disabled { opacity: .6; cursor: wait }
-    .mini-title { margin: 27px 0 12px; font-size: 12px; font-weight: bold; color: #5f6368; text-transform: uppercase }
-    .legend { display: flex; align-items: center; gap: 9px; margin: 13px 4px; color: #5f6368 }
-    .dot { height: 10px; width: 10px; border-radius: 50% }
-    .note { font-size: 12px; line-height: 1.55; color: #5f6368; background: #f8f9fa; padding: 12px; border-radius: 8px; margin-top: 25px }
-    .main { overflow: auto }
+    .create:disabled { opacity: .65; cursor: wait; }
+    .create svg { width: 16px; height: 16px; }
+    .mini-title {
+      margin: 22px 0 10px; font-size: 11px; font-weight: 800;
+      color: var(--muted); text-transform: uppercase; letter-spacing: .5px;
+    }
+    .legend { display: flex; align-items: center; gap: 9px; margin: 10px 2px; color: var(--muted); font-size: 12px; font-weight: 600; }
+    .dot { height: 10px; width: 10px; border-radius: 50%; flex: none; }
+    .note {
+      font-size: 12px; line-height: 1.55; color: var(--muted);
+      background: var(--surface-2); border: 1px solid var(--border);
+      padding: 12px; border-radius: 14px; margin-top: 18px;
+    }
+
+    .main { min-width: 0; }
     .toolbar {
-      height: 64px; display: flex; align-items: center; padding: 0 20px;
-      border-bottom: 1px solid #dadce0; gap: 10px;
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      padding: 12px 14px; border-bottom: 1px solid var(--border); background: #fff;
     }
     .toolbar button {
-      border: 1px solid #dadce0; background: #fff; border-radius: 4px;
-      padding: 8px 11px; cursor: pointer;
+      border: 1px solid var(--border); background: #fff; border-radius: 10px;
+      padding: 7px 12px; cursor: pointer; font-size: 12px; font-weight: 800; color: var(--muted);
     }
-    .toolbar button.active { color: #fff; background: #6f42c1; border-color: #6f42c1 }
-    .status { margin-left: auto; color: #5f6368; font-size: 12px }
-    .calendar { min-width: 900px; display: grid; grid-template-columns: repeat(7, 1fr) }
+    .toolbar button.active {
+      color: #fff; background: var(--purple); border-color: var(--purple);
+      box-shadow: 0 6px 14px rgba(124, 58, 237, .25);
+    }
+    .status { margin-left: auto; color: var(--muted); font-size: 12px; font-weight: 600; }
+
+    .cal-wrap { overflow: auto; flex: 1; background: var(--surface-2); }
+    .calendar { min-width: 780px; display: grid; grid-template-columns: repeat(7, 1fr); }
     .dow {
-      height: 46px; border-bottom: 1px solid #dadce0; text-align: center;
-      padding-top: 12px; font-size: 11px; font-weight: bold; color: #70757a; text-transform: uppercase;
+      height: 40px; text-align: center; padding-top: 12px;
+      font-size: 11px; font-weight: 800; color: var(--muted);
+      text-transform: uppercase; letter-spacing: .4px;
+      background: #fff; border-bottom: 1px solid var(--border);
     }
     .day {
-      height: calc((100vh - 174px) / 5); min-height: 118px;
-      border-right: 1px solid #e8eaed; border-bottom: 1px solid #e8eaed;
-      padding: 6px; overflow: hidden; cursor: pointer;
+      height: calc((100vh - 280px) / 5); min-height: 108px;
+      border-right: 1px solid var(--border); border-bottom: 1px solid var(--border);
+      padding: 8px; overflow: hidden; cursor: pointer; background: #fff;
+      transition: background .12s;
     }
-    .day:nth-child(7n) { border-right: 0 }
-    .day.selected { background: #f3e8ff; outline: 2px solid #6f42c1; outline-offset: -2px }
+    .day:nth-child(7n) { border-right: 0; }
+    .day:hover { background: #f8fafc; }
+    .day.selected {
+      background: #f5f3ff;
+      box-shadow: inset 0 0 0 2px var(--purple);
+    }
     .date {
-      font-size: 12px; color: #5f6368; width: 25px; height: 25px;
-      line-height: 25px; text-align: center; border-radius: 50%; margin-bottom: 4px;
+      font-size: 12px; color: var(--muted); width: 26px; height: 26px;
+      line-height: 26px; text-align: center; border-radius: 50%;
+      margin-bottom: 4px; font-weight: 800;
     }
-    .today .date { background: #6f42c1; color: #fff }
-    .outside { background: #fafafa }
-    .outside .date { color: #adb1b7 }
-    .day-sum { font-size: 10px; color: #5f6368; margin: 0 0 4px; font-weight: 700 }
+    .today .date { background: var(--purple); color: #fff; }
+    .outside { background: #fafbfc; }
+    .outside .date { color: #cbd5e1; }
+    .day-sum { font-size: 10px; color: var(--muted); margin: 0 0 5px; font-weight: 700; }
     .chip {
-      border-radius: 4px; padding: 3px 5px; margin: 2px 0; font-size: 10px;
-      line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      border-radius: 8px; padding: 4px 6px; margin: 3px 0; font-size: 10px;
+      line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 700;
     }
-    .chip.critical { background: #fce8e6; color: #a50e0e; border-left: 3px solid #d93025 }
-    .chip.high { background: #fef7e0; color: #8d5f00; border-left: 3px solid #f9ab00 }
-    .chip.planned { background: #e8f0fe; color: #174ea6; border-left: 3px solid #4285f4 }
-    .more { font-size: 10px; font-weight: bold; color: #5f6368; padding: 2px 0 }
-    .panel {
-      border-left: 1px solid #dadce0; background: #fafbff;
-      display: flex; flex-direction: column; min-height: 0;
+    .chip.critical { background: #fef2f2; color: #991b1b; border-left: 3px solid var(--danger); }
+    .chip.high { background: #fffbeb; color: #92400e; border-left: 3px solid var(--warning); }
+    .chip.planned { background: #eff6ff; color: #1e40af; border-left: 3px solid var(--primary); }
+    .more { font-size: 10px; font-weight: 800; color: var(--muted); padding: 2px 0; }
+
+    .panel-head { padding: 16px 18px 12px; border-bottom: 1px solid var(--border); background: #fff; }
+    .panel-head h2 { margin: 0; font-size: 15px; font-weight: 800; }
+    .panel-head p { margin: 6px 0 0; color: var(--muted); font-size: 12px; font-weight: 600; }
+    .panel-body { overflow: auto; padding: 12px; flex: 1; }
+    .empty-panel {
+      padding: 28px 16px; text-align: center; color: var(--muted);
+      font-size: 13px; font-weight: 600; line-height: 1.5;
     }
-    .panel-head { padding: 16px 18px 12px; border-bottom: 1px solid #dadce0; background: #fff }
-    .panel-head h2 { margin: 0; font-size: 15px; font-weight: 700 }
-    .panel-head p { margin: 6px 0 0; color: #5f6368; font-size: 12px }
-    .panel-body { overflow: auto; padding: 10px 12px 20px; flex: 1 }
     .region-card {
-      background: #fff; border: 1px solid #e8eaed; border-radius: 10px;
-      margin-bottom: 10px; overflow: hidden;
+      background: #fff; border: 1px solid var(--border); border-radius: 14px;
+      margin-bottom: 10px; overflow: hidden; box-shadow: var(--shadow-sm);
     }
     .region-card h3 {
-      margin: 0; padding: 10px 12px; font-size: 13px;
+      margin: 0; padding: 10px 12px; font-size: 13px; font-weight: 800;
       display: flex; justify-content: space-between; gap: 8px; align-items: center;
-      background: #f8f9fa; border-bottom: 1px solid #eee;
+      background: var(--surface-2); border-bottom: 1px solid var(--border);
     }
-    .region-card h3 span { color: #5f6368; font-weight: 600; font-size: 11px }
+    .region-card h3 span { color: var(--muted); font-weight: 700; font-size: 11px; }
     .trip {
-      padding: 9px 12px; border-bottom: 1px solid #f1f3f4; cursor: pointer; font-size: 12px;
+      padding: 10px 12px; border-bottom: 1px solid var(--border); cursor: pointer; font-size: 12px;
     }
-    .trip:last-child { border-bottom: 0 }
-    .trip:hover { background: #f8f5ff }
-    .trip b { display: block; margin-bottom: 3px }
-    .trip .meta { color: #5f6368; font-size: 11px }
-    .prio { font-size: 10px; font-weight: 800; text-transform: uppercase }
-    .prio.critical { color: #d93025 }
-    .prio.high { color: #e37400 }
-    .prio.planned { color: #1a73e8 }
-    .event {
-      border-radius: 4px; padding: 4px 6px; margin: 3px 0; font-size: 11px;
-      line-height: 1.28; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    }
-    .event.critical { background: #fce8e6; color: #a50e0e; border-left: 3px solid #d93025 }
-    .event.high { background: #fef7e0; color: #8d5f00; border-left: 3px solid #f9ab00 }
-    .event.planned { background: #e8f0fe; color: #174ea6; border-left: 3px solid #4285f4 }
+    .trip:last-child { border-bottom: 0; }
+    .trip:hover { background: #f8f5ff; }
+    .trip b { display: block; margin-bottom: 3px; font-weight: 800; }
+    .trip .meta { color: var(--muted); font-size: 11px; font-weight: 600; }
+    .prio { font-size: 10px; font-weight: 800; text-transform: uppercase; margin-left: 6px; }
+    .prio.critical { color: var(--danger); }
+    .prio.high { color: var(--warning); }
+    .prio.planned { color: var(--primary); }
+
     .modal {
-      position: fixed; inset: 0; background: #0006; display: none;
-      align-items: center; justify-content: center; z-index: 10;
+      position: fixed; inset: 0; background: rgba(15, 23, 42, .45);
+      display: none; align-items: center; justify-content: center; z-index: 50;
+      backdrop-filter: blur(4px);
     }
-    .modal.open { display: flex }
+    .modal.open { display: flex; }
     .dialog {
       width: min(560px, calc(100vw - 28px)); max-height: 86vh;
-      background: #fff; border-radius: 10px; box-shadow: 0 12px 30px #0005; overflow: auto;
+      background: #fff; border-radius: 18px; box-shadow: var(--shadow-md); overflow: auto;
+      border: 1px solid var(--border);
     }
-    .dialog-head { padding: 17px 20px; background: #6f42c1; color: #fff; font-size: 17px }
-    .dialog-body { padding: 20px; line-height: 1.7 }
-    .kv { display: grid; grid-template-columns: 155px 1fr; border-bottom: 1px solid #eee; padding: 8px 0 }
-    .kv b { color: #5f6368 }
-    .close { float: right; background: none; border: 0; color: #fff; font-size: 22px; cursor: pointer }
-    .stops { margin: 0; padding-left: 18px; font-size: 13px }
+    .dialog-head {
+      padding: 16px 20px; background: linear-gradient(135deg, var(--purple), #8b5cf6);
+      color: #fff; font-size: 16px; font-weight: 800;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .dialog-body { padding: 18px 20px; line-height: 1.6; }
+    .kv {
+      display: grid; grid-template-columns: 140px 1fr;
+      border-bottom: 1px solid var(--border); padding: 9px 0; font-size: 13px;
+    }
+    .kv b { color: var(--muted); font-weight: 700; }
+    .close {
+      background: rgba(255,255,255,.18); border: 0; color: #fff;
+      width: 32px; height: 32px; border-radius: 10px; font-size: 18px; cursor: pointer;
+    }
+    .stops { margin: 0; padding-left: 18px; font-size: 13px; }
+    .map-link {
+      display: inline-flex; margin-top: 14px; color: var(--purple);
+      font-weight: 800; text-decoration: none;
+    }
+
     @media (max-width: 1100px) {
-      .layout { grid-template-columns: 1fr }
-      aside { display: none }
-      .panel { border-left: 0; border-top: 1px solid #dadce0; min-height: 320px }
-      header { padding: 0 12px }
-      .month { font-size: 16px }
-      .calendar { min-width: 760px }
+      .layout { grid-template-columns: 1fr; }
+      aside.side { display: none; }
+      header { padding: 12px 14px; }
+      .stats-bar, .layout { padding-left: 14px; padding-right: 14px; }
+      .calendar { min-width: 700px; }
     }
   </style>
 </head>
@@ -138,41 +271,83 @@
   <header>
     <span class="logo"><i data-lucide="calendar-days"></i></span>
     <h1>Инкассации</h1>
-    <button class="nav" type="button" onclick="changeMonth(-1)">‹</button>
-    <button class="nav" type="button" onclick="changeMonth(1)">›</button>
-    <button class="nav" type="button" onclick="today()">Сегодня</button>
-    <span class="month" id="month"></span>
+    <span class="badge">Календарь рейсов</span>
+    <button class="nav-btn" type="button" onclick="changeMonth(-1)" title="Пред. месяц"><i data-lucide="chevron-left"></i></button>
+    <button class="nav-btn" type="button" onclick="changeMonth(1)" title="След. месяц"><i data-lucide="chevron-right"></i></button>
+    <button class="nav-btn" type="button" onclick="today()">Сегодня</button>
+    <span class="month-title" id="month"></span>
     <span class="spacer"></span>
-    <a class="link" href="/dashboard/map.html">Карта</a>
-    <a class="link" href="/dashboard/cashiers.html">Кассиры</a>
-    <a class="link" href="/dashboard/index.html">Главная</a>
+    <nav class="top-nav">
+      <a href="/dashboard/map.html"><i data-lucide="map" class="icon-inline"></i> Карта</a>
+      <a href="/dashboard/cashiers.html"><i data-lucide="users-round" class="icon-inline"></i> Кассиры</a>
+      <a href="/dashboard/index.html"><i data-lucide="home" class="icon-inline"></i> Главная</a>
+    </nav>
   </header>
+
+  <!-- KPI: инкассация + перенесённые с карты ML / зарплата / кассеты -->
+  <div class="stats-bar">
+    <div class="stat-box purple-tone">
+      <div class="kpi-icon"><i data-lucide="truck"></i></div>
+      <span class="stat-label">Инкассаций сегодня</span>
+      <span class="stat-value" id="s-inc" style="color:#6d28d9">—</span>
+      <span class="stat-hint" id="s-inc-hint">рейсов на сегодня</span>
+    </div>
+    <div class="stat-box indigo-tone">
+      <div class="kpi-icon"><i data-lucide="brain-circuit"></i></div>
+      <span class="stat-label" style="color:#4f46e5">ML · Высокий риск</span>
+      <span class="stat-value" id="s-ml-high" style="color:#818cf8">—</span>
+      <span class="stat-hint">модель ещё не подключена</span>
+    </div>
+    <div class="stat-box indigo-tone">
+      <div class="kpi-icon"><i data-lucide="activity"></i></div>
+      <span class="stat-label" style="color:#4f46e5">ML · Средний риск</span>
+      <span class="stat-value" id="s-ml-med" style="color:#818cf8">—</span>
+      <span class="stat-hint">модель ещё не подключена</span>
+    </div>
+    <div class="stat-box purple-tone" id="salary-box">
+      <div class="kpi-icon"><i data-lucide="calendar-days"></i></div>
+      <span class="stat-label" style="color:#7c3aed">Зарплатный день</span>
+      <span class="stat-value" id="s-salary" style="color:#a78bfa">—</span>
+      <span class="stat-hint" id="s-salary-hint">по календарю выплат</span>
+    </div>
+    <div class="stat-box amber-tone">
+      <div class="kpi-icon"><i data-lucide="archive"></i></div>
+      <span class="stat-label" style="color:#d97706">Кассеты нужны</span>
+      <span class="stat-value" id="s-cassette" style="color:#f59e0b">—</span>
+      <span class="stat-hint">ATM, которым нужно довезти</span>
+    </div>
+  </div>
+
   <div class="layout">
-    <aside>
+    <aside class="panel-card side">
       <button class="create" id="rebuildBtn" type="button" onclick="rebuildPlan()">
         <i data-lucide="sparkles"></i> Обновить план
       </button>
-      <div class="mini-title">Маршруты</div>
-      <div class="legend"><span class="dot" style="background:#d93025"></span> Срочная (остаток &lt; 20%)</div>
-      <div class="legend"><span class="dot" style="background:#f9ab00"></span> В течение дня (&lt; 40%)</div>
-      <div class="legend"><span class="dot" style="background:#4285f4"></span> Плановый выезд</div>
+      <div class="mini-title">Приоритет рейсов</div>
+      <div class="legend"><span class="dot" style="background:var(--danger)"></span> Срочная (остаток &lt; 20%)</div>
+      <div class="legend"><span class="dot" style="background:var(--warning)"></span> В течение дня (&lt; 40%)</div>
+      <div class="legend"><span class="dot" style="background:var(--primary)"></span> Плановый выезд</div>
       <div class="note">
         <b>Как считается</b><br>
         Берутся банкоматы с текущим остатком ниже нормы. Рейс выходит из филиала «Инкассация = 1» своего вилоята.
-        Даты — рабочие дни по 8 часов, начиная с сегодня (UTC+5). История транзакций и ML пока не подключены.
+        Даты — рабочие дни по 8 часов, начиная с сегодня (UTC+5). ML-риски и зарплатные дни появятся здесь, когда модель будет подключена.
       </div>
     </aside>
-    <section class="main">
+
+    <section class="panel-card main">
       <div class="toolbar">
         <button type="button" class="active" data-horizon="2" onclick="setHorizon(2, this)">2 дня</button>
         <button type="button" data-horizon="7" onclick="setHorizon(7, this)">7 дней</button>
         <button type="button" data-horizon="14" onclick="setHorizon(14, this)">14 дней</button>
         <span class="status" id="status">Загрузка календаря…</span>
       </div>
-      <div class="calendar" id="dow"></div>
-      <div class="calendar" id="grid"></div>
+      <div class="cal-wrap">
+        <div class="calendar" id="dow"></div>
+        <div class="calendar" id="grid"></div>
+      </div>
     </section>
-    <aside class="panel">
+
+    <aside class="panel-card">
       <div class="panel-head">
         <h2 id="panelTitle">Регионы дня</h2>
         <p id="panelMeta">Выберите день в календаре</p>
@@ -182,12 +357,17 @@
       </div>
     </aside>
   </div>
+
   <div class="modal" id="modal">
     <div class="dialog">
-      <div class="dialog-head">Карточка рейса <button class="close" type="button" onclick="closeModal()">×</button></div>
+      <div class="dialog-head">
+        <span>Карточка рейса</span>
+        <button class="close" type="button" onclick="closeModal()">×</button>
+      </div>
       <div class="dialog-body" id="dialog"></div>
     </div>
   </div>
+
   <script>
     try { if (window.lucide) lucide.createIcons(); } catch (_) {}
     const base = location.origin;
@@ -262,6 +442,36 @@
         const d = eventDate(e);
         return d >= from && d < to;
       });
+    }
+
+    function updatePlanKpis() {
+      const today = todayKey();
+      const nToday = allEvents.filter((e) => eventDate(e) === today).length;
+      document.getElementById('s-inc').textContent = nToday;
+      document.getElementById('s-inc-hint').textContent =
+        nToday ? `рейсов на ${formatHumanDate(today).split(',')[0] || 'сегодня'}` : 'на сегодня рейсов нет';
+
+      // Зарплатный день: 1–5 va 15–20 (taxminiy oynalar) — keyinroq alohida jadval bilan almashtiriladi
+      const day = new Date().getDate();
+      const isSalary = (day >= 1 && day <= 5) || (day >= 15 && day <= 20);
+      const salaryEl = document.getElementById('s-salary');
+      const salaryHint = document.getElementById('s-salary-hint');
+      const salaryBox = document.getElementById('salary-box');
+      salaryEl.textContent = isSalary ? 'Да' : 'Нет';
+      salaryHint.textContent = isSalary
+        ? 'Сейчас зарплатное окно (1–5 / 15–20)'
+        : 'Вне зарплатного окна (1–5 / 15–20)';
+      salaryBox.style.borderColor = isSalary ? '#c4b5fd' : '';
+
+      // Кассеты: ATM lar soni reyslarda (hozirgi oynadagi to‘ldirish kerak bo‘lganlar)
+      const atmIds = new Set();
+      allEvents.forEach((e) => {
+        (e.stops || []).forEach((s) => {
+          const id = s.terminal_id || s.atm_id || s.id;
+          if (id) atmIds.add(String(id));
+        });
+      });
+      document.getElementById('s-cassette').textContent = atmIds.size || '—';
     }
 
     function render() {
@@ -375,18 +585,18 @@
         if (!events.some((e) => eventDate(e) === selectedDay) && events.length) {
           selectedDay = eventDate(events[0]);
         }
-        // Show the month that contains selected day / first event
         if (selectedDay) {
           const [y, m] = selectedDay.split('-').map(Number);
           cursor = new Date(y, m - 1, 1);
         }
+        updatePlanKpis();
         setStatus();
         render();
       } catch (e) {
         console.error(e);
         document.getElementById('status').textContent = 'Ошибка загрузки: ' + (e.message || e);
         document.getElementById('grid').innerHTML =
-          '<div style="grid-column:1/-1;padding:40px;color:#a50e0e;font-weight:700">Не удалось загрузить календарь. Обновите страницу или нажмите «Обновить план».</div>';
+          '<div style="grid-column:1/-1;padding:40px;color:var(--danger);font-weight:700">Не удалось загрузить календарь. Обновите страницу или нажмите «Обновить план».</div>';
       }
     }
 
@@ -438,7 +648,7 @@
         <div class="kv"><b>Довезти</b><span>${moneyMln(e.recommended_refill)}</span></div>
         <div class="kv"><b>Приоритет</b><span>${e.priority || '—'}</span></div>
         <div class="kv"><b>Остановки (${stops.length})</b><span>${stopHtml}</span></div>
-        <p style="margin-top:15px"><a href="/dashboard/map.html?trip=${encodeURIComponent(e.id || '')}" target="_self" style="color:#6f42c1;font-weight:700">Открыть карту</a></p>`;
+        <a class="map-link" href="/dashboard/map.html?trip=${encodeURIComponent(e.id || '')}">Открыть на карте →</a>`;
       document.getElementById('modal').classList.add('open');
     }
 
