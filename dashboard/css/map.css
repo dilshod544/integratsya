@@ -971,7 +971,11 @@ select, button, input {
   cursor: pointer;
 }
 .vash-item:hover { border-color: #a5b4fc; background: #f5f7ff; }
-.vash-item.no-coords { border-color: #fecaca; background: #fff7f7; cursor: default; }
+.vash-item.no-coords { cursor: default; }
+.vash-item.band-high { border-color: #86efac; background: #f0fdf4; }
+.vash-item.band-mid { border-color: #fcd34d; background: #fffbeb; }
+.vash-item.band-low { border-color: #fecaca; background: #fef2f2; }
+.vash-item.band-none { border-color: #e2e8f0; background: #f8fafc; }
 
 /* ── Marker Pulse Keyframes ── */
 @keyframes marker-pulse {

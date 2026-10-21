@@ -1075,12 +1075,26 @@ let vashLayer     = null;   // точки ВАШ + пунктир к филиа�
 let vashHubLayer  = null;   // филиал с числом ВАШ, когда маркер филиала не на карте
 let vashMarkers   = [];
 let vashHighlight = null;
+let vashOpsByNumber = {};
+let vashOpsBand = '';
 let plottedBranchCodes = new Set();
+
+const VASH_BAND_COLOR = { high: '#16a34a', mid: '#d97706', low: '#dc2626' };
+const VASH_BAND_LABEL = { high: 'много операций', mid: 'средне', low: 'мало операций' };
 
 const VASH_GLYPH = `<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/></svg>`;
 
 function vashColor(localCode) {
   return localCode ? getDistrictColor(String(localCode)) : '#94a3b8';
+}
+
+function vashOpsOf(number) {
+  return vashOpsByNumber[normVashNumber(number)] || null;
+}
+
+function vashPointColor(number) {
+  const ops = vashOpsOf(number);
+  return ops ? (VASH_BAND_COLOR[ops.band] || '#94a3b8') : '#94a3b8';
 }
 
 function makeVashIcon(color) {
@@ -1092,13 +1106,17 @@ function makeVashIcon(color) {
   });
 }
 
-function makeVashHubIcon(color, count) {
+function makeVashHubIcon(color, count, counts) {
+  const present = ['high', 'mid', 'low'].filter(b => counts && counts[b]);
+  const dots = present.length > 1
+    ? present.map(b => `<i style="width:8px;height:8px;border-radius:50%;background:${VASH_BAND_COLOR[b]};display:inline-block;border:1px solid #fff"></i>`).join('')
+    : '';
   return L.divIcon({
     className: 'vash-hub-icon',
     html: `<div style="display:inline-flex;align-items:center;gap:5px;padding:2px 9px 2px 2px;border-radius:999px;
       background:#fff;border:2px solid ${color};box-shadow:0 2px 8px #0003;white-space:nowrap;
       font:800 11px/1 Inter,system-ui,sans-serif;color:#1e1b4b">
-      <span style="width:22px;height:22px;border-radius:999px;background:${color};display:flex;align-items:center;justify-content:center">${BRANCH_GLYPH}</span>${count} ВАШ</div>`,
+      <span style="width:22px;height:22px;border-radius:999px;background:${color};display:flex;align-items:center;justify-content:center">${BRANCH_GLYPH}</span>${dots}${count} ВАШ</div>`,
     iconSize: null, iconAnchor: [13, 13],
   });
 }
@@ -1108,9 +1126,20 @@ function vashGroupTitle(g) {
 }
 
 async function loadVash() {
-  const res = await fetch(`${API_BASE}/api/vash/branches`);
+  const [res, opsRes] = await Promise.all([
+    fetch(`${API_BASE}/api/vash/branches`),
+    fetch(`${API_BASE}/api/vash/operations/analytics`).catch(() => null),
+  ]);
   if (!res.ok) throw new Error('HTTP ' + res.status);
   vashData = await res.json();
+  vashOpsByNumber = {};
+  if (opsRes && opsRes.ok) {
+    const ops = await opsRes.json();
+    (ops.points || []).forEach(p => {
+      const key = normVashNumber(p.vash_number || p.obmen_punkt);
+      if (key) vashOpsByNumber[key] = { band: p.band, ops: p.ops };
+    });
+  }
   vashGroups = {};
   vashKeyByCode = {};
   [...(vashData.branches || []), ...(vashData.unmatched || [])].forEach((g, i) => {
@@ -1126,12 +1155,23 @@ function buildVashLayer() {
   if (vashLayer) map.removeLayer(vashLayer);
   vashLayer = L.layerGroup();
   vashMarkers = [];
+  const spotN = {};
   Object.values(vashGroups).forEach(g => {
-    const color = vashColor(g.local_code);
     const branchPt = g.matched ? validLatLng(g) : null;
     g.items.forEach(it => {
       const pt = validLatLng(it);
       if (!pt) return;
+      const spot = pt.lat.toFixed(5) + ',' + pt.lng.toFixed(5);
+      const n = spotN[spot] || 0;
+      spotN[spot] = n + 1;
+      if (n) {
+        const angle = n * 0.95;
+        const radius = 0.00018 * Math.ceil(n / 6);
+        pt.lat += Math.sin(angle) * radius;
+        pt.lng += Math.cos(angle) * radius;
+      }
+      const ops = vashOpsOf(it.vash_number);
+      const color = vashPointColor(it.vash_number);
       const line = branchPt
         ? L.polyline([branchPt, pt], { color, weight: 1.5, opacity: 0.55, dashArray: '4 5', interactive: false })
         : null;
@@ -1139,7 +1179,7 @@ function buildVashLayer() {
         .bindPopup(() => vashPopupHtml(it, g), { maxWidth: 280 });
       if (line) vashLayer.addLayer(line);
       vashLayer.addLayer(marker);
-      vashMarkers.push({ marker, line, key: g._key, id: it.id, number: it.vash_number });
+      vashMarkers.push({ marker, line, key: g._key, id: it.id, number: it.vash_number, band: ops ? ops.band : '', ops: ops ? ops.ops : 0 });
     });
   });
   if (vashVisible) vashLayer.addTo(map);
@@ -1160,6 +1200,36 @@ function syncBranchVashBadges() {
   if (row) row.style.display = vashVisible ? 'flex' : 'none';
 }
 
+function vashGroupBandCounts(g) {
+  const counts = { high: 0, mid: 0, low: 0, none: 0 };
+  (g.items || []).forEach(it => {
+    if (it.lat == null || it.lon == null) return;
+    const ops = vashOpsOf(it.vash_number);
+    counts[ops && counts[ops.band] != null ? ops.band : 'none'] += 1;
+  });
+  return counts;
+}
+
+function vashHubStyle(g) {
+  const counts = vashGroupBandCounts(g);
+  const count = counts.high + counts.mid + counts.low + counts.none;
+  if (!count) return null;
+  const present = ['high', 'mid', 'low'].filter(b => counts[b]);
+  const color = present.length === 1 ? VASH_BAND_COLOR[present[0]] : '#64748b';
+  return { color, count, counts };
+}
+
+function syncAtmDimForVash() {
+  const dim = !!(vashOpsBand && vashVisible);
+  if (dim) {
+    Object.values(markers).forEach(marker => marker.setOpacity(0.15));
+    return;
+  }
+  if (typeof updateMarkersHighlight === 'function' && typeof getFilteredATMs === 'function') {
+    updateMarkersHighlight(getFilteredATMs());
+  }
+}
+
 function syncVashHubs() {
   syncBranchVashBadges();
   if (vashHubLayer) { map.removeLayer(vashHubLayer); vashHubLayer = null; }
@@ -1170,12 +1240,15 @@ function syncVashHubs() {
     if (branchesVisible && plottedBranchCodes.has(String(g.local_code))) return;
     const pt = validLatLng(g);
     if (!pt) return;
-    L.marker(pt, { icon: makeVashHubIcon(vashColor(g.local_code), g.count), zIndexOffset: 400 })
-      .bindTooltip(`${escHtml(vashGroupTitle(g))} · ВАШ: ${g.count}`, { direction: 'top', offset: [0, -14] })
+    const style = vashHubStyle(g);
+    if (!style) return;
+    L.marker(pt, { icon: makeVashHubIcon(style.color, style.count, style.counts), zIndexOffset: 400 })
+      .bindTooltip(`${escHtml(vashGroupTitle(g))} · ВАШ: ${style.count}`, { direction: 'top', offset: [0, -14] })
       .on('click', () => openVashPanel(g._key))
       .addTo(vashHubLayer);
   });
   vashHubLayer.addTo(map);
+  syncAtmDimForVash();
 }
 
 function updateVashLegend() {
@@ -1193,11 +1266,33 @@ function updateVashLegend() {
   document.getElementById('vash-legend-summary').innerHTML =
     `${vashData.total} · ${vashData.branches_count} фил.` +
     (unmatched ? ` <span style="color:#b91c1c" title="Без филиала в реестре">· ⚠ ${unmatched}</span>` : '');
+  const filterEl = document.getElementById('vash-legend-filter');
+  if (filterEl) {
+    if (!vashOpsBand) {
+      filterEl.innerHTML = '';
+    } else {
+      const n = vashMarkers.filter(v => v.band === vashOpsBand).length;
+      const color = VASH_BAND_COLOR[vashOpsBand] || '#4338ca';
+      filterEl.innerHTML =
+        `Выделены: <b style="color:${color}">${escHtml(VASH_BAND_LABEL[vashOpsBand] || vashOpsBand)}</b> · ${n}` +
+        ` · остальные зоны тоже на карте, своим цветом` +
+        ` · <a href="#" onclick="clearVashOpsBand();return false">сбросить</a>`;
+    }
+  }
+}
+
+function clearVashOpsBand() {
+  vashOpsBand = '';
+  applyBranchVashFilter();
+  updateVashLegend();
+  const pts = vashMarkers.map(v => v.marker.getLatLng());
+  if (pts.length && map) smoothFitBounds(L.latLngBounds(pts), { padding: [40, 40], maxZoom: 13 });
 }
 
 async function toggleVashLayer() {
   branchVashCode = null;
   branchVashOwnedLayer = false;
+  vashOpsBand = '';
   applyBranchVashFilter();
   if (!vashVisible) {
     try {
@@ -1279,15 +1374,19 @@ function applyBranchVashFilter() {
   const key = branchVashCode ? vashKeyByCode[String(branchVashCode)] : null;
   vashMarkers.forEach(v => {
     const show = !key || v.key === key;
+    const emphasized = !vashOpsBand || v.band === vashOpsBand;
     if (show) {
       if (!vashLayer.hasLayer(v.marker)) vashLayer.addLayer(v.marker);
       if (v.line && !vashLayer.hasLayer(v.line)) vashLayer.addLayer(v.line);
-      v.marker.setOpacity(1);
+      v.marker.setOpacity(emphasized ? 1 : 0.45);
+      v.marker.setZIndexOffset(emphasized ? 500 : 200);
+      if (v.line) v.line.setStyle({ opacity: emphasized ? 0.55 : 0.12 });
     } else {
       if (vashLayer.hasLayer(v.marker)) vashLayer.removeLayer(v.marker);
       if (v.line && vashLayer.hasLayer(v.line)) vashLayer.removeLayer(v.line);
     }
   });
+  syncVashHubs();
 }
 
 function zoomBranchVash(code) {
@@ -1343,8 +1442,13 @@ async function toggleBranchVash(localCode) {
 
 function vashPopupHtml(it, g) {
   const title = it.vash_number ? `ВАШ ${escHtml(it.vash_number)}` : (it.row_no != null ? `ВАШ (№ ${it.row_no})` : 'ВАШ');
+  const ops = vashOpsOf(it.vash_number);
+  const opsRow = ops
+    ? `<div class="popup-row">Операции: <span style="color:${VASH_BAND_COLOR[ops.band] || '#64748b'};font-weight:800">${Number(ops.ops).toLocaleString('ru-RU')} · ${escHtml(VASH_BAND_LABEL[ops.band] || ops.band)}</span></div>`
+    : `<div class="popup-row">Операции: <span>нет в отчёте</span></div>`;
   return `
     <div class="popup-title">${appIcon('arrow-left-right')}${title}</div>
+    ${opsRow}
     <div class="popup-row">Филиал: <span>${escHtml(vashGroupTitle(g))}${g.local_code ? ' · ' + escHtml(g.local_code) : ''}</span></div>
     ${g.matched ? '' : `<div class="popup-row" style="color:#b91c1c;font-weight:700">БХМ ${escHtml(it.bxm_code || it.bxm_name || '')} нет в реестре филиалов</div>`}
     <div class="popup-row" style="max-width:250px">Адрес: <span>${escHtml(it.address || '—')}</span></div>
@@ -1388,13 +1492,22 @@ function openVashPanel(key) {
 
   const missing = g.count - g.with_coords;
   const items = g.items.slice().sort((a, b) => (a.row_no ?? 1e9) - (b.row_no ?? 1e9) || a.id - b.id);
+  const bandShort = { high: 'много', mid: 'средне', low: 'мало' };
+  const bandCounts = { high: 0, mid: 0, low: 0, none: 0 };
   const itemHtml = items.map((it, i) => {
     const hasPt = it.lat != null && it.lon != null;
+    const ops = vashOpsOf(it.vash_number);
+    const band = ops ? ops.band : 'none';
+    bandCounts[band] = (bandCounts[band] || 0) + 1;
+    const color = VASH_BAND_COLOR[band] || '#64748b';
+    const status = ops
+      ? `<span style="color:${color};font-weight:800;white-space:nowrap">${Number(ops.ops).toLocaleString('ru-RU')} · ${bandShort[band] || band}</span>`
+      : `<span style="color:#94a3b8;font-weight:700;white-space:nowrap">нет операций</span>`;
     return `
-      <div class="vash-item ${hasPt ? '' : 'no-coords'}" ${hasPt ? `onclick="focusVash(${it.id})"` : ''}>
-        <div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;font-weight:800;color:#312e81">
+      <div class="vash-item band-${band} ${hasPt ? '' : 'no-coords'}" ${hasPt ? `onclick="focusVash(${it.id})"` : ''}>
+        <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start;font-size:12px;font-weight:800;color:#0f172a">
           <span>${i + 1}. ${it.vash_number ? 'ВАШ ' + escHtml(it.vash_number) : 'ВАШ без номера'}</span>
-          ${it.row_no != null ? `<span style="color:#94a3b8;font-weight:700">№ ${it.row_no}</span>` : ''}
+          ${status}
         </div>
         <div style="font-size:11px;color:#475569;margin-top:3px;line-height:1.4">${escHtml(it.address || 'Адрес не указан')}</div>
         ${hasPt
@@ -1403,6 +1516,11 @@ function openVashPanel(key) {
         ${it.match_method === 'name' ? '<div style="font-size:10px;color:#b45309;margin-top:3px">Привязан по названию БХМ (код в файле пуст)</div>' : ''}
       </div>`;
   }).join('');
+  const bandSummary = ['high', 'mid', 'low'].map(band => `
+    <div class="bcp-card" style="flex:1;background:#fff;border-color:${VASH_BAND_COLOR[band]}">
+      <div class="bcp-label" style="color:${VASH_BAND_COLOR[band]}">${bandShort[band]}</div>
+      <div class="bcp-value" style="color:${VASH_BAND_COLOR[band]}">${bandCounts[band]}</div>
+    </div>`).join('');
 
   body.innerHTML = `
     <div style="font-size:12px;font-weight:800;color:#0f172a;margin-bottom:4px">${escHtml(g.address || g.bxm_name || '')}</div>
@@ -1424,6 +1542,7 @@ function openVashPanel(key) {
         <div class="bcp-value" style="color:${missing ? '#991b1b' : '#0f172a'}">${missing}</div>
       </div>
     </div>
+    <div style="display:flex;gap:8px;margin-top:8px">${bandSummary}</div>
     <div style="font-size:10px;font-weight:800;color:#334155;margin:14px 0 2px;text-transform:uppercase;letter-spacing:.04em">Список ВАШ</div>
     ${itemHtml}`;
 
@@ -1459,11 +1578,13 @@ function openVashUnmatchedPanel() {
 function focusVash(id) {
   const v = vashMarkers.find(x => x.id === id);
   if (!v) return;
+  if (vashLayer && !vashLayer.hasLayer(v.marker)) vashLayer.addLayer(v.marker);
+  if (v.line && vashLayer && !vashLayer.hasLayer(v.line)) vashLayer.addLayer(v.line);
   focusVashMarker(v);
 }
 
 function normVashNumber(value) {
-  return String(value ?? '').replace(/\s+/g, '').toUpperCase().replace(/^0+/, '');
+  return String(value ?? '').replace(/\s+/g, '').toUpperCase().replace(/^N/, '').replace(/^0+/, '');
 }
 
 function focusVashMarker(v) {
@@ -1484,6 +1605,20 @@ async function showVashFromQuery() {
     return false;
   }
   focusVashMarker(v);
+  return true;
+}
+
+async function showVashBandFromQuery() {
+  const band = new URLSearchParams(location.search).get('vash_band');
+  if (!band) return false;
+  const ok = await ensureVashShown();
+  if (ok === false) return false;
+  vashOpsBand = ['high', 'mid', 'low'].includes(band) ? band : '';
+  applyBranchVashFilter();
+  updateVashLegend();
+  const pts = vashMarkers.filter(v => !vashOpsBand || v.band === vashOpsBand).map(v => v.marker.getLatLng());
+  if (pts.length) smoothFitBounds(L.latLngBounds(pts), { padding: [40, 40], maxZoom: 13 });
+  else if (vashOpsBand) alert('В этой группе нет точек ВАШ с координатами.');
   return true;
 }
 
@@ -1946,6 +2081,7 @@ async function initAtms() {
   loadExtraKpis();
   await showTripFromQuery();
   await showVashFromQuery();
+  await showVashBandFromQuery();
   startAutoRefresh();
 }
 
@@ -2673,6 +2809,7 @@ window.openVashUnmatchedPanel = openVashUnmatchedPanel;
 window.focusVash = focusVash;
 window.toggleBranchVash = toggleBranchVash;
 window.showVashFromQuery = showVashFromQuery;
+window.clearVashOpsBand = clearVashOpsBand;
 window.openRegionModal = openRegionModal;
 window.closeRegionModal = closeRegionModal;
 window.performRegionSearch = performRegionSearch;

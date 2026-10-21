@@ -165,15 +165,15 @@
   <div class="card">
     <h2><i data-lucide="arrow-left-right" style="width:18px;height:18px"></i> Операции ВАШ</h2>
     <p>
-      Каждая строка — операция пункта обмена: <code>ci_acc</code>, <code>co_acc</code>,
-      <code>obmen_punkt</code>, <code>branch</code>, <code>date</code>.
+      Каждая строка — операция пункта обмена: <code>CL_ACC</code>, <code>CO_ACC</code>,
+      <code>OBMEN_PUNKT</code>, <code>BRANCH_ID</code>, <code>CURR_DAY</code>.
       <code>obmen_punkt</code> связывается с уже загруженным списком ВАШ (номер точки на карте).
       Аналитика показывает, где операций много, а где мало.
     </p>
     <div class="dropzone" id="vops-drop">
       <i data-lucide="upload-cloud" style="width:48px;height:48px;color:#0d9488"></i>
       <div class="label">Перетащите XLSX операций ВАШ</div>
-      <div class="hint">ci_acc · co_acc · obmen_punkt · branch · date</div>
+      <div class="hint">CL_ACC · CO_ACC · OBMEN_PUNKT · BRANCH_ID · CURR_DAY</div>
       <div class="file" id="vops-file" style="display:none"></div>
       <input type="file" id="vops-input" accept=".xlsx,.xlsm" style="display:none" />
     </div>

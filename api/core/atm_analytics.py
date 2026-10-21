@@ -423,19 +423,21 @@ def _withdrawals_history(days: int) -> Dict[str, Any]:
     per_atm = daily.groupby("atm_id").agg(
         withdrawal=("withdrawn", "sum"), refills=("refills", "sum"), days_seen=("day", "nunique")
     )
-    per_atm = per_atm.sort_values("withdrawal", ascending=False).head(15)
+    per_atm = per_atm[per_atm["withdrawal"] > 0].sort_values("withdrawal", ascending=False)
     hours_seen = hourly.groupby("atm_id")["covered_hours"].sum() if not hourly.empty else pd.Series(dtype=float)
     registry = _registry_by_tid()
-    top = []
+    atms = []
     for atm_id, r in per_atm.iterrows():
         tid = tids.get(int(atm_id))
         reg = registry.get(str(tid)) or {}
-        top.append({
+        atms.append({
             "tid": tid, "region": reg.get("region"), "branch": reg.get("branch"),
+            "address": reg.get("registry_address"),
             "withdrawal": float(r["withdrawal"]), "refills": int(r["refills"]),
             "avg_per_day": float(r["withdrawal"]) / max(1, int(r["days_seen"])),
             "avg_per_hour": float(r["withdrawal"]) / max(1.0, float(hours_seen.get(atm_id, 0))),
         })
+    top = atms[:15]
     return {
         "days": days,
         "total": float(per_day["withdrawal"].sum()),
@@ -453,6 +455,7 @@ def _withdrawals_history(days: int) -> Dict[str, Any]:
             ).reset_index()[["hour", "withdrawal", "refills", "atms", "covered"]].itertuples(index=False)
         ] if not hourly.empty else [],
         "top_atms": top,
+        "atms": atms,
     }
 
 

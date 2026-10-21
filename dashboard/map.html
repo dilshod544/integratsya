@@ -14,7 +14,7 @@
   <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.min.js"></script>
 
   <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
-  <link rel="stylesheet" href="/dashboard/css/map.css?v=vashbranch1" />
+  <link rel="stylesheet" href="/dashboard/css/map.css?v=vashops4" />
 
 </head>
 <body>
@@ -34,7 +34,7 @@
     <a href="/dashboard/index.html"><i data-lucide="home" class="icon-inline"></i> Главная</a>
     <a href="/dashboard/branch-cash.html"><i data-lucide="wallet" class="icon-inline"></i> Касса филиалов</a>
     <a href="/dashboard/equipment-replacement.html"><i data-lucide="wrench" class="icon-inline"></i> Замена машинок</a>
-    <a href="/dashboard/analytics.html"><i data-lucide="bar-chart-3" class="icon-inline"></i> Аналитика ATM</a>
+    <a href="/dashboard/analytics.html"><i data-lucide="bar-chart-3" class="icon-inline"></i> Аналитика</a>
     <a href="/dashboard/import.html"><i data-lucide="file-spreadsheet" class="icon-inline"></i> Импорт реестра</a>
     <a href="/dashboard/cashiers.html"><i data-lucide="users-round" class="icon-inline"></i> Кассиры</a>
   </nav>
@@ -189,12 +189,21 @@
       </div>
       <div class="legend-body">
       <div style="display:flex;align-items:center;gap:7px;margin-bottom:4px;">
-        <span style="width:14px;height:14px;border-radius:50%;background:#4f46e5;display:inline-block;border:2px solid #fff;box-shadow:0 0 6px #4f46e599;"></span>
-        <span style="color:var(--muted);">ВАШ (цвет = филиал, пунктир — к филиалу)</span>
+        <span style="width:14px;height:14px;border-radius:50%;background:#16a34a;display:inline-block;border:2px solid #fff;"></span>
+        <span style="color:var(--muted);">Много операций</span>
       </div>
+      <div style="display:flex;align-items:center;gap:7px;margin-bottom:4px;">
+        <span style="width:14px;height:14px;border-radius:50%;background:#d97706;display:inline-block;border:2px solid #fff;"></span>
+        <span style="color:var(--muted);">Средне</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:7px;margin-bottom:4px;">
+        <span style="width:14px;height:14px;border-radius:50%;background:#dc2626;display:inline-block;border:2px solid #fff;"></span>
+        <span style="color:var(--muted);">Мало операций</span>
+      </div>
+      <div id="vash-legend-filter" style="margin:6px 0;font-weight:700;"></div>
       <div style="display:flex;align-items:center;gap:7px;">
-        <span style="padding:0 6px;height:16px;border-radius:999px;background:#fff;border:2px solid #4f46e5;display:inline-flex;align-items:center;font-size:9px;font-weight:800;color:#1e1b4b;">6</span>
-        <span style="color:var(--muted);">Филиал и число его ВАШ</span>
+        <span style="padding:0 6px;height:16px;border-radius:999px;background:#fff;border:2px solid #d97706;display:inline-flex;align-items:center;font-size:9px;font-weight:800;color:#1e1b4b;">6</span>
+        <span style="color:var(--muted);">Филиал: число ВАШ тем же цветом</span>
       </div>
       <div id="vash-legend-count" class="legend-count" style="color:#4338ca"></div>
       </div>
@@ -304,7 +313,7 @@
   </div>
 </div>
 
-<script src="/dashboard/js/map-app.js?v=vashbranch1"></script>
+<script src="/dashboard/js/map-app.js?v=vashops5"></script>
 <script src="/dashboard/js/auth-nav.js"></script>
 </body>
 </html>

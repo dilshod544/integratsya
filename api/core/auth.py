@@ -47,7 +47,7 @@ PAGE_DEFINITIONS: List[Dict[str, Any]] = [
     },
     {
         "key": "atm_analytics",
-        "label": "Аналитика ATM",
+        "label": "Аналитика",
         "html": ["/dashboard/analytics.html"],
         "api_prefixes": ["/api/analytics", "/api/transactions"],
     },

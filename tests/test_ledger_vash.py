@@ -56,6 +56,24 @@ def test_ledger_latest_day_keeps_limits(pg_db, tmp_path):
     assert usd["amount"] == 20
 
 
+def test_vash_bank_headers_and_us_dates(tmp_path):
+    path = tmp_path / "bank.xlsx"
+    _xlsx(path, ["CL_ACC", "CO_ACC", "OBMEN_PUNKT", "BRANCH_ID", "CURR_DAY"], [
+        ["10101", "17101", "N06003049", 10759, "9/2/2026"],
+        ["10101", "17101", "N06003049", 10759, "9/14/2026"],
+        ["10101", "17101", None, 11085, "9/2/2026"],
+        ["10101", "17101", "15", 10463, "15/9/2026"],
+    ])
+    parsed = parse_vash_operations_xlsx(path)
+    assert [r["op_date"] for r in parsed["records"]] == [
+        date(2026, 9, 2), date(2026, 9, 14), date(2026, 9, 15),
+    ]
+    assert parsed["records"][0]["obmen_punkt"] == "N06003049"
+    assert parsed["records"][0]["branch"] == "10759"
+    assert parsed["records"][0]["ci_acc"] == "10101"
+    assert len(parsed["errors"]) == 1
+
+
 def test_vash_operations_rank_and_match_zone(pg_db, tmp_path):
     with connect() as conn:
         conn.execute(
@@ -80,3 +98,25 @@ def test_vash_operations_rank_and_match_zone(pg_db, tmp_path):
     quiet = next(p for p in data["points"] if p["obmen_punkt"] == "99")
     assert quiet["on_map"] is False
     assert quiet["band"] == "low"
+
+
+def test_vash_n_prefix_matches_zone_coordinates(pg_db, tmp_path):
+    with connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO vash_zones (vash_number, bxm_code, address, lat, lon)
+            VALUES ('06003041', '10737', 'Бухоро', 39.77, 64.42)
+            """
+        )
+    path = tmp_path / "vash-n.xlsx"
+    _xlsx(path, ["CL_ACC", "CO_ACC", "OBMEN_PUNKT", "BRANCH_ID", "CURR_DAY"], [
+        ["10101", "17101", "N06003041", 10737, "9/2/2026"],
+    ])
+    parsed = parse_vash_operations_xlsx(path)
+    replace_vash_operations(parsed["records"])
+    point = vash_operations_analytics()["points"][0]
+    assert point["obmen_punkt"] == "N06003041"
+    assert point["on_map"] is True
+    assert point["vash_number"] == "06003041"
+    assert point["address"] == "Бухоро"
+    assert point["lat"] == 39.77

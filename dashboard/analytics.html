@@ -75,8 +75,19 @@
       cursor: pointer; box-shadow: var(--shadow-sm);
     }
     .btn:hover { border-color: #bfdbfe; color: var(--primary); }
+    a.btn { text-decoration: none; }
     .btn.primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+    .btn.primary:hover { color: #fff; border-color: var(--primary); }
     .btn:disabled { opacity: .5; cursor: progress; }
+    .btn.vash-band.high { color: #15803d; border-color: #86efac; }
+    .btn.vash-band.low { color: #b91c1c; border-color: #fecaca; }
+    .btn.vash-band.high:hover { color: #15803d; border-color: #16a34a; }
+    .btn.vash-band.low:hover { color: #b91c1c; border-color: #dc2626; }
+    .btn.vash-band.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+    .btn.vash-band.high.active, .btn.vash-band.high.active:hover { background: #16a34a; border-color: #16a34a; color: #fff; }
+    .btn.vash-band.low.active, .btn.vash-band.low.active:hover { background: #dc2626; border-color: #dc2626; color: #fff; }
+    .stat-box.tone-success.active { border-color: #16a34a; box-shadow: 0 0 0 3px rgba(22,163,74,.18), var(--shadow-sm); }
+    .stat-box.tone-danger.active { border-color: #dc2626; box-shadow: 0 0 0 3px rgba(220,38,38,.18), var(--shadow-sm); }
 
     .section-tabs {
       display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; padding: 6px; border: 1px solid var(--border);
@@ -476,10 +487,11 @@
         <div class="panel-head"><i data-lucide="arrow-left-right" class="icon-inline"></i><h2>Пункты обмена</h2></div>
         <div class="toolbar">
           <input id="vash-q" placeholder="Пункт или филиал…" oninput="renderVashPoints()" />
-          <button class="btn" id="vash-band-all" onclick="setVashBand('')">Все</button>
-          <button class="btn" onclick="setVashBand('high')">Много</button>
-          <button class="btn" onclick="setVashBand('mid')">Средне</button>
-          <button class="btn" onclick="setVashBand('low')">Мало</button>
+          <button class="btn vash-band active" data-band="" onclick="setVashBand('')">Все</button>
+          <button class="btn vash-band high" data-band="high" onclick="setVashBand('high')">Много операций</button>
+          <button class="btn vash-band" data-band="mid" onclick="setVashBand('mid')">Средне</button>
+          <button class="btn vash-band low" data-band="low" onclick="setVashBand('low')">Мало операций</button>
+          <a class="btn primary" id="vash-map-btn" href="/dashboard/map.html?vash_band=all">Показать все на карте</a>
         </div>
         <div class="table-wrap" style="max-height:640px;overflow:auto">
           <table class="data">
@@ -511,7 +523,20 @@
         <div class="panel">
           <div class="panel-head"><i data-lucide="chart-column" class="icon-inline"></i><h2 id="wd-title">Снято наличных по сети</h2></div>
           <div class="chart" id="wd-chart"></div>
-          <div class="panel-body" style="padding-top:0"><div id="wd-note"></div><div class="note">Считается по почасовым остаткам BTech: сумма падений остатка между соседними опросами. Загрузки и замена кассет не считаются снятием. Пропуски больше 3 ч (сервер или сборщик не работал) не учитываются.</div></div>
+          <div class="panel-body" style="padding-top:0">
+            <div id="wd-note"></div>
+            <div class="note">Считается по почасовым остаткам BTech: сумма падений остатка между соседними опросами. Загрузки и замена кассет не считаются снятием. Пропуски больше 3 ч (сервер или сборщик не работал) не учитываются. BTech отдельный список снятий не присылает — сумма ниже собрана из этих остатков.</div>
+            <div style="display:flex;align-items:center;gap:10px;margin:14px 0 8px">
+              <h3 style="margin:0;font-size:13px" id="wd-atms-title">По банкоматам</h3>
+              <input id="wd-q" placeholder="Банкомат, филиал, адрес…" oninput="renderWdAtms()" style="margin-left:auto;max-width:260px" />
+            </div>
+            <div class="table-wrap" style="max-height:420px;overflow:auto">
+              <table class="data">
+                <thead><tr><th>Банкомат</th><th class="num">Снято</th><th class="num">В час</th><th class="num">Загрузок</th></tr></thead>
+                <tbody id="wd-atms"></tbody>
+              </table>
+            </div>
+          </div>
         </div>
         <div class="panel">
           <div class="panel-head"><i data-lucide="trending-up" class="icon-inline"></i><h2>Топ по снятиям</h2></div>
@@ -598,11 +623,13 @@
     }
     const icons = () => window.lucide && lucide.createIcons();
 
-    function statBox({ key, label, value, icon, tone = '', hint = '' }) {
-      const clickable = key && FILTERS[key];
-      const active = clickable && activeFilter === key ? 'active' : '';
-      const attrs = clickable ? `onclick="setFilter('${key}')" title="Показать: ${esc(FILTERS[key].label)}"` : '';
-      return `<button type="button" class="stat-box ${tone ? 'tone-' + tone : ''} ${clickable ? '' : 'static'} ${active}" ${attrs}>
+    function statBox({ key, label, value, icon, tone = '', hint = '', action = '', active = false }) {
+      const clickable = !!action || (key && FILTERS[key]);
+      const on = action ? active : (clickable && activeFilter === key);
+      const attrs = action
+        ? `onclick="${action}"`
+        : (clickable ? `onclick="setFilter('${key}')" title="Показать: ${esc(FILTERS[key].label)}"` : '');
+      return `<button type="button" class="stat-box ${tone ? 'tone-' + tone : ''} ${clickable ? '' : 'static'} ${on ? 'active' : ''}" ${attrs}>
         <div class="kpi-icon"><i data-lucide="${icon}"></i></div>
         <span class="stat-label">${esc(label)}</span>
         <span class="stat-value">${value}</span>
@@ -1267,7 +1294,27 @@
       document.getElementById('wd-note').innerHTML = hourly.length && covered < 72
         ? `<div class="note warn">Истории пока мало: опросы BTech есть только за ${coveredTxt} (${hourly.length} ч с данными, с ${hourLabel(first)} по ${hourLabel(last)}). Суммы за день и средние станут точными, когда сборщик проработает без перерывов хотя бы несколько суток.</div>`
         : '';
+      renderWdAtms();
       icons();
+    }
+
+    function renderWdAtms() {
+      const body = document.getElementById('wd-atms');
+      if (!body || !wdData) return;
+      const q = (document.getElementById('wd-q').value || '').trim().toLowerCase();
+      const rows = (wdData.atms || wdData.top_atms || []).filter(a => {
+        if (!q) return true;
+        return [a.tid, a.region, a.branch, a.address].join(' ').toLowerCase().includes(q);
+      });
+      const title = document.getElementById('wd-atms-title');
+      if (title) title.textContent = `По банкоматам · ${rows.length}`;
+      body.innerHTML = rows.map(a => `
+        <tr>
+          <td><div class="strong">${esc(a.tid || '—')}</div><div class="sub">${esc([a.region, a.branch, a.address].filter(Boolean).join(' · ') || 'не сопоставлен')}</div></td>
+          <td class="num strong">${money(a.withdrawal)}</td>
+          <td class="num">${money(a.avg_per_hour ?? a.avg_per_day)}</td>
+          <td class="num">${a.refills}</td>
+        </tr>`).join('') || '<tr><td colspan="4" class="empty">Нет снятий за период</td></tr>';
     }
 
     let ledgerData = null;
@@ -1330,15 +1377,25 @@
 
     let vashOps = null;
     let vashBand = '';
+    function syncVashMapButton() {
+      const a = document.getElementById('vash-map-btn');
+      if (!a) return;
+      const label = { high: 'Показать на карте: много', mid: 'Показать на карте: средне', low: 'Показать на карте: мало' };
+      a.textContent = label[vashBand] || 'Показать все на карте';
+      a.href = '/dashboard/map.html?vash_band=' + encodeURIComponent(vashBand || 'all');
+    }
     function setVashBand(band) {
-      vashBand = band;
+      vashBand = band && vashBand === band ? '' : band;
+      document.querySelectorAll('.vash-band').forEach(btn => btn.classList.toggle('active', (btn.dataset.band || '') === vashBand));
+      syncVashMapButton();
+      if (vashOps) paintVashKpis();
       renderVashPoints();
     }
     function renderVashPoints() {
       if (!vashOps) return;
       const q = (document.getElementById('vash-q').value || '').trim().toLowerCase();
       const bandName = { high: 'много', mid: 'средне', low: 'мало' };
-      const bandClass = { high: 'danger', mid: 'warning', low: 'success' };
+      const bandClass = { high: 'success', mid: 'warning', low: 'danger' };
       const rows = (vashOps.points || []).filter(p => {
         if (vashBand && p.band !== vashBand) return false;
         if (!q) return true;
@@ -1351,12 +1408,12 @@
           <td>${esc(p.branch || '—')}</td>
           <td class="num">
             <div class="strong">${num(p.ops)}</div>
-            <div class="hbar"><div class="track"><div class="fill" style="width:${p.ops / max * 100}%;background:${p.band === 'high' ? 'var(--danger)' : p.band === 'low' ? 'var(--success)' : 'var(--warning)'}"></div></div></div>
+            <div class="hbar"><div class="track"><div class="fill" style="width:${p.ops / max * 100}%;background:${p.band === 'high' ? 'var(--success)' : p.band === 'low' ? 'var(--danger)' : 'var(--warning)'}"></div></div></div>
           </td>
           <td><span class="pill ${bandClass[p.band] || ''}">${bandName[p.band] || p.band}</span></td>
           <td><div>${esc(p.first_date || '—')}</div><div class="sub">${esc(p.last_date || '')}</div></td>
           <td>${p.on_map
-            ? `<a class="btn" href="/dashboard/map.html?vash=${encodeURIComponent(p.obmen_punkt)}">На карте</a>`
+            ? `<a class="btn" href="/dashboard/map.html?vash=${encodeURIComponent(p.vash_number || p.obmen_punkt)}">На карте</a>`
             : '<span class="sub">нет координат</span>'}</td>
         </tr>`).join('') || '<tr><td colspan="6" class="empty">Нет операций. Импорт → Остатки филиалов → «Операции ВАШ».</td></tr>';
     }
@@ -1367,14 +1424,20 @@
         document.getElementById('vash-points').innerHTML = `<tr><td colspan="6" class="empty">${esc(e.message)}</td></tr>`;
         return;
       }
+      paintVashKpis();
+      syncVashMapButton();
+      renderVashPoints();
+      icons();
+    }
+
+    function paintVashKpis() {
       const d = vashOps;
-      document.getElementById('vash-kpis').innerHTML = d.operations ? [
+      document.getElementById('vash-kpis').innerHTML = d && d.operations ? [
         { label: 'Операций', value: num(d.operations), icon: 'arrow-left-right', hint: d.from && d.to ? `${d.from} — ${d.to}` : '' },
         { label: 'Пунктов', value: num(d.point_count), icon: 'map-pin' },
-        { label: 'Много операций', value: num(d.high), icon: 'trending-up', tone: 'danger', hint: 'верхняя четверть' },
-        { label: 'Мало операций', value: num(d.low), icon: 'trending-down', tone: 'success', hint: 'нижняя четверть' },
+        { label: 'Много операций', value: num(d.high), icon: 'trending-up', tone: 'success', hint: 'показать эти зоны', action: "setVashBand('high')", active: vashBand === 'high' },
+        { label: 'Мало операций', value: num(d.low), icon: 'trending-down', tone: 'danger', hint: 'показать эти зоны', action: "setVashBand('low')", active: vashBand === 'low' },
       ].map(statBox).join('') : '<div class="empty">Операции ВАШ ещё не загружены.</div>';
-      renderVashPoints();
       icons();
     }
 

@@ -49,6 +49,7 @@ _LEDGER_REQUIRED = ("oper_day", "coa_code", "code", "code_currency", "acc_id", "
 _VASH_ALIASES = {
     "ciacc": "ci_acc",
     "ci_acc": "ci_acc",
+    "clacc": "ci_acc",
     "cashin": "ci_acc",
     "coacc": "co_acc",
     "co_acc": "co_acc",
@@ -59,11 +60,13 @@ _VASH_ALIASES = {
     "vashraqami": "obmen_punkt",
     "punkt": "obmen_punkt",
     "branch": "branch",
+    "branchid": "branch",
     "filial": "branch",
     "bxm": "branch",
     "date": "op_date",
     "sana": "op_date",
     "operday": "op_date",
+    "currday": "op_date",
 }
 _VASH_REQUIRED = ("ci_acc", "co_acc", "obmen_punkt", "branch", "op_date")
 
@@ -146,6 +149,20 @@ def _as_date(value: Any) -> Optional[date]:
         except Exception:
             return None
     s = str(value).strip()
+    slash = re.fullmatch(r"(\d{1,2})/(\d{1,2})/(\d{4})", s)
+    if slash:
+        a, b, year = int(slash.group(1)), int(slash.group(2)), int(slash.group(3))
+        # 9/14/2026 va 9/2/2026 — oy/kun (bank hisoboti). 14/9/2026 — kun/oy.
+        if a > 12 and 1 <= b <= 12:
+            month, day = b, a
+        elif 1 <= a <= 12:
+            month, day = a, b
+        else:
+            return None
+        try:
+            return date(year, month, day)
+        except ValueError:
+            return None
     for fmt in ("%Y-%m-%d", "%d.%m.%Y", "%d/%m/%Y", "%Y/%m/%d", "%d-%m-%Y"):
         try:
             return datetime.strptime(s[:10], fmt).date()
@@ -238,7 +255,10 @@ def parse_vash_operations_xlsx(path: str | Path) -> Dict[str, Any]:
             })
         break
     if header_row is None:
-        raise ValueError("Не найден отчёт ВАШ. Нужны колонки: ci_acc, co_acc, obmen_punkt, branch, date")
+        raise ValueError(
+            "Не найден отчёт ВАШ. Нужны колонки: ci_acc (CL_ACC), co_acc, "
+            "obmen_punkt, branch (BRANCH_ID), date (CURR_DAY)"
+        )
     if not records:
         raise ValueError("В файле нет строк с obmen_punkt и date")
     return {"records": records, "errors": errors, "header_row": header_row}
@@ -495,7 +515,11 @@ def apply_ledger_to_branches(branches: Iterable[Dict[str, Any]]) -> None:
 
 
 def _punkt_key(value: Any) -> str:
-    return re.sub(r"\s+", "", str(value or "")).upper().lstrip("0")
+    """Operatsiyadagi N06003041 va xaritadagi 06003041 bitta punkt."""
+    s = re.sub(r"\s+", "", str(value or "")).upper()
+    if s.startswith("N"):
+        s = s[1:]
+    return s.lstrip("0")
 
 
 def vash_operations_analytics() -> Dict[str, Any]:
@@ -561,6 +585,9 @@ def vash_operations_analytics() -> Dict[str, Any]:
             "on_map": bool(zone and zone.get("lat") is not None and zone.get("lon") is not None),
             "address": zone.get("address") if zone else None,
             "vash_id": zone.get("id") if zone else None,
+            "vash_number": zone.get("vash_number") if zone else None,
+            "lat": zone.get("lat") if zone else None,
+            "lon": zone.get("lon") if zone else None,
         })
     return {
         "operations": int(span["n"]),
