@@ -177,7 +177,89 @@
       display: none; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px; font-size: 11px;
       font-weight: 850; background: var(--surface-3); color: var(--primary); border: none; cursor: pointer;
     }
-    .pagination { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-top: 1px solid var(--border); background: #fbfdff; }
+    /* KPI-группы на вкладке «Состояние сети» */
+    .kpi-groups { display: flex; flex-direction: column; gap: 12px; margin-top: 16px; }
+    .kpi-group {
+      display: grid; grid-template-columns: 150px 1fr; gap: 14px; align-items: stretch; padding: 12px;
+      border: 1px solid var(--border); border-radius: 22px; background: rgba(255,255,255,.7); box-shadow: var(--shadow-sm);
+    }
+    .kpi-group-title { padding: 6px 4px; display: flex; flex-direction: column; justify-content: center; gap: 4px; }
+    .kpi-group-title b { font-size: 14px; font-weight: 900; letter-spacing: -.01em; }
+    .kpi-group-title span { font-size: 11.5px; color: var(--muted); line-height: 1.4; }
+    .kpi-row { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; }
+    .kpi {
+      min-width: 0; display: flex; flex-direction: column; gap: 6px; padding: 12px 13px; text-align: left;
+      border: 1px solid var(--border); border-radius: 16px; background: #fff; color: inherit; font: inherit;
+      cursor: pointer; transition: border-color .15s, box-shadow .15s, background .15s;
+    }
+    .kpi.static { cursor: default; background: var(--surface-2); }
+    .kpi.static .kpi-value { font-size: 22px; white-space: nowrap; }
+    #detail-panel { scroll-margin-top: 74px; }
+    .kpi:not(.static):hover { border-color: #c7d2fe; box-shadow: var(--shadow-md); }
+    .kpi-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .kpi-top .kpi-icon { width: 26px; height: 26px; border-radius: 8px; margin: 0; flex: none; }
+    .kpi-top .kpi-icon svg { width: 14px; height: 14px; }
+    .kpi-label { font-size: 12.5px; font-weight: 800; color: var(--text); line-height: 1.25; }
+    .kpi-value { font-size: 28px; font-weight: 900; letter-spacing: -.04em; line-height: 1; color: var(--text); }
+    .kpi-value small { font-size: 12px; font-weight: 750; color: var(--muted); letter-spacing: 0; margin-left: 4px; }
+    .kpi-hint { font-size: 11.5px; color: var(--muted); font-weight: 650; line-height: 1.35; }
+    .kpi-share { height: 4px; border-radius: 2px; background: #f1f5f9; overflow: hidden; margin-top: auto; }
+    .kpi-share > div { height: 100%; border-radius: 2px; background: var(--primary); }
+    .kpi.tone-success .kpi-value { color: var(--success); } .kpi.tone-success .kpi-share > div { background: var(--success); }
+    .kpi.tone-warning .kpi-value { color: var(--warning); } .kpi.tone-warning .kpi-share > div { background: var(--warning); }
+    .kpi.tone-danger .kpi-value { color: var(--danger); } .kpi.tone-danger .kpi-share > div { background: var(--danger); }
+    .kpi.tone-purple .kpi-value { color: #6d28d9; } .kpi.tone-purple .kpi-share > div { background: var(--purple); }
+    .kpi.tone-slate .kpi-value { color: var(--slate); } .kpi.tone-slate .kpi-share > div { background: var(--slate); }
+    .kpi.active { border-color: var(--primary); background: #f5f9ff; box-shadow: 0 0 0 3px rgba(37,99,235,.14); }
+    .kpi.tone-success.active { border-color: var(--success); background: #f3fdf6; box-shadow: 0 0 0 3px rgba(22,163,74,.14); }
+    .kpi.tone-warning.active { border-color: var(--warning); background: #fffcf2; box-shadow: 0 0 0 3px rgba(217,119,6,.14); }
+    .kpi.tone-danger.active { border-color: var(--danger); background: #fff6f6; box-shadow: 0 0 0 3px rgba(220,38,38,.14); }
+    .kpi.tone-purple.active { border-color: var(--purple); background: #faf8ff; box-shadow: 0 0 0 3px rgba(124,58,237,.14); }
+    .kpi.tone-slate.active { border-color: var(--slate); background: #f8fafc; box-shadow: 0 0 0 3px rgba(71,85,105,.14); }
+
+    /* панель выбранной карточки */
+    .detail-head { display: flex; align-items: flex-start; gap: 12px; padding: 16px; border-bottom: 1px solid var(--border); }
+    .detail-head .kpi-icon { width: 38px; height: 38px; border-radius: 12px; margin: 0; flex: none; }
+    .detail-head .kpi-icon svg { width: 19px; height: 19px; }
+    .detail-title { font-size: 17px; font-weight: 900; letter-spacing: -.02em; }
+    .detail-note { margin-top: 3px; color: var(--muted); font-size: 12.5px; line-height: 1.5; max-width: 820px; }
+    .detail.tone-success .kpi-icon { background: #ecfdf5; color: var(--success); }
+    .detail.tone-warning .kpi-icon { background: #fffbeb; color: var(--warning); }
+    .detail.tone-danger .kpi-icon { background: #fef2f2; color: var(--danger); }
+    .detail.tone-purple .kpi-icon { background: #f5f3ff; color: var(--purple); }
+    .detail.tone-slate .kpi-icon { background: #f1f5f9; color: var(--slate); }
+    .meter { width: 120px; height: 6px; border-radius: 3px; background: #f1f5f9; overflow: hidden; margin: 5px 0 3px auto; }
+    .meter > div { height: 100%; border-radius: 3px; }
+    .problems { display: flex; flex-direction: column; gap: 3px; }
+    .problems div { font-size: 12px; line-height: 1.35; }
+    .problems div::before { content: "•"; margin-right: 6px; color: var(--danger); font-weight: 900; }
+    .problems div.warn::before { color: var(--warning); }
+    .problems div.info::before { color: var(--slate); }
+    .ok-text { color: var(--success); font-weight: 750; font-size: 12px; }
+
+    /* сводные блоки: строка = категория, клик — список банкоматов */
+    .sum-note { font-size: 11.5px; color: var(--muted); line-height: 1.45; margin-bottom: 10px; }
+    .sum-row {
+      display: block; width: 100%; text-align: left; border: 1px solid transparent; background: none; font: inherit; color: inherit;
+      border-radius: 12px; padding: 7px 8px; margin: 0 -8px; width: calc(100% + 16px); cursor: pointer;
+    }
+    .sum-row:hover { background: var(--surface-2); border-color: var(--border); }
+    .sum-row.active { background: var(--surface-3); border-color: #bfdbfe; }
+    .sum-line { display: flex; align-items: baseline; gap: 8px; }
+    .sum-line .lbl { flex: 1; min-width: 0; font-size: 12.5px; font-weight: 800; }
+    .sum-line .val { font-size: 13px; font-weight: 900; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .sum-line .val small { font-size: 10.5px; color: var(--muted); font-weight: 700; margin-left: 3px; }
+    .sum-track { height: 6px; border-radius: 3px; background: #f1f5f9; overflow: hidden; margin: 5px 0 4px; }
+    .sum-track > div { height: 100%; border-radius: 3px; }
+    .sum-sub { font-size: 11px; color: var(--muted); line-height: 1.35; }
+    .sum-total { display: flex; justify-content: space-between; gap: 8px; margin-top: 8px; padding-top: 10px; border-top: 1px dashed var(--border); font-size: 12px; font-weight: 800; }
+    .sum-total span:first-child { color: var(--muted); font-weight: 750; }
+
+    .pagination { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 6px; padding: 12px 16px; border-top: 1px solid var(--border); background: #fbfdff; }
+    .pagination .btn { padding: 7px 11px; min-width: 34px; justify-content: center; }
+    .pagination .btn.current { background: var(--primary); border-color: var(--primary); color: #fff; }
+    .pagination .gap { color: var(--muted); padding: 0 2px; }
+    .pagination .pager-info { margin-left: 10px; }
     .pager-info { color: var(--muted); font-size: 12px; font-weight: 750; }
 
     /* горизонтальные полосы: неисправности, кассеты, номиналы */
@@ -207,6 +289,10 @@
     .note.warn { color: #92400e; background: #fffbeb; border: 1px solid #fde68a; border-radius: 12px; padding: 10px 12px; }
     .icon-inline { width: 15px; height: 15px; stroke-width: 2.4; }
 
+    @media (max-width: 1240px) {
+      .kpi-group { grid-template-columns: 1fr; }
+      .kpi-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    }
     @media (max-width: 1080px) {
       .grid-2 { grid-template-columns: 1fr; }
       .grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -216,6 +302,7 @@
       header { padding: 0 14px; overflow-x: auto; }
       .hero-title { font-size: 24px; }
       .model-grid, .grid-4 { grid-template-columns: 1fr; }
+      .kpi-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
   </style>
 </head>
@@ -251,8 +338,7 @@
 
     <!-- ── Состояние сети ── -->
     <section id="tab-status" class="tab-panel active">
-      <div class="stats-bar" id="status-kpis"></div>
-      <div class="stats-bar" id="status-kpis-2"></div>
+      <div class="kpi-groups" id="status-kpis"></div>
 
       <div class="grid-4">
           <div class="panel">
@@ -273,27 +359,28 @@
           </div>
       </div>
 
-      <div class="panel" style="margin-top:16px">
-          <div class="panel-head"><i data-lucide="list" class="icon-inline"></i><h2>Банкоматы</h2><div class="spacer"></div><span class="pager-info" id="atm-count"></span></div>
+      <div class="panel detail" id="detail-panel" style="margin-top:16px">
+          <div class="detail-head">
+            <div class="kpi-icon" id="detail-icon"></div>
+            <div style="min-width:0">
+              <div class="detail-title" id="detail-title">Банкоматы</div>
+              <div class="detail-note" id="detail-note"></div>
+            </div>
+            <div class="spacer"></div>
+            <button class="btn" id="detail-reset" style="display:none" onclick="setFilter('all')">Показать все</button>
+          </div>
           <div class="toolbar">
             <input id="atm-search" type="search" placeholder="Поиск: TID, адрес, филиал..." oninput="atmPage = 1; renderAtmTable()" />
-            <select id="atm-region" onchange="atmPage = 1; renderAtmTable()"><option value="">Все регионы</option></select>
-            <button class="filter-chip" id="filter-chip" onclick="setFilter('all')"></button>
+            <select id="atm-region" onchange="atmPage = 1; renderAtmTable(); renderRegions()"><option value="">Все регионы</option></select>
+            <span class="pager-info" id="atm-count"></span>
           </div>
           <div class="table-wrap">
             <table class="data">
-              <thead><tr>
-                <th>Банкомат</th><th>Статус</th><th class="num">Наличные</th><th>Кассеты</th>
-                <th>Неисправности</th><th>Последнее снятие</th><th>Low-cash (прогноз)</th>
-              </tr></thead>
-              <tbody id="atm-body"><tr><td colspan="7" class="empty">Загрузка...</td></tr></tbody>
+              <thead><tr id="atm-head"></tr></thead>
+              <tbody id="atm-body"><tr><td class="empty">Загрузка...</td></tr></tbody>
             </table>
           </div>
-          <div class="pagination">
-            <button class="btn" id="atm-prev" onclick="changeAtmPage(-1)">Назад</button>
-            <div class="pager-info" id="atm-page-info">—</div>
-            <button class="btn" id="atm-next" onclick="changeAtmPage(1)">Вперёд</button>
-          </div>
+          <div class="pagination" id="atm-pager"></div>
       </div>
 
       <div class="panel" style="margin-top:16px">
@@ -329,8 +416,8 @@
       <div class="panel" style="margin-top:16px">
         <div class="panel-head"><i data-lucide="alarm-clock" class="icon-inline"></i><h2>Когда банкоматы опустеют</h2><div class="spacer"></div><span class="pager-info" id="fc-count"></span></div>
         <div class="toolbar">
-          <input id="fc-search" type="search" placeholder="Поиск: TID, адрес, регион..." oninput="renderForecastTable()" />
-          <select id="fc-window" onchange="renderForecastTable()">
+          <input id="fc-search" type="search" placeholder="Поиск: TID, адрес, регион..." oninput="fcPage = 1; renderForecastTable()" />
+          <select id="fc-window" onchange="fcPage = 1; renderForecastTable()">
             <option value="24">Low-cash в ближайшие 24 ч</option>
             <option value="72" selected>Low-cash в ближайшие 72 ч</option>
             <option value="all">Все банкоматы</option>
@@ -345,6 +432,7 @@
             <tbody id="fc-body"><tr><td colspan="7" class="empty">Загрузка...</td></tr></tbody>
           </table>
         </div>
+        <div class="pagination" id="fc-pager"></div>
       </div>
     </section>
 
@@ -412,19 +500,24 @@
           <option value="30" selected>30 дней</option>
           <option value="90">90 дней</option>
         </select>
+        <span class="stat-label" style="margin-left:10px">Разбивка</span>
+        <select id="wd-by" onchange="renderWithdrawals()">
+          <option value="hour">По часам</option>
+          <option value="day">По дням</option>
+        </select>
       </div>
       <div class="stats-bar" id="wd-kpis"></div>
       <div class="grid-2">
         <div class="panel">
-          <div class="panel-head"><i data-lucide="chart-column" class="icon-inline"></i><h2>Снято наличных по сети, по дням</h2></div>
+          <div class="panel-head"><i data-lucide="chart-column" class="icon-inline"></i><h2 id="wd-title">Снято наличных по сети</h2></div>
           <div class="chart" id="wd-chart"></div>
-          <div class="panel-body" style="padding-top:0"><div class="note">Считается по почасовым остаткам BTech: сумма падений остатка между опросами. Загрузки и замена кассет не считаются снятием.</div></div>
+          <div class="panel-body" style="padding-top:0"><div id="wd-note"></div><div class="note">Считается по почасовым остаткам BTech: сумма падений остатка между соседними опросами. Загрузки и замена кассет не считаются снятием. Пропуски больше 3 ч (сервер или сборщик не работал) не учитываются.</div></div>
         </div>
         <div class="panel">
           <div class="panel-head"><i data-lucide="trending-up" class="icon-inline"></i><h2>Топ по снятиям</h2></div>
           <div class="table-wrap">
             <table class="data">
-              <thead><tr><th>Банкомат</th><th class="num">Снято</th><th class="num">В день</th><th class="num">Загрузок</th></tr></thead>
+              <thead><tr><th>Банкомат</th><th class="num">Снято</th><th class="num">В среднем в час</th><th class="num">Загрузок</th></tr></thead>
               <tbody id="wd-top"></tbody>
             </table>
           </div>
@@ -437,7 +530,7 @@
     const API = location.origin;
     const PAGE_SIZE = 40;
     let statusData = null, forecastData = null;
-    let activeFilter = 'all', atmPage = 1;
+    let activeFilter = 'all', atmPage = 1, fcPage = 1;
     let regionFilter = '';
 
     const OP = {
@@ -494,7 +587,7 @@
       if (!v) return '<span class="sub">не в горизонте</span>';
       const h = hoursUntil(v);
       const cls = h <= 24 ? 'danger' : h <= 72 ? 'warning' : 'plain';
-      const label = h <= 0 ? 'уже' : h < 48 ? `через ${Math.round(h)} ч` : `через ${Math.round(h / 24)} дн`;
+      const label = h <= 0 ? 'уже сейчас' : h < 48 ? `через ${Math.round(h)} ч` : `через ${Math.round(h / 24)} дн`;
       return `<span class="pill ${cls}">${label}</span><div class="sub">${dt(v)}</div>`;
     }
     const pill = (map, key) => `<span class="pill ${map[key]?.cls || ''}">${esc(map[key]?.label || key)}</span>`;
@@ -530,15 +623,15 @@
 
     /* Столбчатая диаграмма одной серии: тонкие столбцы со скруглённым верхом,
        2px просвет, тусклая сетка, тултип при наведении. */
-    function barChart(el, rows, { color = 'var(--primary)', valueLabel = 'Снято' } = {}) {
+    function barChart(el, rows, { color = 'var(--primary)', valueLabel = 'Снято', height = 240 } = {}) {
       if (!rows.length) { el.innerHTML = '<div class="empty">Нет данных</div>'; return; }
-      const W = 720, H = 240, L = 62, R = 8, T = 10, B = 26;
+      const W = 720, H = height, L = 62, R = 8, T = 10, B = 26;
       const max = Math.max(...rows.map(r => r.value)) || 1;
       const step = niceStep(max / 4);
       const top = Math.ceil(max / step) * step;
       const y = v => T + (H - T - B) * (1 - v / top);
       const bw = (W - L - R) / rows.length;
-      const barW = Math.max(2, Math.min(36, bw - 2));
+      const barW = Math.max(2, Math.min(28, bw - 2));
       let grid = '', axis = '', bars = '';
       for (let v = 0; v <= top + 1; v += step) {
         grid += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/>`;
@@ -553,7 +646,7 @@
         bars += `<path class="bar" d="M${x},${y(0)} v${-(h - rr)} q0,${-rr} ${rr},${-rr} h${barW - 2 * rr} q${rr},0 ${rr},${rr} v${h - rr} z" fill="${color}" pointer-events="none"/>`;
         if (i % every === 0) axis += `<text x="${x + barW / 2}" y="${H - 8}" text-anchor="middle">${esc(r.short)}</text>`;
       });
-      el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(valueLabel)} по дням">
+      el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(valueLabel)}">
           <g class="grid">${grid}</g><g class="axis">${axis}</g><g>${bars}</g></svg><div class="tooltip"></div>`;
       const tip = el.querySelector('.tooltip');
       el.querySelectorAll('rect.hit').forEach(rect => {
@@ -586,7 +679,7 @@
     function switchTab(tab) {
       document.querySelectorAll('.section-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
       document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === `tab-${tab}`));
-      if (tab === 'withdrawals' && !document.getElementById('wd-chart').innerHTML) loadWithdrawals();
+      if (tab === 'withdrawals' && !wdData) loadWithdrawals();
       if (tab === 'kassa' && !ledgerData) loadLedger();
       if (tab === 'vash' && !vashOps) loadVashOps();
       history.replaceState(null, '', tab === 'status' ? location.pathname : '#' + tab);
@@ -598,34 +691,12 @@
       try {
         statusData = await getJson('/api/analytics/atm-status');
       } catch (e) {
-        document.getElementById('atm-body').innerHTML = `<tr><td colspan="7" class="empty">Ошибка загрузки: ${esc(e.message)}</td></tr>`;
+        document.getElementById('atm-body').innerHTML = `<tr><td class="empty">Ошибка загрузки: ${esc(e.message)}</td></tr>`;
         return;
       }
-      const s = statusData.summary;
       renderHeroMeta();
       renderStatusKpis();
-      const sel = document.getElementById('atm-region');
-      sel.innerHTML = '<option value="">Все регионы</option>' + statusData.by_region
-        .map(r => `<option value="${esc(r.region)}">${esc(r.region)} (${r.total})</option>`).join('');
-      sel.value = regionFilter;
-
-      hbars(document.getElementById('faults'), statusData.faults_by_device.map(f => ({
-        label: f.label, value: f.count,
-        title: Object.entries(f.by_status).map(([k, v]) => `${k}: ${v}`).join(', '),
-      })), 'var(--danger)');
-      hbars(document.getElementById('oos-reasons'), statusData.out_of_service_reasons.map(r => ({ label: r.reason, value: r.count })), 'var(--warning)');
-      const CASS = { OK: ['В норме', 'var(--success)'], LOW: ['Мало купюр', 'var(--warning)'], EMPTY: ['Пустые', 'var(--danger)'], MISSING: ['Не установлены', 'var(--slate)'], INOP: ['Неисправны', 'var(--danger)'] };
-      hbars(document.getElementById('cassettes'), statusData.cassette_status.map(c => ({
-        label: (CASS[c.status] || [c.status])[0] + ` (${c.status})`, value: c.count, color: (CASS[c.status] || [])[1],
-      })), 'var(--primary)');
-      if (s.reject_cassettes_full) {
-        document.getElementById('cassettes').insertAdjacentHTML('beforeend',
-          `<div class="note warn">Кассеты отбраковки заполнены (FULL/HIGH): ${s.reject_cassettes_full} — нужна выемка при ближайшем визите.</div>`);
-      }
-      hbars(document.getElementById('nominals'), statusData.cash_by_nominal.map(n => ({
-        label: num(n.nominal) + ' сум', value: n.amount, display: money(n.amount),
-      })), 'var(--primary)');
-
+      renderSummaries();
       renderRegions();
       renderAtmTable();
       icons();
@@ -647,78 +718,361 @@
       icons();
     }
 
+    // ── KPI-карточки ──
+    function kpiCard({ key, label, value, unit = 'ATM', icon, tone = '', hint = '', share = null }) {
+      const clickable = key && FILTERS[key];
+      const active = clickable && activeFilter === key ? 'active' : '';
+      const attrs = clickable ? `onclick="setFilter('${key}')" title="Показать список: ${esc(FILTERS[key].label)}"` : '';
+      return `<button type="button" class="kpi ${tone ? 'tone-' + tone : ''} ${clickable ? '' : 'static'} ${active}" ${attrs}>
+        <div class="kpi-top"><div class="kpi-icon"><i data-lucide="${icon}"></i></div><span class="kpi-label">${esc(label)}</span></div>
+        <div class="kpi-value">${value}${unit ? `<small>${esc(unit)}</small>` : ''}</div>
+        ${hint ? `<div class="kpi-hint">${hint}</div>` : ''}
+        ${share != null ? `<div class="kpi-share" title="${share}% сети"><div style="width:${Math.min(100, share)}%"></div></div>` : ''}
+      </button>`;
+    }
+
     function renderStatusKpis() {
       const s = statusData.summary;
-      const pct = v => s.total ? Math.round(v / s.total * 100) + '% сети' : '';
+      const share = v => s.total ? Math.round(v / s.total * 100) : 0;
+      const pct = v => `${share(v)}% сети`;
       const lowSoon = statusData.atms.filter(FILTERS.low_soon.test).length;
-      document.getElementById('status-kpis').innerHTML = [
-        { key: 'all', label: 'Всего ATM', value: num(s.total), icon: 'credit-card' },
-        { key: 'working', label: 'Работают', value: num(s.working), icon: 'shield-check', tone: 'success', hint: pct(s.working) },
-        { key: 'busy', label: 'Заняты клиентом', value: num(s.busy), icon: 'user-round', tone: 'purple', hint: 'сессия сейчас' },
-        { key: 'out_of_service', label: 'Не работают', value: num(s.out_of_service), icon: 'circle-pause', tone: 'warning', hint: pct(s.out_of_service) },
-        { key: 'offline', label: 'Офлайн', value: num(s.offline + s.no_data), icon: 'wifi-off', tone: 'danger', hint: s.no_data ? `из них без данных: ${s.no_data}` : 'нет связи' },
-        { key: 'empty', label: 'Не заряжены', value: num(s.cash_empty), icon: 'battery-warning', tone: 'danger', hint: 'остаток 0' },
-        { key: 'low', label: 'Мало наличных', value: num(s.cash_critical + s.cash_warning), icon: 'triangle-alert', tone: 'warning', hint: `критично: ${s.cash_critical}` },
-      ].map(statBox).join('');
-      document.getElementById('status-kpis-2').innerHTML = [
-        { key: 'can_dispense', label: 'Выдают наличные', value: num(s.can_dispense), icon: 'banknote', tone: 'success', hint: pct(s.can_dispense) },
-        { key: 'faults', label: 'Неисправности', value: num(s.with_faults), icon: 'wrench', tone: 'danger', hint: `диспенсер: ${s.dispenser_faults}` },
-        { key: 'idle', label: 'Простой > 24 ч', value: num(s.idle_24h), icon: 'hourglass', tone: 'slate', hint: 'работает, но без снятий' },
-        { key: 'low_soon', label: 'Low-cash ≤ 24 ч', value: num(lowSoon), icon: 'alarm-clock', tone: 'warning', hint: 'по прогнозу' },
-        { label: 'Наличных в сети', value: money(s.total_cash), icon: 'wallet',
-          hint: s.data_anomalies ? `без ${s.data_anomalies} ATM с ошибкой данных` : 'UZS в кассетах' },
-      ].map(statBox).join('');
+      const groups = [
+        { title: 'Работа банкоматов', note: 'Состояние по последнему опросу BTech', cards: [
+          { key: 'all', label: 'Всего банкоматов', value: num(s.total), icon: 'credit-card', hint: `в реестре: ${s.matched_to_registry}` },
+          { key: 'working', label: 'Работают', value: num(s.working), icon: 'shield-check', tone: 'success', hint: pct(s.working), share: share(s.working) },
+          { key: 'busy', label: 'Заняты клиентом', value: num(s.busy), icon: 'user-round', tone: 'purple', hint: 'идёт операция — это норма', share: share(s.busy) },
+          { key: 'out_of_service', label: 'Не работают', value: num(s.out_of_service), icon: 'circle-pause', tone: 'warning', hint: `на связи, но не обслуживают · ${pct(s.out_of_service)}`, share: share(s.out_of_service) },
+          { key: 'offline', label: 'Нет связи', value: num(s.offline + s.no_data), icon: 'wifi-off', tone: 'danger', hint: s.no_data ? `${pct(s.offline + s.no_data)} · без свежих данных: ${s.no_data}` : `офлайн · ${pct(s.offline)}`, share: share(s.offline + s.no_data) },
+          { key: 'idle', label: 'Без снятий > 24 ч', value: num(s.idle_24h), icon: 'hourglass', tone: 'slate', hint: 'работают, но никто не снимал', share: share(s.idle_24h) },
+        ] },
+        { title: 'Наличные и неисправности', note: 'Остатки в кассетах, прогноз и поломки устройств', cards: [
+          { key: 'can_dispense', label: 'Выдают наличные', value: num(s.can_dispense), icon: 'banknote', tone: 'success', hint: `клиент может снять деньги · ${pct(s.can_dispense)}`, share: share(s.can_dispense) },
+          { key: 'low', label: 'Мало наличных', value: num(s.cash_critical + s.cash_warning), icon: 'triangle-alert', tone: 'warning', hint: `из них критично: ${s.cash_critical}`, share: share(s.cash_critical + s.cash_warning) },
+          { key: 'empty', label: 'Наличные закончились', value: num(s.cash_empty), icon: 'battery-warning', tone: 'danger', hint: 'остаток 0 сум', share: share(s.cash_empty) },
+          { key: 'low_soon', label: 'Станет мало за 24 ч', value: num(lowSoon), icon: 'alarm-clock', tone: 'warning', hint: 'по прогнозу снятий — инкассация сегодня', share: share(lowSoon) },
+          { key: 'faults', label: 'Есть неисправности', value: num(s.with_faults), icon: 'wrench', tone: 'danger', hint: `из них диспенсер: ${s.dispenser_faults}`, share: share(s.with_faults) },
+          { label: 'Наличных в сети', value: money(s.total_cash), unit: 'сум', icon: 'wallet',
+            hint: s.data_anomalies ? `без ${s.data_anomalies} ATM с ошибкой данных` : 'сумма во всех кассетах' },
+        ] },
+      ];
+      document.getElementById('status-kpis').innerHTML = groups.map(g => `
+        <div class="kpi-group">
+          <div class="kpi-group-title"><b>${esc(g.title)}</b><span>${esc(g.note)}</span></div>
+          <div class="kpi-row">${g.cards.map(kpiCard).join('')}</div>
+        </div>`).join('');
       icons();
+    }
+
+    // ── Сводные блоки ──
+    const SUM_LIMIT = 8;
+    function sumRows(el, { note, rows, unit, total }) {
+      const max = Math.max(1, ...rows.map(r => r.value));
+      el.innerHTML = `<div class="sum-note">${note}</div>` + (rows.length ? rows.map(r => `
+        <button type="button" class="sum-row ${activeFilter === r.filter ? 'active' : ''}" onclick="setFilter('${esc(r.filter)}')" title="Показать банкоматы">
+          <div class="sum-line"><span class="lbl">${esc(r.label)}</span><span class="val">${r.display ?? num(r.value)}<small>${esc(r.unit ?? unit)}</small></span></div>
+          <div class="sum-track"><div style="width:${Math.max(2, r.value / max * 100)}%;background:${r.color}"></div></div>
+          ${r.sub ? `<div class="sum-sub">${r.sub}</div>` : ''}
+        </button>`).join('') : '<div class="empty" style="padding:4px 0">Нет</div>')
+        + (total ? `<div class="sum-total"><span>${total[0]}</span><span>${total[1]}</span></div>` : '');
+    }
+
+    function renderSummaries() {
+      const atms = statusData.atms;
+      const total = atms.length;
+
+      // Неисправности: сколько банкоматов с каждым сломанным устройством
+      const dev = {};
+      atms.forEach(a => a.faults.forEach(f => {
+        const d = dev[f.device] ||= { label: f.label, atms: 0, by: {} };
+        d.atms++; d.by[f.status] = (d.by[f.status] || 0) + 1;
+      }));
+      sumRows(document.getElementById('faults'), {
+        note: `Сколько банкоматов, у которых BTech сообщает о неисправности устройства. У одного банкомата может быть несколько поломок. Нажмите строку — откроется список.`,
+        unit: 'ATM',
+        rows: Object.entries(dev).sort((a, b) => b[1].atms - a[1].atms).map(([k, d]) => ({
+          filter: 'dev:' + k, label: d.label, value: d.atms, color: 'var(--danger)',
+          sub: Object.entries(d.by).map(([st, n]) => `${devStatus(st)}: ${n}`).join(' · '),
+        })),
+        total: ['Банкоматов с поломками', `${num(statusData.summary.with_faults)} из ${num(total)}`],
+      });
+
+      // Почему не обслуживают
+      const oos = {};
+      atms.filter(a => a.operational === 'out_of_service').forEach(a => {
+        const r = oos[a.out_of_service_reason || '—'] ||= { n: 0, codes: new Set(), faulty: 0 };
+        r.n++; r.codes.add(a.app_status || a.service_status || '—'); if (a.faults.length) r.faulty++;
+      });
+      const oosTotal = Object.values(oos).reduce((s, r) => s + r.n, 0);
+      sumRows(document.getElementById('oos-reasons'), {
+        note: 'Банкоматы на связи, но клиентов не обслуживают. Причина — статус приложения, который передаёт BTech.',
+        unit: 'ATM',
+        rows: Object.entries(oos).sort((a, b) => b[1].n - a[1].n).map(([reason, r]) => ({
+          filter: 'oos:' + reason, label: reason, value: r.n, color: 'var(--warning)',
+          sub: `${Math.round(r.n / (oosTotal || 1) * 100)}% неработающих · код BTech: ${[...r.codes].join(', ')}${r.faulty ? ` · с поломками: ${r.faulty}` : ''}`,
+        })),
+        total: ['Не работают всего', `${num(oosTotal)} из ${num(total)}`],
+      });
+
+      // Кассеты: считаем кассеты, а не банкоматы
+      const cass = {};
+      let cassTotal = 0;
+      atms.forEach(a => {
+        const seen = new Set();
+        a.cassettes.forEach(c => {
+          const k = c.status || '—';
+          const r = cass[k] ||= { n: 0, atms: 0 };
+          r.n++; cassTotal++;
+          if (!seen.has(k)) { r.atms++; seen.add(k); }
+        });
+      });
+      const CASS_COLOR = { OK: 'var(--success)', LOW: 'var(--warning)', EMPTY: 'var(--danger)', INOP: 'var(--danger)' };
+      sumRows(document.getElementById('cassettes'), {
+        note: 'Каждый банкомат содержит 2–4 кассеты с купюрами одного номинала. Здесь — сколько кассет в каждом состоянии во всей сети.',
+        unit: 'кассет',
+        rows: Object.entries(cass).sort((a, b) => b[1].n - a[1].n).map(([k, r]) => ({
+          filter: 'cass:' + k, label: (CASS_STATUS[k] || [k])[0].replace(/^./, c => c.toUpperCase()), value: r.n,
+          color: CASS_COLOR[k] || 'var(--slate)',
+          sub: `${Math.round(r.n / (cassTotal || 1) * 100)}% кассет · в ${num(r.atms)} банкоматах`,
+        })),
+        total: ['Кассет всего', `${num(cassTotal)} в ${num(atms.filter(a => a.cassettes.length).length)} ATM`],
+      });
+      if (statusData.summary.reject_cassettes_full) {
+        document.getElementById('cassettes').insertAdjacentHTML('beforeend',
+          `<div class="note warn">Кассеты отбраковки заполнены: ${statusData.summary.reject_cassettes_full} — туда уходят порванные и неверно выданные купюры, нужна выемка при ближайшем визите.</div>`);
+      }
+
+      // Номиналы: сумма = номинал × число купюр
+      const nom = {};
+      atms.forEach(a => {
+        if (a.cash === 'anomaly') return;
+        const seen = new Set();
+        a.cassettes.forEach(c => {
+          if (!c.count || (c.currency || 'UZS').toUpperCase() !== 'UZS' || c.nominal > 200000) return;
+          const r = nom[c.nominal] ||= { amount: 0, bills: 0, atms: 0 };
+          r.amount += c.count * c.nominal; r.bills += c.count;
+          if (!seen.has(c.nominal)) { r.atms++; seen.add(c.nominal); }
+        });
+      });
+      const nomTotal = Object.values(nom).reduce((s, r) => s + r.amount, 0);
+      sumRows(document.getElementById('nominals'), {
+        note: 'Сколько денег лежит в кассетах по каждой купюре: номинал × количество купюр. Банкоматы с ошибкой данных BTech не учитываются.',
+        unit: 'сум',
+        rows: Object.entries(nom).sort((a, b) => b[0] - a[0]).map(([n, r]) => ({
+          filter: 'nom:' + n, label: `${num(+n)} сум`, value: r.amount, display: money(r.amount), color: 'var(--primary)',
+          sub: `${Math.round(r.amount / (nomTotal || 1) * 100)}% наличных · ${num(r.bills)} купюр · в ${num(r.atms)} ATM`,
+        })),
+        total: ['Всего по кассетам', money(nomTotal) + ' сум'],
+      });
     }
 
     function setFilter(key) {
       activeFilter = activeFilter === key ? 'all' : key;
       atmPage = 1;
       renderStatusKpis();
+      renderSummaries();
       renderAtmTable();
+      document.getElementById('detail-panel').scrollIntoView({ behavior: 'smooth', block: key.includes(':') ? 'start' : 'nearest' });
     }
 
-    function filteredAtms() {
+    const NO_REGION = 'Не сопоставлен с реестром';
+    const regionOf = a => a.region || NO_REGION;
+
+    // Коды BTech → понятный текст
+    const DEVICE_STATUS = {
+      HWERROR: 'аппаратная ошибка', POWEROFF: 'выключен', OFFLINE: 'нет связи с устройством',
+      FRAUDATTEMPT: 'попытка мошенничества', USERERROR: 'ошибка клиента (застряла карта и т.п.)', NODEVICE: 'отсутствует', NOTREADY: 'не готов',
+    };
+    const CASS_STATUS = {
+      OK: ['норма', ''], LOW: ['мало купюр', 'LOW'], EMPTY: ['пусто', 'EMPTY'], MISSING: ['кассета не установлена', 'MISSING'],
+      INOP: ['кассета неисправна', 'INOP'], NOREF: ['состояние не определено', 'MISSING'],
+    };
+    const devStatus = s => DEVICE_STATUS[s] || (s ? s.toLowerCase() : 'ошибка');
+    const CASH_COLOR = { empty: 'var(--danger)', critical: 'var(--danger)', warning: 'var(--warning)', ok: 'var(--success)' };
+
+    // Фильтры из сводных блоков: dev:<устройство>, oos:<причина>, cass:<статус>, nom:<номинал>
+    function filterFor(key) {
+      if (FILTERS[key]) return FILTERS[key];
+      const [kind, val] = [key.slice(0, key.indexOf(':')), key.slice(key.indexOf(':') + 1)];
+      if (kind === 'dev') {
+        const label = statusData.atms.flatMap(a => a.faults).find(f => f.device === val)?.label || val;
+        return { label: `Неисправен: ${label}`, test: a => a.faults.some(f => f.device === val) };
+      }
+      if (kind === 'oos') return { label: `Не обслуживают: ${val.toLowerCase()}`, test: a => a.operational === 'out_of_service' && (a.out_of_service_reason || '—') === val };
+      if (kind === 'cass') return { label: `Кассеты: ${(CASS_STATUS[val] || [val])[0]}`, test: a => a.cassettes.some(c => (c.status || '—') === val) };
+      if (kind === 'nom') return { label: `Есть купюры ${num(+val)} сум`, test: a => a.cassettes.some(c => c.nominal === +val && c.count > 0) };
+      return FILTERS.all;
+    }
+
+    function filteredAtms(withRegion = true) {
       const q = document.getElementById('atm-search').value.trim().toLowerCase();
       regionFilter = document.getElementById('atm-region').value;
-      const test = FILTERS[activeFilter].test;
+      const test = filterFor(activeFilter).test;
       return statusData.atms.filter(a =>
         test(a) &&
-        (!regionFilter || (a.region || 'Не сопоставлен с реестром') === regionFilter) &&
+        (!withRegion || !regionFilter || regionOf(a) === regionFilter) &&
         (!q || [a.tid, a.address, a.place, a.branch, a.region, a.registry_terminal_id, a.serial].some(v => String(v || '').toLowerCase().includes(q)))
       );
     }
 
-    const SEVERITY = { offline: 0, no_data: 1, out_of_service: 2, busy: 4, working: 5 };
-    const CASH_SEV = { empty: 0, critical: 1, warning: 2, anomaly: 3, unknown: 3, ok: 4 };
+    function atmCell(a) {
+      return `<div class="strong">${esc(a.tid)}</div>
+        <div class="sub">${esc(a.address || a.place || '—')}</div>
+        <div class="sub">${esc(a.region ? [a.region, a.branch].filter(Boolean).join(' · ') : NO_REGION)}</div>`;
+    }
+    function cashCell(a) {
+      if (a.cash === 'anomaly') return '<span class="sub">ошибка данных BTech</span>';
+      if (a.balance == null) return '<span class="sub">нет данных</span>';
+      const pct = a.balance_pct ?? 0;
+      return `<div class="strong">${money(a.balance)}</div>
+        <div class="meter"><div style="width:${Math.min(100, Math.max(pct ? 2 : 0, pct))}%;background:${CASH_COLOR[a.cash] || 'var(--slate)'}"></div></div>
+        <div class="sub">${Math.round(pct)}% ёмкости · ${esc(CASH[a.cash]?.label || '')}</div>`;
+    }
+    function cassCell(a) {
+      if (!a.cassettes.length) return '<span class="sub">—</span>';
+      return `<div class="cass">${a.cassettes.map(c => {
+        const [label, cls] = CASS_STATUS[c.status] || [c.status || '—', ''];
+        return `<span class="${cls}" title="${esc(label)}">${num(c.nominal)} × ${c.count ?? '—'} шт${cls ? ' · ' + esc(label) : ''}</span>`;
+      }).join('')}</div>`;
+    }
+    function faultsCell(a) {
+      return a.faults.length
+        ? `<div class="problems">${a.faults.map(f => `<div><b>${esc(f.label)}</b> — ${esc(devStatus(f.status))}</div>`).join('')}</div>`
+        : '<span class="ok-text">нет</span>';
+    }
+    function problemsCell(a) {
+      const p = [];
+      if (a.operational === 'offline') p.push(['', a.agent_last_online ? `Нет связи ${ago(a.agent_last_online).replace(' назад', '')}` : 'Нет связи']);
+      if (a.operational === 'no_data') p.push(['info', `Нет свежих данных (опрос ${ago(a.polled_at)})`]);
+      if (a.operational === 'out_of_service') p.push(['warn', `Не работает: ${(a.out_of_service_reason || '').toLowerCase()}`]);
+      if (a.cash === 'empty') p.push(['', 'Наличные закончились']);
+      if (a.cash === 'critical') p.push(['', 'Критично мало наличных']);
+      if (a.cash === 'warning') p.push(['warn', 'Мало наличных']);
+      if (a.cash === 'anomaly') p.push(['info', 'BTech передаёт неверный остаток']);
+      a.faults.forEach(f => p.push(['', `${f.label} — ${devStatus(f.status)}`]));
+      if (a.idle) p.push(['warn', `Нет снятий больше суток (последнее ${ago(a.last_cash_out)})`]);
+      return p.length
+        ? `<div class="problems">${p.map(([c, t]) => `<div class="${c}">${esc(t)}</div>`).join('')}</div>`
+        : '<span class="ok-text">✓ всё в порядке</span>';
+    }
+    const fc = (a, k) => a.forecast?.[k];
+    const timeCell = v => v ? `${ago(v)}<div class="sub">${dt(v)}</div>` : '<span class="sub">нет данных</span>';
+    const fcTime = v => v ? inHours(v) : '<span class="sub">нет прогноза</span>';
+
+    const COLS = {
+      atm:      { th: 'Банкомат',                 td: atmCell },
+      state:    { th: 'Состояние',                td: a => pill(OP, a.operational) + (a.can_dispense ? '<div class="sub">выдаёт наличные</div>' : '<div class="sub">наличные не выдаёт</div>') },
+      problems: { th: 'Что не так',               td: problemsCell },
+      cash:     { th: 'Наличные', num: true,      td: cashCell },
+      cass:     { th: 'Кассеты (номинал × купюр)', td: cassCell },
+      faults:   { th: 'Неисправные устройства',   td: faultsCell },
+      dispense: { th: 'Выдаёт наличные',          td: a => a.can_dispense ? '<span class="pill success">да</span>' : '<span class="pill danger">нет</span>' },
+      reason:   { th: 'Причина',                  td: a => `<div class="strong">${esc(a.out_of_service_reason || '—')}</div><div class="sub">код BTech: ${esc(a.app_status || a.service_status || '—')}</div>` },
+      seen:     { th: 'Последний раз на связи',   td: a => timeCell(a.agent_last_online) },
+      lastOut:  { th: 'Последнее снятие',         td: a => timeCell(a.last_cash_out) },
+      perDay:   { th: 'Снимают за сутки', num: true, td: a => fc(a, 'withdrawal_24h') != null ? money(fc(a, 'withdrawal_24h')) : '<span class="sub">—</span>' },
+      lowAt:    { th: 'Станет мало наличных',     td: a => fcTime(fc(a, 'low_cash_at')) },
+      emptyAt:  { th: 'Опустеет полностью',       td: a => fcTime(fc(a, 'cashout_at')) },
+      refill:   { th: 'Сколько загрузить', num: true, td: a => fc(a, 'refill_uzs') ? `<span class="strong">${money(fc(a, 'refill_uzs'))}</span>` : '<span class="sub">—</span>' },
+    };
+
+    const by = f => (a, b) => f(a) - f(b);
+    const tsOr = (v, d) => v ? new Date(v).getTime() : d;
+    const PROBLEM_SCORE = a => (a.operational === 'offline' || a.operational === 'no_data' ? 4 : 0) + (a.operational === 'out_of_service' ? 3 : 0)
+      + ({ empty: 3, critical: 2, warning: 1 }[a.cash] || 0) + a.faults.length * 2 + (a.idle ? 1 : 0);
+
+    // Что показывать при выборе каждой карточки
+    const DETAIL = {
+      all:            { icon: 'credit-card', tone: '', cols: ['atm', 'state', 'problems', 'cash'], sort: by(a => -PROBLEM_SCORE(a)),
+                        note: 'Вся сеть. Сверху — банкоматы с проблемами. Нажмите на карточку или строку сводки, чтобы посмотреть одну группу.' },
+      working:        { icon: 'shield-check', tone: 'success', cols: ['atm', 'cash', 'lastOut', 'lowAt', 'problems'], sort: by(a => a.balance_pct ?? 999),
+                        note: 'На связи и обслуживают клиентов. Отсортировано по остатку: сверху те, где наличных меньше всего.' },
+      busy:           { icon: 'user-round', tone: 'purple', cols: ['atm', 'cash', 'lastOut', 'problems'], sort: by(a => a.balance_pct ?? 999),
+                        note: 'В момент последнего опроса у банкомата был клиент. Это нормальная работа, не проблема.' },
+      out_of_service: { icon: 'circle-pause', tone: 'warning', cols: ['atm', 'reason', 'faults', 'cash', 'seen'], sort: by(a => -a.faults.length),
+                        note: 'На связи, но клиентов не обслуживают: режим обслуживания, приложение не запущено или банкомат сам вышел из работы. Нужна проверка.' },
+      offline:        { icon: 'wifi-off', tone: 'danger', cols: ['atm', 'seen', 'cash', 'lastOut'], sort: by(a => tsOr(a.agent_last_online, 0)),
+                        note: 'Нет связи с мониторингом BTech. Сверху — те, кто пропал раньше всех. Остаток — последний известный.' },
+      empty:          { icon: 'battery-warning', tone: 'danger', cols: ['atm', 'state', 'cass', 'refill'], sort: by(a => -PROBLEM_SCORE(a)),
+                        note: 'В кассетах 0 сум — наличные выдать нельзя. Нужна инкассация.' },
+      low:            { icon: 'triangle-alert', tone: 'warning', cols: ['atm', 'cash', 'cass', 'emptyAt', 'refill'], sort: by(a => a.balance_pct ?? 999),
+                        note: 'Остаток ниже порога от ёмкости банкомата. Сверху — где меньше всего. «Опустеет» и «Загрузить» — по прогнозу снятий.' },
+      can_dispense:   { icon: 'banknote', tone: 'success', cols: ['atm', 'cash', 'perDay', 'emptyAt'], sort: by(a => a.balance_pct ?? 999),
+                        note: 'Работают, есть наличные и исправен диспенсер — клиент может снять деньги прямо сейчас.' },
+      faults:         { icon: 'wrench', tone: 'danger', cols: ['atm', 'faults', 'state', 'dispense'], sort: by(a => -(a.faults.some(f => f.device === 'dispenser') * 10 + a.faults.length)),
+                        note: 'Хотя бы одно устройство неисправно. Сверху — с неисправным диспенсером: они не могут выдавать наличные.' },
+      idle:           { icon: 'hourglass', tone: 'slate', cols: ['atm', 'lastOut', 'cash', 'problems'], sort: by(a => tsOr(a.last_cash_out, 0)),
+                        note: 'Банкомат в работе, но наличные не снимали больше суток. Возможная скрытая неисправность или неудобное место.' },
+      low_soon:       { icon: 'alarm-clock', tone: 'warning', cols: ['atm', 'cash', 'perDay', 'lowAt', 'emptyAt', 'refill'], sort: by(a => tsOr(fc(a, 'low_cash_at'), Infinity)),
+                        note: 'По прогнозу снятий в ближайшие 24 часа остаток опустится ниже порога. Это кандидаты на инкассацию сегодня.' },
+      dev:            { icon: 'wrench', tone: 'danger', cols: ['atm', 'faults', 'state', 'dispense'], sort: by(a => -a.faults.length),
+                        note: 'Банкоматы, у которых BTech сообщает о неисправности этого устройства.' },
+      oos:            { icon: 'circle-pause', tone: 'warning', cols: ['atm', 'reason', 'faults', 'cash', 'seen'], sort: by(a => -a.faults.length),
+                        note: 'Банкоматы на связи, которые не обслуживают клиентов по этой причине.' },
+      cass:           { icon: 'layers', tone: 'warning', cols: ['atm', 'cass', 'cash', 'state'], sort: by(a => a.balance_pct ?? 999),
+                        note: 'Банкоматы, где хотя бы одна кассета в этом состоянии.' },
+      nom:            { icon: 'coins', tone: '', cols: ['atm', 'cass', 'cash', 'state'], sort: by(a => -(a.balance ?? 0)),
+                        note: 'Банкоматы, в кассетах которых есть купюры этого номинала.' },
+    };
+
+    // Выпадающий список регионов: число банкоматов — в текущей выборке
+    function renderRegionSelect(rows) {
+      const counts = {};
+      rows.forEach(a => { counts[regionOf(a)] = (counts[regionOf(a)] || 0) + 1; });
+      const sel = document.getElementById('atm-region');
+      sel.innerHTML = `<option value="">Все регионы (${rows.length})</option>` + Object.entries(counts)
+        .sort((a, b) => b[1] - a[1])
+        .map(([r, n]) => `<option value="${esc(r)}">${esc(r)} — ${n}</option>`).join('');
+      if (regionFilter && !counts[regionFilter]) sel.insertAdjacentHTML('beforeend', `<option value="${esc(regionFilter)}">${esc(regionFilter)} — 0</option>`);
+      sel.value = regionFilter;
+    }
+
+    // Пагинация только номерами страниц; onPick — имя функции перехода на страницу
+    function renderPager(elId, total, page, pages, onPick) {
+      const el = document.getElementById(elId);
+      if (pages <= 1) { el.style.display = 'none'; return; }
+      el.style.display = '';
+      const nums = pages <= 9 ? Array.from({ length: pages }, (_, i) => i + 1)
+        : [...new Set([1, 2, pages - 1, pages, page - 1, page, page + 1].filter(p => p >= 1 && p <= pages))].sort((a, b) => a - b);
+      let html = '';
+      nums.forEach((p, i) => {
+        if (i && p - nums[i - 1] > 1) html += '<span class="gap">…</span>';
+        html += `<button class="btn ${p === page ? 'current' : ''}" onclick="${onPick}(${p})">${p}</button>`;
+      });
+      const from = (page - 1) * PAGE_SIZE + 1, to = Math.min(total, page * PAGE_SIZE);
+      el.innerHTML = html + `<span class="pager-info">${from}–${to} из ${total}</span>`;
+    }
 
     function renderAtmTable() {
       if (!statusData) return;
-      const rows = filteredAtms().sort((a, b) =>
-        (CASH_SEV[a.cash] - CASH_SEV[b.cash]) || (SEVERITY[a.operational] - SEVERITY[b.operational]) || (b.faults.length - a.faults.length));
+      const kind = activeFilter.includes(':') ? activeFilter.slice(0, activeFilter.indexOf(':')) : activeFilter;
+      const d = DETAIL[kind] || DETAIL.all;
+      const allRows = filteredAtms(false);
+      const rows = filteredAtms().sort(d.sort);
+      const panel = document.getElementById('detail-panel');
+      panel.className = `panel detail ${d.tone ? 'tone-' + d.tone : ''}`;
+      document.getElementById('detail-icon').innerHTML = `<i data-lucide="${d.icon}"></i>`;
+      document.getElementById('detail-title').textContent =
+        `${activeFilter === 'all' ? 'Все банкоматы' : filterFor(activeFilter).label} — ${num(rows.length)}${regionFilter ? ' · ' + regionFilter : ''}`;
+      document.getElementById('detail-note').textContent = d.note;
+      document.getElementById('detail-reset').style.display = activeFilter === 'all' ? 'none' : 'inline-flex';
+      renderRegionSelect(allRows);
+
+      const cols = d.cols.map(k => COLS[k]);
+      document.getElementById('atm-head').innerHTML = cols.map(c => `<th class="${c.num ? 'num' : ''}">${esc(c.th)}</th>`).join('');
       const pages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
       atmPage = Math.min(atmPage, pages);
-      const chip = document.getElementById('filter-chip');
-      chip.style.display = activeFilter === 'all' ? 'none' : 'inline-flex';
-      chip.innerHTML = `${esc(FILTERS[activeFilter].label)} ✕`;
-      document.getElementById('atm-count').textContent = `${rows.length} из ${statusData.atms.length}`;
-      document.getElementById('atm-body').innerHTML = rows.slice((atmPage - 1) * PAGE_SIZE, atmPage * PAGE_SIZE).map(a => `
-        <tr>
-          <td><div class="strong">${esc(a.tid)}</div>
-            <div class="sub">${esc(a.address || a.place || '—')}</div>
-            ${a.region ? `<div class="sub">${esc([a.region, a.branch].filter(Boolean).join(' · '))}</div>` : ''}</td>
-          <td>${pill(OP, a.operational)}${a.out_of_service_reason ? `<div class="sub">${esc(a.out_of_service_reason)}</div>` : ''}${a.idle ? '<div class="sub">простой > 24 ч</div>' : ''}</td>
-          <td class="num"><div class="strong">${money(a.balance)}</div>${pill(CASH, a.cash)}</td>
-          <td><div class="cass">${a.cassettes.map(c => `<span class="${esc(c.status)}" title="${esc(c.status)}">${num(c.nominal / 1000)}k × ${c.count ?? '—'}</span>`).join('') || '<span class="sub">—</span>'}</div></td>
-          <td>${a.faults.map(f => `<div><span class="pill danger plain">${esc(f.label)}</span> <span class="sub">${esc(f.status || '')}</span></div>`).join('') || '<span class="sub">нет</span>'}</td>
-          <td>${ago(a.last_cash_out)}<div class="sub">опрос ${ago(a.polled_at)}</div></td>
-          <td>${a.forecast ? inHours(a.forecast.low_cash_at) : '<span class="sub">нет прогноза</span>'}</td>
-        </tr>`).join('') || `<tr><td colspan="7" class="empty">${statusData.atms.length ? 'Ничего не найдено' : 'Данных BTech ещё нет: сборщик не запущен или первый опрос не завершён.'}</td></tr>`;
-      document.getElementById('atm-page-info').textContent = `Страница ${atmPage} из ${pages}`;
-      document.getElementById('atm-prev').disabled = atmPage <= 1;
-      document.getElementById('atm-next').disabled = atmPage >= pages;
+      document.getElementById('atm-count').textContent = `показано ${rows.length} из ${statusData.atms.length}`;
+      document.getElementById('atm-body').innerHTML = rows.slice((atmPage - 1) * PAGE_SIZE, atmPage * PAGE_SIZE).map(a =>
+        `<tr>${cols.map(c => `<td class="${c.num ? 'num' : ''}">${c.td(a)}</td>`).join('')}</tr>`).join('')
+        || `<tr><td colspan="${cols.length}" class="empty">${statusData.atms.length ? 'Ничего не найдено' : 'Данных BTech ещё нет: сборщик не запущен или первый опрос не завершён.'}</td></tr>`;
+      renderPager('atm-pager', rows.length, atmPage, pages, 'goAtmPage');
+      icons();
     }
-    function changeAtmPage(d) { atmPage += d; renderAtmTable(); }
+    function goAtmPage(p) {
+      atmPage = p;
+      renderAtmTable();
+      document.getElementById('detail-panel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
 
     function renderRegions() {
       document.getElementById('region-body').innerHTML = statusData.by_region.map(r => `
@@ -736,13 +1090,13 @@
           <td class="num">${money(r.total_cash)}</td>
         </tr>`).join('') || '<tr><td colspan="11" class="empty">Нет данных</td></tr>';
     }
-    function pickRegion(region) {
+    function pickRegion(region, scroll = true) {
       const sel = document.getElementById('atm-region');
       sel.value = sel.value === region ? '' : region;
       atmPage = 1;
       renderAtmTable();
       renderRegions();
-      document.getElementById('atm-search').scrollIntoView({ behavior: 'smooth', block: 'center' });
+      if (scroll) document.getElementById('detail-panel').scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
     // ── Прогноз ──
@@ -812,8 +1166,10 @@
       const rows = forecastData.atms.filter(a =>
         (win === 'all' || (a.hours_to_low_cash != null && a.hours_to_low_cash <= +win)) &&
         (!q || [a.tid, a.address, a.region, a.branch].some(v => String(v || '').toLowerCase().includes(q))));
+      const pages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+      fcPage = Math.min(fcPage, pages);
       document.getElementById('fc-count').textContent = `${rows.length} ATM`;
-      document.getElementById('fc-body').innerHTML = rows.slice(0, 300).map(a => `
+      document.getElementById('fc-body').innerHTML = rows.slice((fcPage - 1) * PAGE_SIZE, fcPage * PAGE_SIZE).map(a => `
         <tr>
           <td><div class="strong">${esc(a.tid)}</div><div class="sub">${esc(a.address || '—')}</div>
             <div class="sub">${esc([a.region, a.branch].filter(Boolean).join(' · '))}</div></td>
@@ -824,6 +1180,12 @@
           <td class="num strong">${a.refill_uzs ? money(a.refill_uzs) : '—'}</td>
           <td>${pill(METHOD, a.method)}<div class="sub">история ${a.history_days} дн</div></td>
         </tr>`).join('') || `<tr><td colspan="7" class="empty">${forecastData.run ? 'Нет банкоматов в выбранном окне' : 'Прогноз ещё не построен'}</td></tr>`;
+      renderPager('fc-pager', rows.length, fcPage, pages, 'goFcPage');
+    }
+    function goFcPage(p) {
+      fcPage = p;
+      renderForecastTable();
+      document.getElementById('fc-search').scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
 
     async function retrain() {
@@ -850,32 +1212,61 @@
       icons();
     }
 
-    // ── Снятия по дням ──
+    // ── Снятия ──
+    let wdData = null;
     async function loadWithdrawals() {
       const days = document.getElementById('wd-days').value;
-      let data;
       try {
-        data = await getJson(`/api/analytics/withdrawals?days=${days}`);
+        wdData = await getJson(`/api/analytics/withdrawals?days=${days}`);
       } catch (e) {
         document.getElementById('wd-chart').innerHTML = `<div class="empty">Ошибка загрузки: ${esc(e.message)}</div>`;
         return;
       }
-      const n = data.daily.length || 1;
-      const peak = data.daily.reduce((m, d) => d.withdrawal > (m?.withdrawal || 0) ? d : m, null);
-      document.getElementById('wd-kpis').innerHTML = [
-        { label: `Снято за ${days} дн`, value: money(data.total), icon: 'banknote' },
-        { label: 'В среднем в день', value: money(data.total / n), icon: 'calendar-days' },
-        { label: 'Пиковый день', value: peak ? money(peak.withdrawal) : '—', icon: 'trending-up', tone: 'warning', hint: peak ? dayLabel(peak.date) : '' },
-        { label: 'Загрузок (инкассаций)', value: num(data.refills), icon: 'truck', tone: 'purple', hint: 'рост остатка по BTech' },
-      ].map(statBox).join('');
-      barChart(document.getElementById('wd-chart'), data.daily.map(d => ({
-        label: dayLabel(d.date), short: dayShort(d.date), value: d.withdrawal,
-        extra: `${d.atms} ATM с данными · загрузок: ${d.refills}`,
-      })));
-      document.getElementById('wd-top').innerHTML = data.top_atms.map(a => `
+      renderWithdrawals();
+      document.getElementById('wd-top').innerHTML = wdData.top_atms.map(a => `
         <tr><td><div class="strong">${esc(a.tid)}</div><div class="sub">${esc([a.region, a.branch].filter(Boolean).join(' · ') || 'не сопоставлен')}</div></td>
-          <td class="num strong">${money(a.withdrawal)}</td><td class="num">${money(a.avg_per_day)}</td><td class="num">${a.refills}</td></tr>`).join('')
+          <td class="num strong">${money(a.withdrawal)}</td><td class="num">${money(a.avg_per_hour ?? a.avg_per_day)}</td><td class="num">${a.refills}</td></tr>`).join('')
         || '<tr><td colspan="4" class="empty">Нет данных</td></tr>';
+      icons();
+    }
+
+    const hourLabel = h => new Date(h).toLocaleString('ru-RU', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+    const hourShort = h => new Date(h).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+
+    function renderWithdrawals() {
+      if (!wdData) return;
+      const d = wdData, days = d.days;
+      const byHour = document.getElementById('wd-by').value === 'hour';
+      const hourly = d.hourly || [];
+      // сколько часов реально покрыто опросами (медиана по банкоматам в каждом часе)
+      const covered = hourly.reduce((s, h) => s + (h.covered_hours || 0), 0);
+      const coveredTxt = covered < 48 ? `${Math.round(covered)} ч` : `${(covered / 24).toFixed(1).replace('.', ',')} дн`;
+      const peak = (byHour ? hourly : d.daily).reduce((m, x) => x.withdrawal > (m?.withdrawal || 0) ? x : m, null);
+      document.getElementById('wd-kpis').innerHTML = [
+        { label: `Снято за ${days} дн`, value: money(d.total), icon: 'banknote', hint: hourly.length ? `по ${coveredTxt} наблюдений` : '' },
+        { label: 'В среднем в час', value: covered ? money(d.total / covered) : '—', icon: 'clock', hint: 'по часам, где были опросы' },
+        { label: byHour ? 'Пиковый час' : 'Пиковый день', value: peak ? money(peak.withdrawal) : '—', icon: 'trending-up', tone: 'warning',
+          hint: peak ? (byHour ? hourLabel(peak.hour) : dayLabel(peak.date)) : '' },
+        { label: 'Загрузок (инкассаций)', value: num(d.refills), icon: 'truck', tone: 'purple', hint: 'рост остатка по BTech' },
+      ].map(statBox).join('');
+
+      document.getElementById('wd-title').textContent = byHour ? 'Снято наличных по сети, по часам' : 'Снято наличных по сети, по дням';
+      const rows = byHour
+        ? hourly.map((h, i) => ({
+            label: hourLabel(h.hour), value: h.withdrawal,
+            short: i === 0 || h.hour.slice(0, 10) !== hourly[i - 1].hour.slice(0, 10) ? dayShort(h.hour.slice(0, 10)) + ' ' + hourShort(h.hour) : hourShort(h.hour),
+            extra: `${h.atms} ATM с данными · загрузок: ${h.refills}`,
+          }))
+        : d.daily.map(x => ({
+            label: dayLabel(x.date), short: dayShort(x.date), value: x.withdrawal,
+            extra: `${x.atms} ATM с данными · загрузок: ${x.refills}`,
+          }));
+      barChart(document.getElementById('wd-chart'), rows, { height: 170 });
+
+      const first = hourly[0]?.hour, last = hourly[hourly.length - 1]?.hour;
+      document.getElementById('wd-note').innerHTML = hourly.length && covered < 72
+        ? `<div class="note warn">Истории пока мало: опросы BTech есть только за ${coveredTxt} (${hourly.length} ч с данными, с ${hourLabel(first)} по ${hourLabel(last)}). Суммы за день и средние станут точными, когда сборщик проработает без перерывов хотя бы несколько суток.</div>`
+        : '';
       icons();
     }
 

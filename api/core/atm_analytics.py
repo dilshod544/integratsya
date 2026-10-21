@@ -413,9 +413,10 @@ def forecast_overview() -> Dict[str, Any]:
 def _withdrawals_history(days: int) -> Dict[str, Any]:
     with connect() as conn:
         daily = forecast.daily_withdrawals(conn, days)
+        hourly = forecast.hourly_withdrawals(conn, days)
         tids = {int(r["id"]): r["tid"] for r in conn.execute("SELECT id, tid FROM atms").fetchall()}
     if daily.empty:
-        return {"days": days, "daily": [], "top_atms": [], "total": 0}
+        return {"days": days, "daily": [], "hourly": [], "top_atms": [], "total": 0, "refills": 0}
     per_day = daily.groupby("day").agg(
         withdrawal=("withdrawn", "sum"), refills=("refills", "sum"), atms=("atm_id", "nunique")
     ).reset_index()
@@ -423,6 +424,7 @@ def _withdrawals_history(days: int) -> Dict[str, Any]:
         withdrawal=("withdrawn", "sum"), refills=("refills", "sum"), days_seen=("day", "nunique")
     )
     per_atm = per_atm.sort_values("withdrawal", ascending=False).head(15)
+    hours_seen = hourly.groupby("atm_id")["covered_hours"].sum() if not hourly.empty else pd.Series(dtype=float)
     registry = _registry_by_tid()
     top = []
     for atm_id, r in per_atm.iterrows():
@@ -432,6 +434,7 @@ def _withdrawals_history(days: int) -> Dict[str, Any]:
             "tid": tid, "region": reg.get("region"), "branch": reg.get("branch"),
             "withdrawal": float(r["withdrawal"]), "refills": int(r["refills"]),
             "avg_per_day": float(r["withdrawal"]) / max(1, int(r["days_seen"])),
+            "avg_per_hour": float(r["withdrawal"]) / max(1.0, float(hours_seen.get(atm_id, 0))),
         })
     return {
         "days": days,
@@ -441,6 +444,14 @@ def _withdrawals_history(days: int) -> Dict[str, Any]:
             {"date": d.strftime("%Y-%m-%d"), "withdrawal": float(w), "refills": int(rf), "atms": int(n)}
             for d, w, rf, n in per_day[["day", "withdrawal", "refills", "atms"]].itertuples(index=False)
         ],
+        "hourly": [
+            {"hour": h.strftime("%Y-%m-%dT%H:00"), "withdrawal": float(w), "refills": int(rf), "atms": int(n),
+             "covered_hours": round(float(cov), 2)}
+            for h, w, rf, n, cov in hourly.groupby("hour").agg(
+                withdrawal=("withdrawn", "sum"), refills=("refills", "sum"), atms=("atm_id", "nunique"),
+                covered=("covered_hours", "median"),
+            ).reset_index()[["hour", "withdrawal", "refills", "atms", "covered"]].itertuples(index=False)
+        ] if not hourly.empty else [],
         "top_atms": top,
     }
 

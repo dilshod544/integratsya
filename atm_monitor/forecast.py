@@ -75,7 +75,8 @@ XGB_PARAMS = {
     "n_jobs": 2,   # обучение идёт в фоне рядом с сервером — не забираем все ядра
 }
 
-_DAILY_SQL = """
+# Снятия = сумма падений остатка между соседними опросами; {bucket} — сутки или час.
+_WITHDRAWALS_SQL = """
 WITH s AS (
     SELECT atm_id, polled_at, cdm_total_uzs AS bal,
            LAG(cdm_total_uzs)  OVER w AS prev_bal,
@@ -91,7 +92,7 @@ WITH s AS (
     WHERE prev_at IS NOT NULL
 )
 SELECT atm_id,
-       (polled_at AT TIME ZONE %(tz)s)::date AS day,
+       {bucket} AS day,
        SUM(CASE WHEN prev_bal > bal
                  AND NOT (bal <= prev_bal * 0.1 AND COALESCE(next_bal, 0) >= prev_bal * 0.5)
                 THEN prev_bal - bal ELSE 0 END) AS withdrawn,
@@ -102,6 +103,8 @@ WHERE gap_h <= %(max_gap)s
 GROUP BY 1, 2
 ORDER BY 1, 2
 """
+_DAILY_SQL = _WITHDRAWALS_SQL.replace("{bucket}", "(polled_at AT TIME ZONE %(tz)s)::date")
+_HOURLY_SQL = _WITHDRAWALS_SQL.replace("{bucket}", "date_trunc('hour', polled_at AT TIME ZONE %(tz)s)")
 
 _CURRENT_SQL = """
 SELECT a.id AS atm_id, s.cdm_total_uzs AS balance, s.polled_at,
@@ -136,6 +139,24 @@ def daily_withdrawals(conn, days: int) -> pd.DataFrame:
     if df.empty:
         return df
     df["day"] = pd.to_datetime(df["day"])
+    df["withdrawn"] = df["withdrawn"].astype(float)
+    df["covered_hours"] = df["covered_hours"].astype(float)
+    df["refills"] = df["refills"].astype(int)
+    return df
+
+
+def hourly_withdrawals(conn, days: int) -> pd.DataFrame:
+    """То же, что daily_withdrawals, но по часам (местное время): колонка hour вместо day."""
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    rows = conn.execute(
+        _HOURLY_SQL,
+        {"since": since, "tz": settings.TIMEZONE, "max_gap": MAX_GAP_HOURS, "max_bal": MAX_PLAUSIBLE_UZS},
+    ).fetchall()
+    df = pd.DataFrame(rows, columns=["atm_id", "day", "withdrawn", "covered_hours", "refills"])
+    df = df.rename(columns={"day": "hour"})
+    if df.empty:
+        return df
+    df["hour"] = pd.to_datetime(df["hour"])
     df["withdrawn"] = df["withdrawn"].astype(float)
     df["covered_hours"] = df["covered_hours"].astype(float)
     df["refills"] = df["refills"].astype(int)
