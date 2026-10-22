@@ -1079,8 +1079,8 @@ let vashOpsByNumber = {};
 let vashOpsBand = '';
 let plottedBranchCodes = new Set();
 
-const VASH_BAND_COLOR = { high: '#16a34a', mid: '#d97706', low: '#dc2626' };
-const VASH_BAND_LABEL = { high: 'много операций', mid: 'средне', low: 'мало операций' };
+const VASH_BAND_COLOR = { high: '#16a34a', mid: '#d97706', low: '#dc2626', none: '#94a3b8' };
+const VASH_BAND_LABEL = { high: 'много операций', mid: 'средне', low: 'мало операций', none: 'нет операций' };
 
 const VASH_GLYPH = `<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/></svg>`;
 
@@ -1179,7 +1179,7 @@ function buildVashLayer() {
         .bindPopup(() => vashPopupHtml(it, g), { maxWidth: 280 });
       if (line) vashLayer.addLayer(line);
       vashLayer.addLayer(marker);
-      vashMarkers.push({ marker, line, key: g._key, id: it.id, number: it.vash_number, band: ops ? ops.band : '', ops: ops ? ops.ops : 0 });
+      vashMarkers.push({ marker, line, key: g._key, id: it.id, number: it.vash_number, band: ops ? ops.band : 'none', ops: ops ? ops.ops : 0 });
     });
   });
   if (vashVisible) vashLayer.addTo(map);
@@ -1613,7 +1613,7 @@ async function showVashBandFromQuery() {
   if (!band) return false;
   const ok = await ensureVashShown();
   if (ok === false) return false;
-  vashOpsBand = ['high', 'mid', 'low'].includes(band) ? band : '';
+  vashOpsBand = ['high', 'mid', 'low', 'none'].includes(band) ? band : '';
   applyBranchVashFilter();
   updateVashLegend();
   const pts = vashMarkers.filter(v => !vashOpsBand || v.band === vashOpsBand).map(v => v.marker.getLatLng());

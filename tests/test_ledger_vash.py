@@ -105,7 +105,8 @@ def test_vash_n_prefix_matches_zone_coordinates(pg_db, tmp_path):
         conn.execute(
             """
             INSERT INTO vash_zones (vash_number, bxm_code, address, lat, lon)
-            VALUES ('06003041', '10737', 'Бухоро', 39.77, 64.42)
+            VALUES ('06003041', '10737', 'Бухоро', 39.77, 64.42),
+                   ('06003099', '10737', 'Бухоро 2', 39.78, 64.43)
             """
         )
     path = tmp_path / "vash-n.xlsx"
@@ -120,3 +121,6 @@ def test_vash_n_prefix_matches_zone_coordinates(pg_db, tmp_path):
     assert point["vash_number"] == "06003041"
     assert point["address"] == "Бухоро"
     assert point["lat"] == 39.77
+    quiet = next(p for p in vash_operations_analytics()["points"] if p["band"] == "none")
+    assert quiet["vash_number"] == "06003099"
+    assert quiet["ops"] == 0

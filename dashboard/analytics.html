@@ -86,6 +86,9 @@
     .btn.vash-band.active { background: var(--primary); color: #fff; border-color: var(--primary); }
     .btn.vash-band.high.active, .btn.vash-band.high.active:hover { background: #16a34a; border-color: #16a34a; color: #fff; }
     .btn.vash-band.low.active, .btn.vash-band.low.active:hover { background: #dc2626; border-color: #dc2626; color: #fff; }
+    .btn.vash-band.none { color: #475569; border-color: #cbd5e1; }
+    .btn.vash-band.none:hover { color: #334155; border-color: #64748b; }
+    .btn.vash-band.none.active, .btn.vash-band.none.active:hover { background: #475569; border-color: #475569; color: #fff; }
     .stat-box.tone-success.active { border-color: #16a34a; box-shadow: 0 0 0 3px rgba(22,163,74,.18), var(--shadow-sm); }
     .stat-box.tone-danger.active { border-color: #dc2626; box-shadow: 0 0 0 3px rgba(220,38,38,.18), var(--shadow-sm); }
 
@@ -491,6 +494,7 @@
           <button class="btn vash-band high" data-band="high" onclick="setVashBand('high')">Много операций</button>
           <button class="btn vash-band" data-band="mid" onclick="setVashBand('mid')">Средне</button>
           <button class="btn vash-band low" data-band="low" onclick="setVashBand('low')">Мало операций</button>
+          <button class="btn vash-band none" data-band="none" onclick="setVashBand('none')">Нет операций</button>
           <a class="btn primary" id="vash-map-btn" href="/dashboard/map.html?vash_band=all">Показать все на карте</a>
         </div>
         <div class="table-wrap" style="max-height:640px;overflow:auto">
@@ -1380,7 +1384,7 @@
     function syncVashMapButton() {
       const a = document.getElementById('vash-map-btn');
       if (!a) return;
-      const label = { high: 'Показать на карте: много', mid: 'Показать на карте: средне', low: 'Показать на карте: мало' };
+      const label = { high: 'Показать на карте: много', mid: 'Показать на карте: средне', low: 'Показать на карте: мало', none: 'Показать на карте: нет операций' };
       a.textContent = label[vashBand] || 'Показать все на карте';
       a.href = '/dashboard/map.html?vash_band=' + encodeURIComponent(vashBand || 'all');
     }
@@ -1394,21 +1398,21 @@
     function renderVashPoints() {
       if (!vashOps) return;
       const q = (document.getElementById('vash-q').value || '').trim().toLowerCase();
-      const bandName = { high: 'много', mid: 'средне', low: 'мало' };
-      const bandClass = { high: 'success', mid: 'warning', low: 'danger' };
+      const bandName = { high: 'много', mid: 'средне', low: 'мало', none: 'нет' };
+      const bandClass = { high: 'success', mid: 'warning', low: 'danger', none: 'slate' };
       const rows = (vashOps.points || []).filter(p => {
         if (vashBand && p.band !== vashBand) return false;
         if (!q) return true;
-        return [p.obmen_punkt, p.branch, p.address].join(' ').toLowerCase().includes(q);
+        return [p.obmen_punkt, p.branch, p.bxm_name, p.address].join(' ').toLowerCase().includes(q);
       });
       const max = Math.max(1, ...rows.map(p => p.ops));
       document.getElementById('vash-points').innerHTML = rows.map(p => `
         <tr>
           <td><div class="strong">ВАШ ${esc(p.obmen_punkt)}</div><div class="sub">${esc(p.address || (p.on_map ? '' : 'нет в списке точек на карте'))}</div></td>
-          <td>${esc(p.branch || '—')}</td>
+          <td>${esc(p.branch || '—')}${p.bxm_name ? `<div class="sub">${esc(p.bxm_name)}</div>` : ''}</td>
           <td class="num">
             <div class="strong">${num(p.ops)}</div>
-            <div class="hbar"><div class="track"><div class="fill" style="width:${p.ops / max * 100}%;background:${p.band === 'high' ? 'var(--success)' : p.band === 'low' ? 'var(--danger)' : 'var(--warning)'}"></div></div></div>
+            <div class="hbar"><div class="track"><div class="fill" style="width:${p.ops / max * 100}%;background:${p.band === 'high' ? 'var(--success)' : p.band === 'low' ? 'var(--danger)' : p.band === 'none' ? 'var(--slate)' : 'var(--warning)'}"></div></div></div>
           </td>
           <td><span class="pill ${bandClass[p.band] || ''}">${bandName[p.band] || p.band}</span></td>
           <td><div>${esc(p.first_date || '—')}</div><div class="sub">${esc(p.last_date || '')}</div></td>

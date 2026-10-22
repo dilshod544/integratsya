@@ -589,13 +589,37 @@ def vash_operations_analytics() -> Dict[str, Any]:
             "lat": zone.get("lat") if zone else None,
             "lon": zone.get("lon") if zone else None,
         })
+    matched_keys = {_punkt_key(p["obmen_punkt"]) for p in points}
+    none = 0
+    for key, zone in zone_by_key.items():
+        if key in matched_keys:
+            continue
+        none += 1
+        points.append({
+            "obmen_punkt": zone.get("vash_number"),
+            "branch": zone.get("bxm_code"),
+            "bxm_name": zone.get("bxm_name"),
+            "ops": 0,
+            "ci_accounts": 0,
+            "co_accounts": 0,
+            "first_date": None,
+            "last_date": None,
+            "band": "none",
+            "on_map": zone.get("lat") is not None and zone.get("lon") is not None,
+            "address": zone.get("address"),
+            "vash_id": zone.get("id"),
+            "vash_number": zone.get("vash_number"),
+            "lat": zone.get("lat"),
+            "lon": zone.get("lon"),
+        })
     return {
         "operations": int(span["n"]),
-        "point_count": len(points),
+        "point_count": len(points) - none,
         "from": _iso_date(span["d0"]),
         "to": _iso_date(span["d1"]),
         "high": high,
         "low": low,
-        "mid": len(points) - high - low,
+        "mid": len(points) - none - high - low,
+        "none": none,
         "points": points,
     }
