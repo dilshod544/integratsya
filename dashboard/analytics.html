@@ -303,6 +303,36 @@
     .note.warn { color: #92400e; background: #fffbeb; border: 1px solid #fde68a; border-radius: 12px; padding: 10px 12px; }
     .icon-inline { width: 15px; height: 15px; stroke-width: 2.4; }
 
+    /* линейный график остатка */
+    .chart path.line { fill: none; stroke: var(--primary); stroke-width: 2; stroke-linejoin: round; }
+    .chart path.area { fill: var(--primary); opacity: .07; }
+    .chart line.target { stroke: var(--warning); stroke-width: 1.5; stroke-dasharray: 5 4; }
+    .chart text.target-lbl { font-size: 10px; font-weight: 800; fill: var(--warning); }
+    .chart line.cursor { stroke: #94a3b8; stroke-width: 1; }
+    .chart circle.dot { fill: var(--primary); stroke: #fff; stroke-width: 2; }
+    /* окно истории банкомата */
+    .modal-backdrop {
+      position: fixed; inset: 0; z-index: 50; background: rgba(15,23,42,.45); display: none;
+      align-items: flex-start; justify-content: center; padding: 32px 16px; overflow-y: auto;
+    }
+    .modal-backdrop.open { display: flex; }
+    .modal {
+      width: min(1120px, 100%); background: var(--surface); border-radius: 24px; box-shadow: var(--shadow-lg);
+      border: 1px solid var(--border); overflow: hidden;
+    }
+    .modal-head { display: flex; align-items: flex-start; gap: 12px; padding: 18px 20px; border-bottom: 1px solid var(--border); }
+    .modal-head h3 { font-size: 20px; font-weight: 900; letter-spacing: -.02em; }
+    .modal-body { padding: 4px 20px 20px; }
+    .modal .stats-bar { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+    .chips { display: inline-flex; gap: 4px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 12px; padding: 3px; }
+    .chips button { border: none; background: transparent; color: var(--muted); font: inherit; font-size: 12px; font-weight: 800; padding: 5px 10px; border-radius: 9px; cursor: pointer; }
+    .chips button.on { background: var(--primary); color: #fff; }
+    td.spark { cursor: zoom-in; }
+    td.spark:hover svg { background: #eef4ff; border-radius: 6px; }
+    .cover { display: grid; grid-template-columns: 1fr; gap: 4px; min-width: 110px; }
+    .cover .track { height: 6px; background: #f1f5f9; border-radius: 3px; overflow: hidden; }
+    .cover .fill { height: 100%; border-radius: 3px; }
+
     @media (max-width: 1240px) {
       .kpi-group { grid-template-columns: 1fr; }
       .kpi-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -348,6 +378,7 @@
       <button class="section-tab" data-tab="withdrawals" onclick="switchTab('withdrawals')"><i data-lucide="banknote" class="icon-inline"></i> Снятия по дням</button>
       <button class="section-tab" data-tab="kassa" onclick="switchTab('kassa')"><i data-lucide="wallet" class="icon-inline"></i> Касса филиалов</button>
       <button class="section-tab" data-tab="vash" onclick="switchTab('vash')"><i data-lucide="arrow-left-right" class="icon-inline"></i> ВАШ</button>
+      <button class="section-tab" data-tab="efficiency" style="margin-left:auto" onclick="switchTab('efficiency')"><i data-lucide="scale" class="icon-inline"></i> Аналитика ATM</button>
     </nav>
 
     <!-- ── Состояние сети ── -->
@@ -553,7 +584,105 @@
         </div>
       </div>
     </section>
+
+    <section id="tab-efficiency" class="tab-panel">
+      <div class="toolbar" style="margin-top:16px;border:1px solid var(--border);border-radius:16px;">
+        <span class="stat-label">Период</span>
+        <select id="ef-days" onchange="loadEfficiency()">
+          <option value="30" selected>30 дней</option>
+          <option value="60">60 дней</option>
+          <option value="90">90 дней</option>
+        </select>
+        <span class="stat-label" style="margin-left:10px">Норма запаса</span>
+        <select id="ef-norm" onchange="loadEfficiency()" title="Остаток не должен превышать столько дней фактического спроса">
+          <option value="7">7 дней</option>
+          <option value="14">14 дней</option>
+          <option value="30" selected>30 дней</option>
+          <option value="45">45 дней</option>
+          <option value="60">60 дней</option>
+        </select>
+        <span class="stat-label" style="margin-left:10px">Банкомат</span>
+        <select id="ef-atm" onchange="loadEfHistory()"><option value="">Вся сеть</option></select>
+      </div>
+      <div id="ef-note"></div>
+      <div class="stats-bar" id="ef-kpis"></div>
+      <div class="grid-2">
+        <div class="panel">
+          <div class="panel-head"><i data-lucide="chart-line" class="icon-inline"></i><h2 id="ef-balance-title">Остаток наличных</h2></div>
+          <div class="chart" id="ef-balance"></div>
+          <div class="panel-body" style="padding-top:0"><div class="note" id="ef-balance-note"></div></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><i data-lucide="clock" class="icon-inline"></i><h2 id="ef-hours-title">Средний спрос по часам суток</h2></div>
+          <div class="chart" id="ef-hours"></div>
+          <div class="panel-body" style="padding-top:0"><div class="note" id="ef-hours-note"></div></div>
+        </div>
+      </div>
+      <div class="panel" style="margin-top:16px">
+        <div class="panel-head">
+          <i data-lucide="list-checks" class="icon-inline"></i><h2 id="ef-table-title">Какие банкоматы взять на заметку</h2>
+          <div class="spacer"></div>
+          <input id="ef-q" placeholder="Банкомат, филиал, адрес…" oninput="renderEfAtms()" style="max-width:260px" />
+        </div>
+        <div class="panel-body" style="padding-bottom:0">
+          <div class="note" id="ef-rule" style="margin-top:0"></div>
+        </div>
+        <div class="table-wrap" style="max-height:620px;overflow:auto">
+          <table class="data">
+            <thead><tr>
+              <th>Банкомат</th><th class="num">Остаток</th><th class="num">Спрос в час</th><th class="num">Спрос в день</th>
+              <th>Хватит на</th><th class="num" id="ef-norm-th">Норма</th><th>Снятия по дням</th><th class="num">Можно изъять</th><th>Статус</th>
+            </tr></thead>
+            <tbody id="ef-atms"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
   </main>
+
+  <div class="modal-backdrop" id="atm-modal" onclick="if (event.target === this) closeAtmModal()">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="am-title">
+      <div class="modal-head">
+        <div style="flex:1;min-width:0">
+          <div class="eyebrow">История банкомата</div>
+          <h3 id="am-title">—</h3>
+          <div class="sub" id="am-sub"></div>
+        </div>
+        <button class="btn" onclick="closeAtmModal()" aria-label="Закрыть"><i data-lucide="x" class="icon-inline"></i></button>
+      </div>
+      <div class="modal-body">
+        <div class="stats-bar" id="am-kpis"></div>
+        <div class="panel" style="margin-top:16px">
+          <div class="panel-head">
+            <i data-lucide="chart-line" class="icon-inline"></i><h2>Остаток наличных по часам</h2><div class="spacer"></div>
+            <div class="chips" id="am-range">
+              <button data-d="7">7 дн</button><button data-d="30">30 дн</button><button data-d="90">90 дн</button><button data-d="0" class="on">Всё</button>
+            </div>
+          </div>
+          <div class="chart" id="am-balance"></div>
+        </div>
+        <div class="grid-2">
+          <div class="panel">
+            <div class="panel-head"><i data-lucide="chart-column" class="icon-inline"></i><h2>Снятия по дням</h2></div>
+            <div class="chart" id="am-daily"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><i data-lucide="clock" class="icon-inline"></i><h2>Спрос по часам суток</h2></div>
+            <div class="chart" id="am-hours"></div>
+          </div>
+        </div>
+        <div class="panel" style="margin-top:16px">
+          <div class="panel-head"><i data-lucide="table" class="icon-inline"></i><h2 id="am-table-title">Все дни</h2></div>
+          <div class="table-wrap" style="max-height:360px;overflow:auto">
+            <table class="data">
+              <thead><tr><th>Дата</th><th class="num">Снято</th><th class="num">Загрузок</th><th class="num">Часов с данными</th></tr></thead>
+              <tbody id="am-days"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <script>
     const API = location.origin;
@@ -713,6 +842,7 @@
       if (tab === 'withdrawals' && !wdData) loadWithdrawals();
       if (tab === 'kassa' && !ledgerData) loadLedger();
       if (tab === 'vash' && !vashOps) loadVashOps();
+      if (tab === 'efficiency' && !efData) loadEfficiency();
       history.replaceState(null, '', tab === 'status' ? location.pathname : '#' + tab);
       icons();
     }
@@ -1445,18 +1575,326 @@
       icons();
     }
 
+    // ── Аналитика ATM: спрос в час и лишние деньги ──
+    let efData = null, efFilter = '';
+    const EF = {
+      excess:    { label: 'Лишние деньги', cls: 'warning' },
+      no_demand: { label: 'Лежат без спроса', cls: 'danger' },
+      low:       { label: 'Мало запаса', cls: 'purple' },
+      ok:        { label: 'В норме', cls: 'success' },
+      no_data:   { label: 'Мало данных', cls: 'slate' },
+    };
+    const days1 = v => v === null || v === undefined ? '—' : (v < 10 ? v.toFixed(1).replace('.', ',') : Math.round(v).toLocaleString('ru-RU')) + ' дн';
+
+    async function loadEfficiency() {
+      const days = document.getElementById('ef-days').value, norm = document.getElementById('ef-norm').value;
+      try {
+        efData = await getJson(`/api/analytics/atm-efficiency?days=${days}&norm_days=${norm}`);
+      } catch (e) {
+        document.getElementById('ef-atms').innerHTML = `<tr><td colspan="9" class="empty">Ошибка загрузки: ${esc(e.message)}</td></tr>`;
+        return;
+      }
+      const sel = document.getElementById('ef-atm'), keep = sel.value;
+      sel.innerHTML = '<option value="">Вся сеть</option>' + [...efData.atms]
+        .sort((a, b) => String(a.tid).localeCompare(String(b.tid)))
+        .map(a => `<option value="${a.atm_id}">${esc(a.tid)}${a.address ? ' · ' + esc(a.address) : ''}</option>`).join('');
+      sel.value = efData.atms.some(a => String(a.atm_id) === keep) ? keep : '';
+      paintEfKpis();
+      renderEfAtms();
+      loadEfHistory();
+    }
+
+    function paintEfKpis() {
+      const d = efData, s = d.summary, N = d.norm_days;
+      const until = d.data_until ? (Date.now() - new Date(d.data_until)) / 864e5 : 0;
+      document.getElementById('ef-note').innerHTML = until > 1
+        ? `<div class="note warn">Последний опрос BTech — ${dt(d.data_until)} (${ago(d.data_until)}). Период ${d.days} дн отсчитан от него, остатки — на этот момент.</div>` : '';
+      document.getElementById('ef-kpis').innerHTML = [
+        { label: 'Банкоматов', value: num(s.atms), icon: 'landmark', hint: `за ${d.days} дн истории`, action: "setEfFilter('')", active: !efFilter },
+        { label: 'Спрос в час · сеть', value: money(s.avg_per_hour_network), icon: 'clock', hint: `на 1 ATM: ${money(s.avg_per_hour_atm)}` },
+        { label: `Запас > ${N} дн`, value: num(s.excess), icon: 'piggy-bank', tone: 'warning', hint: 'лишние деньги лежат без дела', action: "setEfFilter('excess')", active: efFilter === 'excess' },
+        { label: 'Можно изъять', value: money(s.excess_total), icon: 'hand-coins', tone: 'danger', hint: `сверх ${N} дн спроса` },
+        { label: `Мало запаса`, value: num(s.low), icon: 'battery-low', tone: 'purple', hint: `меньше ${d.low_cover_days} дн спроса`, action: "setEfFilter('low')", active: efFilter === 'low' },
+        { label: 'В норме', value: num(s.ok), icon: 'circle-check', tone: 'success', hint: `от ${d.low_cover_days} до ${N} дн`, action: "setEfFilter('ok')", active: efFilter === 'ok' },
+      ].map(statBox).join('');
+      document.getElementById('ef-norm-th').textContent = `Норма ${N} дн`;
+      document.getElementById('ef-rule').innerHTML = `Спрос — средние фактические снятия за ${d.days} дн (по почасовым остаткам BTech; загрузки и замена кассет не считаются). `
+        + `Норма: в банкомате должно лежать не больше <b>${N} дн</b> спроса. Всё сверх неё — неэффективно лежащие деньги: «Можно изъять» — сколько вывезти при ближайшей инкассации, чтобы осталось ровно ${N} дн спроса. `
+        + `Сверху — банкоматы, где лишних денег больше всего.`;
+      icons();
+    }
+
+    /* Мини-график снятий по дням: линия + точка последнего дня; разрыв там, где не было опросов. */
+    function sparkline(vals, days) {
+      const pts = (vals || []);
+      const known = pts.filter(v => v !== null);
+      if (known.length < 2) return '<span class="sub">мало данных</span>';
+      const W = 120, H = 30, P = 3, max = Math.max(...known) || 1, n = pts.length;
+      const x = i => P + (W - 2 * P) * i / (n - 1), y = v => H - P - (H - 2 * P) * v / max;
+      let d = '', pen = false, last = null;
+      pts.forEach((v, i) => {
+        if (v === null) { pen = false; return; }
+        d += `${pen ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`;
+        pen = true; last = i;
+      });
+      const avg = known.reduce((s, v) => s + v, 0) / known.length;
+      return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="display:block" role="img"
+          aria-label="Снятия по дням"><title>Снятия по дням за ${days} дн: в среднем ${money(avg)}, макс. ${money(Math.max(...known))}, последний день ${money(pts[last])}</title>
+        <line x1="${P}" x2="${W - P}" y1="${y(avg).toFixed(1)}" y2="${y(avg).toFixed(1)}" stroke="#e2e8f0" stroke-dasharray="3 3"/>
+        <path d="${d}" fill="none" stroke="var(--primary)" stroke-width="1.5" stroke-linejoin="round"/>
+        <circle cx="${x(last).toFixed(1)}" cy="${y(pts[last]).toFixed(1)}" r="2.5" fill="var(--primary)"/></svg>`;
+    }
+
+    // ── Окно: вся история одного банкомата ──
+    let amData = null, amAtm = null, amRange = 0;
+    async function openAtmModal(id) {
+      amAtm = efData.atms.find(a => a.atm_id === id) || { atm_id: id, tid: id };
+      amData = null; amRange = 0;
+      const a = amAtm, N = efData.norm_days;
+      document.getElementById('am-title').textContent = a.tid;
+      document.getElementById('am-sub').textContent = [a.region, a.branch, a.address].filter(Boolean).join(' · ') || 'не сопоставлен с реестром';
+      document.getElementById('am-kpis').innerHTML = [
+        { label: 'Остаток', value: money(a.balance), icon: 'wallet', hint: a.polled_at ? dt(a.polled_at) : '' },
+        { label: 'Спрос в час', value: money(a.avg_per_hour), icon: 'clock', hint: `за ${efData.days} дн` },
+        { label: 'Спрос в день', value: money(a.avg_per_day), icon: 'calendar-days' },
+        { label: 'Хватит на', value: a.status === 'no_demand' ? '∞' : days1(a.cover_days), icon: 'hourglass',
+          tone: a.status === 'low' ? 'purple' : a.status === 'excess' || a.status === 'no_demand' ? 'warning' : 'success' },
+        { label: `Норма ${N} дн`, value: money(a.target), icon: 'target' },
+        { label: 'Можно изъять', value: a.excess ? money(a.excess) : '—', icon: 'hand-coins', tone: a.excess ? 'danger' : '' },
+      ].map(statBox).join('');
+      ['am-balance', 'am-daily', 'am-hours'].forEach(id => document.getElementById(id).innerHTML = '<div class="empty">Загрузка…</div>');
+      document.getElementById('am-days').innerHTML = '';
+      syncAmRange();
+      document.getElementById('atm-modal').classList.add('open');
+      document.body.style.overflow = 'hidden';
+      icons();
+      try {
+        const d = await getJson(`/api/analytics/atm-history/${id}`);
+        if (amAtm.atm_id !== id) return;  // пока грузили, открыли другой
+        amData = d;
+      } catch (e) {
+        document.getElementById('am-balance').innerHTML = `<div class="empty">Ошибка загрузки: ${esc(e.message)}</div>`;
+        return;
+      }
+      renderAtmModal();
+    }
+
+    function closeAtmModal() {
+      document.getElementById('atm-modal').classList.remove('open');
+      document.body.style.overflow = '';
+      amAtm = amData = null;
+    }
+
+    function syncAmRange() {
+      document.querySelectorAll('#am-range button').forEach(b => b.classList.toggle('on', +b.dataset.d === amRange));
+    }
+
+    function renderAtmModal() {
+      if (!amData) return;
+      const d = amData, N = efData.norm_days, hh = i => String(i).padStart(2, '0');
+      const fromTxt = d.from ? new Date(d.from).toLocaleDateString('ru-RU', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+      const toTxt = d.to ? new Date(d.to).toLocaleDateString('ru-RU', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+      document.getElementById('am-sub').textContent = [amAtm.region, amAtm.branch, amAtm.address].filter(Boolean)
+        .concat([`данные с ${fromTxt} по ${toTxt}`]).join(' · ');
+
+      let pts = d.points, days = d.daily;
+      if (amRange && pts.length) {
+        const cut = new Date(new Date(pts[pts.length - 1].t) - amRange * 864e5);
+        pts = pts.filter(p => new Date(p.t) >= cut);
+        const cutDay = cut.toISOString().slice(0, 10);
+        days = days.filter(x => x.date >= cutDay);
+      }
+      lineChart(document.getElementById('am-balance'), pts, { target: amAtm.target || 0, targetLabel: `норма ${N} дн`, height: 300 });
+      barChart(document.getElementById('am-daily'), days.map(x => ({
+        label: dayLabel(x.date), short: dayShort(x.date), value: x.withdrawal,
+        extra: `загрузок: ${x.refills} · данных: ${x.covered_hours} ч`,
+      })), { height: 220 });
+      barChart(document.getElementById('am-hours'), (d.hour_profile || []).map((v, i) => ({
+        label: `${hh(i)}:00–${hh((i + 1) % 24)}:00`, short: hh(i), value: v || 0,
+      })), { valueLabel: 'Снимают в среднем за час', height: 220, color: 'var(--purple)' });
+      document.getElementById('am-table-title').textContent = `Все дни · ${days.length}`;
+      document.getElementById('am-days').innerHTML = [...days].reverse().map(x => `
+        <tr><td>${esc(dayLabel(x.date))}</td><td class="num strong">${money(x.withdrawal)}</td>
+          <td class="num">${x.refills || '—'}</td>
+          <td class="num">${x.covered_hours < 20 ? `<span class="pill warning">${x.covered_hours} ч</span>` : x.covered_hours + ' ч'}</td></tr>`).join('')
+        || '<tr><td colspan="4" class="empty">Нет снятий</td></tr>';
+      icons();
+    }
+
+    document.getElementById('am-range').addEventListener('click', ev => {
+      const b = ev.target.closest('button');
+      if (!b) return;
+      amRange = +b.dataset.d;
+      syncAmRange();
+      renderAtmModal();
+    });
+    document.addEventListener('keydown', ev => {
+      if (ev.key === 'Escape' && document.getElementById('atm-modal').classList.contains('open')) closeAtmModal();
+    });
+
+    function setEfFilter(f) {
+      efFilter = efFilter === f ? '' : f;
+      paintEfKpis();
+      renderEfAtms();
+    }
+
+    function renderEfAtms() {
+      if (!efData) return;
+      const q = (document.getElementById('ef-q').value || '').trim().toLowerCase();
+      const N = efData.norm_days, sel = document.getElementById('ef-atm').value;
+      const rows = efData.atms.filter(a => {
+        if (efFilter === 'excess' && !(a.status === 'excess' || a.status === 'no_demand')) return false;
+        if (efFilter && efFilter !== 'excess' && a.status !== efFilter) return false;
+        return !q || [a.tid, a.region, a.branch, a.address].join(' ').toLowerCase().includes(q);
+      });
+      document.getElementById('ef-table-title').textContent = `Какие банкоматы взять на заметку · ${rows.length}`;
+      document.getElementById('ef-atms').innerHTML = rows.map(a => {
+        const pct = a.cover_days === null ? (a.status === 'no_demand' ? 100 : 0) : Math.min(100, a.cover_days / N * 100);
+        const color = a.status === 'excess' || a.status === 'no_demand' ? 'var(--warning)' : a.status === 'low' ? 'var(--purple)' : 'var(--success)';
+        const cover = a.status === 'no_demand' ? 'снятий нет' : a.cover_days === null ? '—'
+          : a.cover_days > N ? `${days1(a.cover_days)} <span class="sub">(в ${(a.cover_days / N).toFixed(1).replace('.', ',')}× больше нормы)</span>` : days1(a.cover_days);
+        return `<tr class="clickable ${String(a.atm_id) === sel ? 'selected' : ''}" onclick="selectEfAtm(${a.atm_id})" title="Показать остаток на графике">
+          <td><div class="strong">${esc(a.tid || '—')}</div><div class="sub">${esc([a.region, a.branch, a.address].filter(Boolean).join(' · ') || 'не сопоставлен')}</div></td>
+          <td class="num strong">${money(a.balance)}</td>
+          <td class="num">${money(a.avg_per_hour)}</td>
+          <td class="num">${money(a.avg_per_day)}</td>
+          <td><div class="cover"><span>${cover}</span><div class="track"><div class="fill" style="width:${Math.max(2, pct)}%;background:${color}"></div></div></div></td>
+          <td class="num">${money(a.target)}</td>
+          <td class="spark" onclick="event.stopPropagation(); openAtmModal(${a.atm_id})" title="Открыть всю историю банкомата">${sparkline(a.daily_withdrawals, efData.days)}</td>
+          <td class="num strong" style="color:${a.excess ? 'var(--danger)' : 'inherit'}">${a.excess ? money(a.excess) : '—'}</td>
+          <td>${pill(EF, a.status)}</td>
+        </tr>`;
+      }).join('') || '<tr><td colspan="9" class="empty">Нет банкоматов в этой группе</td></tr>';
+    }
+
+    function selectEfAtm(id) {
+      const sel = document.getElementById('ef-atm');
+      sel.value = sel.value === String(id) ? '' : String(id);
+      loadEfHistory();
+      renderEfAtms();
+      document.getElementById('ef-balance').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+
+    async function loadEfHistory() {
+      if (!efData) return;
+      const id = document.getElementById('ef-atm').value;
+      const atm = efData.atms.find(a => String(a.atm_id) === id);
+      const name = atm ? atm.tid : 'вся сеть';
+      document.getElementById('ef-balance-title').textContent = `Остаток наличных · ${name}`;
+      document.getElementById('ef-hours-title').textContent = `Средний спрос по часам суток · ${name}`;
+      let h;
+      try {
+        h = await getJson(`/api/analytics/balance-history?days=${efData.days}${id ? '&atm_id=' + id : ''}`);
+      } catch (e) {
+        document.getElementById('ef-balance').innerHTML = `<div class="empty">Ошибка загрузки: ${esc(e.message)}</div>`;
+        return;
+      }
+      if (id !== document.getElementById('ef-atm').value) return;  // пока грузили, выбрали другой
+      renderEfAtms();
+
+      const N = efData.norm_days;
+      const target = atm ? atm.target : efData.atms.reduce((sum, a) => sum + (a.target || 0), 0);
+      const shown = lineChart(document.getElementById('ef-balance'), h.points, { target, targetLabel: `норма ${N} дн` });
+      const vals = h.points.map(p => p.v);
+      const avg = vals.length ? vals.reduce((x, y) => x + y, 0) / vals.length : 0;
+      document.getElementById('ef-balance-note').innerHTML = vals.length
+        ? `Почасовой остаток${atm ? '' : ' (сумма по всем банкоматам)'} за ${efData.days} дн: в среднем <b>${money(avg)}</b>, мин. ${money(Math.min(...vals))}, макс. ${money(Math.max(...vals))}. `
+          + `Резкий рост — инкассация (загрузка), плавное падение — снятия. `
+          + (target ? (shown ? `Пунктир — норма ${N} дн спроса (${money(target)}): остаток выше неё — лишние деньги.`
+                             : `Норма ${N} дн спроса — ${money(target)}, это выше графика: лишних денег нет.`) : '')
+        : '';
+
+      const prof = h.hour_profile || [];
+      const hh = i => String(i).padStart(2, '0');
+      barChart(document.getElementById('ef-hours'), prof.map((v, i) => ({
+        label: `${hh(i)}:00–${hh((i + 1) % 24)}:00`, short: hh(i), value: v || 0,
+      })), { valueLabel: 'Снимают в среднем за час', height: 200, color: 'var(--purple)' });
+      const known = prof.map((v, i) => ({ v: v || 0, i }));
+      const peak = known.reduce((m, x) => x.v > m.v ? x : m, { v: -1, i: 0 });
+      const perHour = known.reduce((s, x) => s + x.v, 0) / 24;
+      const night = known.slice(0, 6).reduce((s, x) => s + x.v, 0) / 6;
+      document.getElementById('ef-hours-note').innerHTML = peak.v > 0
+        ? `В среднем снимают <b>${money(perHour)}</b> в час${atm ? '' : ' по всей сети'} (${money(perHour * 24)} в сутки). `
+          + `Пик — <b>${hh(peak.i)}:00–${hh((peak.i + 1) % 24)}:00</b> (${money(peak.v)}/ч), ночью 00–06 — ${money(night)}/ч.`
+        : 'Нет снятий за период.';
+      icons();
+    }
+
+    /* Линейный график по часам: area + линия, пунктир нормы, курсор с тултипом.
+       Возвращает true, если линия нормы попала в масштаб графика. */
+    function lineChart(el, points, { target = 0, targetLabel = '', height = 240 } = {}) {
+      if (!points.length) { el.innerHTML = '<div class="empty">Нет данных</div>'; return false; }
+      const W = 720, H = height, L = 62, R = 8, T = 14, B = 26;
+      const dataMax = Math.max(...points.map(p => p.v)) || 1;
+      // норму рисуем, только если она не сплющит сам график
+      const showTarget = target > 0 && target <= dataMax * 1.6;
+      const max = showTarget ? Math.max(dataMax, target) : dataMax;
+      const step = niceStep(max / 4);
+      const top = Math.ceil(max / step) * step;
+      const n = points.length;
+      const x = i => L + (W - L - R) * (n === 1 ? .5 : i / (n - 1));
+      const y = v => T + (H - T - B) * (1 - v / top);
+      let grid = '', axis = '';
+      for (let v = 0; v <= top + 1; v += step) {
+        grid += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/>`;
+        axis += `<text x="${L - 6}" y="${y(v) + 3}" text-anchor="end">${axisMoney(v)}</text>`;
+      }
+      const every = Math.max(1, Math.ceil(n / 8));
+      points.forEach((p, i) => {
+        if (i % every === 0) axis += `<text x="${x(i)}" y="${H - 8}" text-anchor="middle">${esc(dayShort(p.t.slice(0, 10)))}</text>`;
+      });
+      const line = points.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(p.v).toFixed(1)}`).join('');
+      const area = `${line}L${x(n - 1).toFixed(1)},${y(0)}L${x(0).toFixed(1)},${y(0)}Z`;
+      const tgt = showTarget
+        ? `<line class="target" x1="${L}" x2="${W - R}" y1="${y(target)}" y2="${y(target)}"/>
+           <text class="target-lbl" x="${W - R}" y="${y(target) - 4}" text-anchor="end">${esc(targetLabel)} · ${axisMoney(target)}</text>` : '';
+      el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Остаток наличных">
+          <g class="grid">${grid}</g><g class="axis">${axis}</g>
+          <path class="area" d="${area}"/><path class="line" d="${line}"/>${tgt}
+          <line class="cursor" y1="${T}" y2="${H - B}" style="display:none"/><circle class="dot" r="4" style="display:none"/>
+          <rect class="hit" x="${L}" y="${T}" width="${W - L - R}" height="${H - T - B}" fill="transparent"/>
+        </svg><div class="tooltip"></div>`;
+      const svg = el.querySelector('svg'), tip = el.querySelector('.tooltip');
+      const cur = svg.querySelector('line.cursor'), dot = svg.querySelector('circle.dot');
+      const hit = svg.querySelector('rect.hit');
+      hit.addEventListener('mousemove', ev => {
+        const box = svg.getBoundingClientRect();
+        const sx = (ev.clientX - box.left) * W / box.width;
+        const i = Math.max(0, Math.min(n - 1, Math.round((sx - L) / (W - L - R) * (n - 1))));
+        const p = points[i], prev = points[i - 1];
+        cur.setAttribute('x1', x(i)); cur.setAttribute('x2', x(i)); cur.style.display = '';
+        dot.setAttribute('cx', x(i)); dot.setAttribute('cy', y(p.v)); dot.style.display = '';
+        const diff = prev ? p.v - prev.v : 0;
+        tip.innerHTML = `<b>${esc(hourLabel(p.t))}</b><br>Остаток: ${money(p.v)}`
+          + (prev && diff ? `<br>${diff > 0 ? 'Загрузка' : 'Снято'} за час: ${money(Math.abs(diff))}` : '');
+        tip.style.display = 'block';
+        const wrap = el.getBoundingClientRect();
+        let left = ev.clientX - wrap.left + 12;
+        if (left + tip.offsetWidth > wrap.width) left = ev.clientX - wrap.left - tip.offsetWidth - 12;
+        tip.style.left = left + 'px';
+        tip.style.top = (ev.clientY - wrap.top - 10) + 'px';
+      });
+      hit.addEventListener('mouseleave', () => { tip.style.display = 'none'; cur.style.display = 'none'; dot.style.display = 'none'; });
+      return showTarget;
+    }
+
     async function reloadAll() {
       await Promise.all([loadStatus(), loadForecast()]);
       if (document.getElementById('tab-withdrawals').classList.contains('active')) loadWithdrawals();
       if (document.getElementById('tab-kassa').classList.contains('active')) loadLedger();
       if (document.getElementById('tab-vash').classList.contains('active')) loadVashOps();
+      if (document.getElementById('tab-efficiency').classList.contains('active')) loadEfficiency();
     }
 
     window.selectLedgerBranch = selectLedgerBranch;
     window.setVashBand = setVashBand;
+    window.setEfFilter = setEfFilter;
+    window.selectEfAtm = selectEfAtm;
+    window.openAtmModal = openAtmModal;
+    window.closeAtmModal = closeAtmModal;
 
     icons();
-    if (['forecast', 'withdrawals', 'kassa', 'vash'].includes(location.hash.slice(1))) switchTab(location.hash.slice(1));
+    if (['forecast', 'withdrawals', 'efficiency', 'kassa', 'vash'].includes(location.hash.slice(1))) switchTab(location.hash.slice(1));
     loadForecast().then(loadStatus);
     setInterval(reloadAll, 5 * 60 * 1000);
   </script>

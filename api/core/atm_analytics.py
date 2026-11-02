@@ -465,3 +465,228 @@ def withdrawals_history(days: int) -> Dict[str, Any]:
 
 def invalidate_cache() -> None:
     _cache.clear()
+
+
+# ── Эффективность запаса наличных (вкладка «Аналитика ATM») ──
+#
+# Спрос — средние снятия в час за период (сумма падений остатка / часы, покрытые
+# опросами). Норма запаса — NORM_DAYS дней спроса: всё, что лежит сверх неё,
+# — лишние деньги, которые можно изъять при следующей инкассации.
+
+NORM_DAYS = 30
+LOW_COVER_DAYS = 3
+MIN_COVERED_HOURS = 24   # меньше часов наблюдений — спрос не оцениваем
+
+
+def assess_stock(balance: float, avg_per_hour: Optional[float], covered_hours: float, norm_days: int) -> Dict[str, Any]:
+    """Хватит ли остатка и сколько в нём лишнего относительно нормы norm_days дней спроса.
+
+    status: excess (запас больше нормы) / no_demand (денег много, снятий нет) /
+    low (меньше LOW_COVER_DAYS дней) / ok / no_data (мало наблюдений)."""
+    if covered_hours < MIN_COVERED_HOURS or avg_per_hour is None:
+        return {"status": "no_data", "avg_per_day": None, "cover_days": None, "target": None, "excess": 0.0}
+    per_day = avg_per_hour * 24.0
+    target = per_day * norm_days
+    if per_day <= 0:
+        status = "no_demand" if balance > 0 else "ok"
+        return {"status": status, "avg_per_day": 0.0, "cover_days": None, "target": 0.0, "excess": float(balance)}
+    cover = balance / per_day
+    excess = max(0.0, balance - target)
+    status = "excess" if cover > norm_days else "low" if cover < LOW_COVER_DAYS else "ok"
+    return {
+        "status": status,
+        "avg_per_day": per_day,
+        "cover_days": round(cover, 1),
+        "target": target,
+        # изымать кратно миллиону, чтобы после изъятия запас не упал ниже нормы
+        "excess": float(int(excess // 1_000_000) * 1_000_000),
+    }
+
+
+def _period_hourly(conn, days: int):
+    """Почасовые снятия за последние `days` дней ИМЕЮЩИХСЯ данных (а не до «сейчас»):
+    если сборщик стоял, период отсчитывается от последнего опроса."""
+    row = conn.execute("SELECT MAX(polled_at) AS ts FROM atm_snapshots").fetchone()
+    end = _ts(row["ts"]) if row and row["ts"] else None
+    if end is None:
+        return pd.DataFrame(), None
+    lag_days = max(0, (datetime.now(timezone.utc) - end).days)
+    hourly = forecast.hourly_withdrawals(conn, days + lag_days + 1)
+    if not hourly.empty:
+        start = pd.Timestamp(end.astimezone(forecast._tz()).replace(tzinfo=None)) - pd.Timedelta(days=days)
+        hourly = hourly[hourly["hour"] >= start]
+    return hourly, end
+
+
+def _hour_profile(hourly: pd.DataFrame) -> List[Optional[float]]:
+    """Средние снятия по часу суток 0..23 (сумма по банкоматам из hourly)."""
+    if hourly.empty:
+        return [None] * 24
+    h = hourly.assign(hod=hourly["hour"].dt.hour)
+    per_atm = h.groupby(["atm_id", "hod"]).agg(w=("withdrawn", "sum"), c=("covered_hours", "sum"))
+    per_atm = per_atm[per_atm["c"] > 0]
+    rate = (per_atm["w"] / per_atm["c"]).groupby(level="hod").sum()
+    return [float(rate[i]) if i in rate.index else None for i in range(24)]
+
+
+def _atm_efficiency(days: int, norm_days: int) -> Dict[str, Any]:
+    with connect() as conn:
+        hourly, end = _period_hourly(conn, days)
+        latest = conn.execute(
+            """
+            SELECT a.id, a.tid, a.address, s.cdm_total_uzs AS balance, s.polled_at
+            FROM atms a
+            JOIN atm_snapshots s ON s.id = (
+                SELECT id FROM atm_snapshots WHERE atm_id = a.id ORDER BY polled_at DESC, id DESC LIMIT 1
+            )
+            """
+        ).fetchall()
+
+    per_atm = (
+        hourly.groupby("atm_id").agg(withdrawn=("withdrawn", "sum"), covered=("covered_hours", "sum"),
+                                     refills=("refills", "sum"))
+        if not hourly.empty else pd.DataFrame(columns=["withdrawn", "covered", "refills"])
+    )
+    # Снятия по дням для мини-графика в таблице; день без опросов — None (разрыв линии).
+    spark: Dict[int, List[Optional[float]]] = {}
+    if not hourly.empty:
+        by_day = hourly.assign(day=hourly["hour"].dt.normalize()).groupby(["atm_id", "day"])["withdrawn"].sum()
+        days_axis = pd.date_range(by_day.index.get_level_values("day").min(),
+                                  by_day.index.get_level_values("day").max(), freq="D")
+        for atm_id, series in by_day.groupby(level="atm_id"):
+            s = series.droplevel("atm_id").reindex(days_axis)
+            spark[int(atm_id)] = [None if pd.isna(v) else float(v) for v in s]
+    registry = _registry_by_tid()
+    atms = []
+    for r in latest:
+        balance = r["balance"]
+        if balance is None or balance > forecast.MAX_PLAUSIBLE_UZS:
+            continue
+        balance = float(balance)
+        stats = per_atm.loc[r["id"]] if r["id"] in per_atm.index else None
+        covered = float(stats["covered"]) if stats is not None else 0.0
+        avg_hour = float(stats["withdrawn"]) / covered if covered else None
+        reg = registry.get(str(r["tid"])) or {}
+        atms.append({
+            "atm_id": int(r["id"]),
+            "tid": r["tid"],
+            "address": r.get("address") or reg.get("registry_address"),
+            "region": reg.get("region"),
+            "branch": reg.get("branch"),
+            "balance": balance,
+            "polled_at": _iso(r["polled_at"]),
+            "withdrawn": float(stats["withdrawn"]) if stats is not None else 0.0,
+            "covered_hours": round(covered, 1),
+            "refills": int(stats["refills"]) if stats is not None else 0,
+            "avg_per_hour": avg_hour,
+            "daily_withdrawals": spark.get(int(r["id"]), []),
+            **assess_stock(balance, avg_hour, covered, norm_days),
+        })
+    # Сначала — где больше всего лишних денег, затем — кому денег не хватит раньше всех.
+    atms.sort(key=lambda a: (-a["excess"], a["cover_days"] if a["cover_days"] is not None else float("inf")))
+
+    def count(status: str) -> int:
+        return sum(1 for a in atms if a["status"] == status)
+
+    covered_total = sum(a["covered_hours"] for a in atms)
+    return {
+        "days": days,
+        "norm_days": norm_days,
+        "low_cover_days": LOW_COVER_DAYS,
+        "data_until": end.isoformat() if end else None,
+        "summary": {
+            "atms": len(atms),
+            "balance": sum(a["balance"] for a in atms),
+            "excess_total": sum(a["excess"] for a in atms),
+            "excess": count("excess") + count("no_demand"),
+            "low": count("low"),
+            "ok": count("ok"),
+            "no_data": count("no_data"),
+            # средний спрос одного банкомата в час — по всем часам наблюдений сети
+            "avg_per_hour_atm": sum(a["withdrawn"] for a in atms) / covered_total if covered_total else None,
+            "avg_per_hour_network": sum(a["avg_per_hour"] or 0 for a in atms),
+        },
+        "hour_profile": _hour_profile(hourly),
+        "atms": atms,
+    }
+
+
+def atm_efficiency(days: int, norm_days: int = NORM_DAYS) -> Dict[str, Any]:
+    return _cached(f"efficiency:{days}:{norm_days}", lambda: _atm_efficiency(days, norm_days))
+
+
+def _balance_history(atm_id: Optional[int], days: int) -> Dict[str, Any]:
+    with connect() as conn:
+        hourly, end = _period_hourly(conn, days)
+        if end is None:
+            return {"atm_id": atm_id, "days": days, "points": [], "hour_profile": [None] * 24}
+        since = end - timedelta(days=days)
+        rows = conn.execute(
+            """
+            SELECT atm_id, date_trunc('hour', polled_at AT TIME ZONE %(tz)s) AS hour,
+                   AVG(cdm_total_uzs) AS balance
+            FROM atm_snapshots
+            WHERE polled_at >= %(since)s AND cdm_total_uzs IS NOT NULL AND cdm_total_uzs <= %(max_bal)s
+              AND (%(atm_id)s::bigint IS NULL OR atm_id = %(atm_id)s::bigint)
+            GROUP BY 1, 2
+            """,
+            {"tz": forecast.settings.TIMEZONE, "since": since, "max_bal": forecast.MAX_PLAUSIBLE_UZS, "atm_id": atm_id},
+        ).fetchall()
+    if atm_id is not None and not hourly.empty:
+        hourly = hourly[hourly["atm_id"] == atm_id]
+    if not rows:
+        return {"atm_id": atm_id, "days": days, "points": [], "hour_profile": _hour_profile(hourly)}
+    df = pd.DataFrame(rows, columns=["atm_id", "hour", "balance"])
+    df["balance"] = df["balance"].astype(float)
+    wide = df.pivot_table(index="hour", columns="atm_id", values="balance").sort_index()
+    # Для суммы по сети пропущенный час банкомата берём из предыдущего опроса,
+    # иначе каждый пропуск выглядит провалом остатка всей сети.
+    wide = wide.reindex(pd.date_range(wide.index.min(), wide.index.max(), freq="h")).ffill(limit=forecast.MAX_GAP_HOURS)
+    total = wide.sum(axis=1, min_count=1).dropna()
+    return {
+        "atm_id": atm_id,
+        "days": days,
+        "points": [{"t": h.strftime("%Y-%m-%dT%H:00"), "v": float(v)} for h, v in total.items()],
+        "hour_profile": _hour_profile(hourly),
+    }
+
+
+def balance_history(atm_id: Optional[int], days: int) -> Dict[str, Any]:
+    return _cached(f"balance:{atm_id}:{days}", lambda: _balance_history(atm_id, days))
+
+
+def _atm_history(atm_id: int) -> Dict[str, Any]:
+    """Вся история одного банкомата: почасовой остаток, снятия по дням и по часу суток."""
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT MIN(polled_at) AS first, MAX(polled_at) AS last FROM atm_snapshots WHERE atm_id = %s", (atm_id,)
+        ).fetchone()
+        first, last = (_ts(row["first"]), _ts(row["last"])) if row else (None, None)
+        if first is None:
+            return {"atm_id": atm_id, "from": None, "to": None, "points": [], "daily": [], "hour_profile": [None] * 24}
+        days = (datetime.now(timezone.utc) - first).days + 1
+        hourly, _ = _period_hourly(conn, days)
+    hist = _balance_history(atm_id, days)
+    daily = []
+    if not hourly.empty:
+        mine = hourly[hourly["atm_id"] == atm_id]
+        per_day = mine.assign(day=mine["hour"].dt.normalize()).groupby("day").agg(
+            withdrawal=("withdrawn", "sum"), refills=("refills", "sum"), covered=("covered_hours", "sum")
+        )
+        daily = [
+            {"date": d.strftime("%Y-%m-%d"), "withdrawal": float(r["withdrawal"]), "refills": int(r["refills"]),
+             "covered_hours": round(float(r["covered"]), 1)}
+            for d, r in per_day.iterrows()
+        ]
+    return {
+        "atm_id": atm_id,
+        "from": first.isoformat(),
+        "to": last.isoformat(),
+        "points": hist["points"],
+        "daily": daily,
+        "hour_profile": hist["hour_profile"],
+    }
+
+
+def atm_history(atm_id: int) -> Dict[str, Any]:
+    return _cached(f"atm-history:{atm_id}", lambda: _atm_history(atm_id))

@@ -37,6 +37,9 @@ Bank Intelligence Platform — FastAPI Backend
     GET   /api/analytics/atm-status         → состояние сети BTech: работают/заняты/офлайн/не заряжены
     GET   /api/analytics/forecast           → прогноз снятий (XGBoost, переобучается раз в сутки)
     GET   /api/analytics/withdrawals        → фактические снятия по дням
+    GET   /api/analytics/atm-efficiency     → спрос в час и лишние деньги (запас сверх нормы)
+    GET   /api/analytics/balance-history    → история остатка ATM / сети по часам
+    GET   /api/analytics/atm-history/{id}   → вся история одного банкомата (окно по клику на мини-график)
     POST  /api/analytics/forecast/run       → переобучить модель сейчас
 
   Cashier Intelligence (аналитика кассиров)
@@ -1294,6 +1297,24 @@ def analytics_forecast():
 @app.get("/api/analytics/withdrawals", summary="Фактические снятия по дням (по истории остатков BTech)")
 def analytics_withdrawals(days: int = Query(30, ge=1, le=180)):
     return atm_analytics.withdrawals_history(days)
+
+
+@app.get("/api/analytics/atm-efficiency", summary="Спрос в час и лишние деньги в банкоматах (запас сверх нормы)")
+def analytics_atm_efficiency(
+    days: int = Query(30, ge=7, le=180),
+    norm_days: int = Query(atm_analytics.NORM_DAYS, ge=1, le=120),
+):
+    return atm_analytics.atm_efficiency(days, norm_days)
+
+
+@app.get("/api/analytics/balance-history", summary="История остатка банкомата (или суммы по сети) по часам")
+def analytics_balance_history(atm_id: Optional[int] = None, days: int = Query(30, ge=1, le=180)):
+    return atm_analytics.balance_history(atm_id, days)
+
+
+@app.get("/api/analytics/atm-history/{atm_id}", summary="Вся история банкомата: остаток по часам, снятия по дням")
+def analytics_atm_history(atm_id: int):
+    return atm_analytics.atm_history(atm_id)
 
 
 @app.post("/api/analytics/forecast/run", summary="Переобучить модель прогноза сейчас (в фоне)")

@@ -107,3 +107,40 @@ def test_forecast_and_withdrawals_endpoints(pg_db):
 
     hist = atm_analytics.withdrawals_history(7)
     assert hist["total"] > 0 and hist["top_atms"]
+
+
+def test_assess_stock_norm():
+    hour = 1_000_000  # 24 млн в сутки
+    over = atm_analytics.assess_stock(1_000e6, hour, 720, 30)
+    assert over["status"] == "excess" and over["target"] == 720e6 and over["excess"] == 280e6
+    assert atm_analytics.assess_stock(50e6, hour, 720, 30)["status"] == "low"
+    assert atm_analytics.assess_stock(300e6, hour, 720, 30)["status"] == "ok"
+    idle = atm_analytics.assess_stock(200e6, 0.0, 720, 30)
+    assert idle["status"] == "no_demand" and idle["excess"] == 200e6
+    assert atm_analytics.assess_stock(200e6, hour, 10, 30)["status"] == "no_data"
+
+
+def test_efficiency_and_balance_history(pg_db):
+    _seed()
+    atm_analytics.invalidate_cache()
+    eff = atm_analytics.atm_efficiency(7, 30)
+    assert eff["summary"]["atms"] == 4
+    a = eff["atms"][0]
+    # Остаток падает на 1 млн в час.
+    assert round(a["avg_per_hour"] / 1e6) == 1 and a["status"] in {"low", "ok"}
+    assert len(eff["hour_profile"]) == 24
+
+    net = atm_analytics.balance_history(None, 7)
+    one = atm_analytics.balance_history(a["atm_id"], 7)
+    assert net["points"] and one["points"]
+    assert net["points"][-1]["v"] > one["points"][-1]["v"]
+
+
+def test_atm_history_full(pg_db):
+    _seed()
+    atm_analytics.invalidate_cache()
+    atm_id = atm_analytics.atm_efficiency(7, 30)["atms"][0]["atm_id"]
+    h = atm_analytics.atm_history(atm_id)
+    assert h["from"] and h["points"] and h["daily"]
+    assert all(d["withdrawal"] >= 0 for d in h["daily"])
+    assert atm_analytics.atm_history(-1)["points"] == []
