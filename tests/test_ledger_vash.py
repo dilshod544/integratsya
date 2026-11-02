@@ -37,7 +37,7 @@ def test_ledger_latest_day_keeps_limits(pg_db, tmp_path):
     stats = replace_branch_ledger(parsed["records"])
     assert stats["saved"] == 4 and stats["branches"] == 2
 
-    # Повтор той же даты заменяет строки, а не дублирует.
+    # Ikkinchi yuklash alohida import. Analitika shuni ochadi, ikkalasini qo'shmaydi.
     replace_branch_ledger(parsed["records"])
     data = branch_ledger_analytics()
     assert data["latest_day"] == "2026-10-19"
@@ -124,3 +124,95 @@ def test_vash_n_prefix_matches_zone_coordinates(pg_db, tmp_path):
     quiet = next(p for p in vash_operations_analytics()["points"] if p["band"] == "none")
     assert quiet["vash_number"] == "06003099"
     assert quiet["ops"] == 0
+
+
+def test_numbered_imports_stay_separate(pg_db, tmp_path):
+    from api.core.ledger_vash import (
+        delete_branch_ledger_import,
+        delete_vash_operation_import,
+        list_branch_ledger_imports,
+        list_vash_operation_imports,
+    )
+
+    first = tmp_path / "ledger-1.xlsx"
+    _xlsx(first, ["oper_day", "coa_code", "code", "code_currency", "acc_id", "branch_id", "saldo_out"], [
+        [date(2026, 10, 1), "10101", "20208000", "000", "A1", "10463", 100],
+    ])
+    second = tmp_path / "ledger-2.xlsx"
+    _xlsx(second, ["oper_day", "coa_code", "code", "code_currency", "acc_id", "branch_id", "saldo_out"], [
+        [date(2026, 10, 2), "10101", "20208000", "000", "A1", "10463", 900],
+    ])
+    a = replace_branch_ledger(parse_branch_ledger_xlsx(first)["records"], "ledger-1.xlsx")
+    b = replace_branch_ledger(parse_branch_ledger_xlsx(second)["records"], "ledger-2.xlsx")
+    assert a["label"] == "1-й импорт" and b["label"] == "2-й импорт"
+    assert [i["seq"] for i in list_branch_ledger_imports()] == [1, 2]
+    assert branch_ledger_analytics()["total_uzs"] == 900
+    assert branch_ledger_analytics(import_id=a["import_id"])["total_uzs"] == 100
+    assert delete_branch_ledger_import(b["import_id"]) is True
+    assert branch_ledger_analytics()["total_uzs"] == 100
+
+    v1 = tmp_path / "vash-1.xlsx"
+    _xlsx(v1, ["ci_acc", "co_acc", "obmen_punkt", "branch", "date"], [
+        ["CI", "CO", "12", "10463", date(2026, 10, 1)],
+    ])
+    v2 = tmp_path / "vash-2.xlsx"
+    _xlsx(v2, ["ci_acc", "co_acc", "obmen_punkt", "branch", "date"], [
+        ["CI", "CO", "99", "11000", date(2026, 10, 2)],
+        ["CI", "CO", "99", "11000", date(2026, 10, 3)],
+    ])
+    one = replace_vash_operations(parse_vash_operations_xlsx(v1)["records"], "vash-1.xlsx")
+    two = replace_vash_operations(parse_vash_operations_xlsx(v2)["records"], "vash-2.xlsx")
+    assert [i["label"] for i in list_vash_operation_imports()] == ["1-й импорт", "2-й импорт"]
+    opened = vash_operations_analytics()
+    assert opened["operations"] == 2
+    assert opened["points"][0]["obmen_punkt"] == "99"
+    assert vash_operations_analytics(one["import_id"])["operations"] == 1
+    assert delete_vash_operation_import(two["import_id"]) is True
+    assert vash_operations_analytics()["operations"] == 1
+
+
+def test_rows_already_in_db_stay_before_new_import(pg_db, tmp_path):
+    from datetime import datetime, timezone
+
+    from api.core.dataset_imports import (
+        KIND_VASH,
+        adopt_unassigned,
+        list_dataset_imports,
+        restore_original_import_time,
+    )
+    from api.core.db import connect
+
+    original = datetime(2026, 10, 21, 15, 34, 22, tzinfo=timezone.utc)
+    with connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO vash_operations (ci_acc, co_acc, obmen_punkt, branch, op_date, imported_at)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            """,
+            ("CI", "CO", "12", "10463", date(2026, 9, 2), original),
+        )
+        adopt_unassigned(conn, KIND_VASH, "vash_operations", "op_date")
+        conn.execute("UPDATE dataset_imports SET imported_at = now() WHERE kind = %s", (KIND_VASH,))
+        restore_original_import_time(conn, KIND_VASH, "vash_operations")
+    previous = list_dataset_imports(KIND_VASH)
+    assert [i["label"] for i in previous] == ["1-й импорт"]
+    assert previous[0]["rows_count"] == 1
+    assert previous[0]["imported_at"].startswith("2026-10-21")
+    assert previous[0]["filename"] is None
+
+    path_new = tmp_path / "new.xlsx"
+    _xlsx(path_new, ["ci_acc", "co_acc", "obmen_punkt", "branch", "date"], [
+        ["CI", "CO", "99", "11000", date(2026, 10, 2)],
+        ["CI", "CO", "99", "11000", date(2026, 10, 3)],
+    ])
+    fresh = replace_vash_operations(parse_vash_operations_xlsx(path_new)["records"], "new.xlsx")
+    listed = list_dataset_imports(KIND_VASH)
+    assert [i["label"] for i in listed] == ["1-й импорт", "2-й импорт"]
+    assert listed[0]["id"] == previous[0]["id"]
+    assert fresh["label"] == "2-й импорт"
+    opened = vash_operations_analytics()
+    assert opened["import"]["seq"] == 2
+    assert opened["operations"] == 2
+    kept = vash_operations_analytics(previous[0]["id"])
+    assert kept["operations"] == 1
+    assert kept["points"][0]["obmen_punkt"] == "12"

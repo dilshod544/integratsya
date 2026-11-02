@@ -157,3 +157,23 @@ def test_clear_branch_balances(pg_db, tmp_path):
     assert len(list_branch_balances()) == 1
     assert clear_branch_balances() == 1
     assert list_branch_balances() == []
+
+
+def test_balance_imports_stay_separate(pg_db):
+    from api.core.branch_balance import list_branch_balances
+    from api.core.dataset_imports import KIND_BALANCES, delete_dataset_import, list_dataset_imports
+
+    first = replace_branch_balances([{
+        "bxm_code": "1", "branch_name": "A", "balance_uzs": 10.0,
+        "limit_uzs": 1.0, "limit_usd": 1.0, "currencies": {},
+    }], "a.xlsx")
+    second = replace_branch_balances([{
+        "bxm_code": "2", "branch_name": "B", "balance_uzs": 20.0,
+        "limit_uzs": 1.0, "limit_usd": 1.0, "currencies": {},
+    }], "b.xlsx")
+    assert first["label"] == "1-й импорт"
+    assert second["label"] == "2-й импорт"
+    assert [i["filename"] for i in list_dataset_imports(KIND_BALANCES)] == ["a.xlsx", "b.xlsx"]
+    assert [r["bxm_code"] for r in list_branch_balances()] == ["2"]
+    assert delete_dataset_import(KIND_BALANCES, second["import_id"]) is True
+    assert [r["bxm_code"] for r in list_branch_balances()] == ["1"]

@@ -483,6 +483,11 @@
 
     <!-- ── Снятия по дням ── -->
     <section id="tab-kassa" class="tab-panel">
+      <div class="toolbar" style="margin-top:16px">
+        <span class="stat-label">Импорт</span>
+        <select id="kassa-import" onchange="loadLedger()"></select>
+        <a class="btn" href="/dashboard/import-branch-balances.html">Загрузки</a>
+      </div>
       <div class="stats-bar" id="kassa-kpis"></div>
       <div class="grid-2">
         <div class="panel">
@@ -516,6 +521,11 @@
     </section>
 
     <section id="tab-vash" class="tab-panel">
+      <div class="toolbar" style="margin-top:16px">
+        <span class="stat-label">Импорт</span>
+        <select id="vash-import" onchange="loadVashOps()"></select>
+        <a class="btn" href="/dashboard/import-branch-balances.html">Загрузки</a>
+      </div>
       <div class="stats-bar" id="vash-kpis"></div>
       <div class="panel" style="margin-top:16px">
         <div class="panel-head"><i data-lucide="arrow-left-right" class="icon-inline"></i><h2>Пункты обмена</h2></div>
@@ -1480,9 +1490,21 @@
       document.querySelectorAll('#kassa-branches tr').forEach(tr => tr.classList.toggle('selected', tr.dataset.code === ledgerBranch));
       renderLedgerRows();
     }
+    async function fillImportSelect(selectId, url) {
+      const sel = document.getElementById(selectId);
+      if (!sel) return '';
+      const chosen = sel.value;
+      let imports = [];
+      try { imports = (await getJson(url)).imports || []; } catch (_) { imports = []; }
+      sel.innerHTML = imports.map(m => `<option value="${m.id}">${esc(m.label)}${m.filename ? ' · ' + esc(m.filename) : ''}${m.date_from ? ' · ' + esc(m.date_from === m.date_to ? m.date_from : m.date_from + ' — ' + m.date_to) : ''}</option>`).join('');
+      if (chosen && [...sel.options].some(o => o.value === chosen)) sel.value = chosen;
+      else if (sel.options.length) sel.value = sel.options[sel.options.length - 1].value;
+      return sel.value;
+    }
     async function loadLedger() {
+      const importId = await fillImportSelect('kassa-import', '/api/branch-ledger/imports');
       try {
-        ledgerData = await getJson('/api/branch-ledger/analytics?limit=2000');
+        ledgerData = await getJson('/api/branch-ledger/analytics?limit=2000' + (importId ? '&import_id=' + encodeURIComponent(importId) : ''));
       } catch (e) {
         document.getElementById('kassa-branches').innerHTML = `<tr><td colspan="4" class="empty">${esc(e.message)}</td></tr>`;
         return;
@@ -1515,8 +1537,9 @@
       const a = document.getElementById('vash-map-btn');
       if (!a) return;
       const label = { high: 'Показать на карте: много', mid: 'Показать на карте: средне', low: 'Показать на карте: мало', none: 'Показать на карте: нет операций' };
+      const importId = (document.getElementById('vash-import') || {}).value || '';
       a.textContent = label[vashBand] || 'Показать все на карте';
-      a.href = '/dashboard/map.html?vash_band=' + encodeURIComponent(vashBand || 'all');
+      a.href = '/dashboard/map.html?vash_band=' + encodeURIComponent(vashBand || 'all') + (importId ? '&vash_import=' + encodeURIComponent(importId) : '');
     }
     function setVashBand(band) {
       vashBand = band && vashBand === band ? '' : band;
@@ -1552,8 +1575,9 @@
         </tr>`).join('') || '<tr><td colspan="6" class="empty">Нет операций. Импорт → Остатки филиалов → «Операции ВАШ».</td></tr>';
     }
     async function loadVashOps() {
+      const importId = await fillImportSelect('vash-import', '/api/vash/operations/imports');
       try {
-        vashOps = await getJson('/api/vash/operations/analytics');
+        vashOps = await getJson('/api/vash/operations/analytics' + (importId ? '?import_id=' + encodeURIComponent(importId) : ''));
       } catch (e) {
         document.getElementById('vash-points').innerHTML = `<tr><td colspan="6" class="empty">${esc(e.message)}</td></tr>`;
         return;

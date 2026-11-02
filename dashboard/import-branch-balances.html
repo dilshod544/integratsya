@@ -65,6 +65,11 @@
     .stat .l { font-size: 11px; color: var(--muted); margin-top: 2px; }
     .info { margin-top: 18px; font-size: 12.5px; color: var(--muted); line-height: 1.55; background: #f8fafc; border: 1px solid var(--border); border-radius: 12px; padding: 14px; }
     code { background: #ecfeff; padding: 1px 6px; border-radius: 6px; font-size: 12px; }
+    .imports { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 13px; }
+    .imports th, .imports td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    .imports th { color: var(--muted); font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .03em; }
+    .imports td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .imports .btn-danger { padding: 6px 10px; }
   </style>
 </head>
 <body>
@@ -84,6 +89,8 @@
       Отдельный Excel — <b>не меняет</b> реестр филиалов с координатами.
       Связка <b>только</b> по <code>Код БХМ</code> ↔ локал код филиала (по названию — нет).
       Пустые ячейки и <code>-</code> = нет данных; <code>0</code> = ноль.
+      Каждая загрузка хранится отдельно: <b>1-й импорт</b>, <b>2-й импорт</b> и дальше.
+      Новая не стирает старую и не смешивается с ней. На карте открыт последний импорт.
     </p>
 
     <div class="dropzone" id="dropzone">
@@ -104,6 +111,7 @@
       </button>
     </div>
     <div class="status-line" id="dbStatus">В базе сейчас: загрузка…</div>
+    <div id="bal-imports"></div>
 
     <div class="progress" id="progress"><div class="spinner"></div><span>Загружаю…</span></div>
 
@@ -134,8 +142,9 @@
     <p>
       Строки идут как в файле: <code>oper_day</code>, <code>coa_code</code>, <code>code</code>,
       <code>code_currency</code>, <code>acc_id</code>, <code>branch_id</code>, <code>saldo_out</code>.
-      Повторная загрузка той же даты заменяет только её. На карте остаток филиала берётся из
-      <b>последней даты этого филиала</b>. Лимиты не меняются.
+      Каждая загрузка — отдельный номер (<b>1-й импорт</b>, <b>2-й импорт</b>).
+      Они не складываются. Аналитика и карта берут выбранный импорт, по умолчанию последний.
+      Лимиты этот файл не меняет.
     </p>
     <div class="dropzone" id="ledger-drop">
       <i data-lucide="upload-cloud" style="width:48px;height:48px;color:#0d9488"></i>
@@ -151,6 +160,7 @@
       <a class="btn-ghost" href="/dashboard/analytics.html#kassa" style="text-decoration:none">Аналитика кассы →</a>
     </div>
     <div class="status-line" id="ledger-status">В базе сейчас: загрузка…</div>
+    <div id="ledger-imports"></div>
     <div class="progress" id="ledger-progress"><div class="spinner"></div><span>Загружаю…</span></div>
     <div class="result" id="ledger-result">
       <div class="summary">
@@ -168,7 +178,7 @@
       Каждая строка — операция пункта обмена: <code>CL_ACC</code>, <code>CO_ACC</code>,
       <code>OBMEN_PUNKT</code>, <code>BRANCH_ID</code>, <code>CURR_DAY</code>.
       <code>obmen_punkt</code> связывается с уже загруженным списком ВАШ (номер точки на карте).
-      Аналитика показывает, где операций много, а где мало.
+      Каждая загрузка — отдельный номер. Аналитика показывает выбранный импорт, по умолчанию последний.
     </p>
     <div class="dropzone" id="vops-drop">
       <i data-lucide="upload-cloud" style="width:48px;height:48px;color:#0d9488"></i>
@@ -184,6 +194,7 @@
       <a class="btn-ghost" href="/dashboard/analytics.html#vash" style="text-decoration:none">Аналитика ВАШ →</a>
     </div>
     <div class="status-line" id="vops-status">В базе сейчас: загрузка…</div>
+    <div id="vops-imports"></div>
     <div class="progress" id="vops-progress"><div class="spinner"></div><span>Загружаю…</span></div>
     <div class="result" id="vops-result">
       <div class="summary">
@@ -218,6 +229,52 @@
     uploadBtn.disabled = false;
   }
 
+  function esc(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+  function periodText(m) {
+    if (!m.date_from) return '—';
+    return m.date_from === m.date_to ? m.date_from : `${m.date_from} — ${m.date_to}`;
+  }
+  async function renderImportList(prefix, listUrl, afterDelete) {
+    const box = document.getElementById(prefix + '-imports');
+    if (!box) return;
+    let rows = [];
+    try {
+      rows = (await (await fetch(API + listUrl)).json()).imports || [];
+    } catch (_) {
+      box.innerHTML = '<div class="status-line">Список импортов не загрузился.</div>';
+      return;
+    }
+    if (!rows.length) {
+      box.innerHTML = '<div class="status-line">Импортов пока нет.</div>';
+      return;
+    }
+    box.innerHTML = `<table class="imports"><thead><tr>
+      <th>Импорт</th><th>Файл</th><th class="num">Строк</th><th>Даты в файле</th><th>Загружен</th><th></th>
+    </tr></thead><tbody>${rows.map(m => `<tr>
+      <td><b>${esc(m.label)}</b></td>
+      <td>${esc(m.filename || '—')}</td>
+      <td class="num">${esc(m.rows_count)}</td>
+      <td>${esc(periodText(m))}</td>
+      <td>${esc(m.imported_at ? new Date(m.imported_at).toLocaleString('ru-RU') : '—')}</td>
+      <td><button class="btn-danger" type="button" data-del="${Number(m.id)}">Удалить</button></td>
+    </tr>`).join('')}</tbody></table>`;
+    box.querySelectorAll('[data-del]').forEach(btn => {
+      btn.onclick = () => deleteImport(listUrl, Number(btn.dataset.del), afterDelete || (() => renderImportList(prefix, listUrl)));
+    });
+  }
+  async function deleteImport(listUrl, id, done) {
+    const rows = (await (await fetch(API + listUrl)).json()).imports || [];
+    const m = rows.find(x => x.id === id);
+    const name = m ? `${m.label} («${m.filename || 'без имени'}», ${m.rows_count} строк)` : 'этот импорт';
+    if (!confirm(`Удалить ${name}?\nОстальные импорты останутся.`)) return;
+    const res = await fetch(API + listUrl + '/' + id, { method: 'DELETE' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) { alert(data.detail || 'Не удалось удалить'); return; }
+    if (done) await done();
+  }
+
   async function refreshDbStatus() {
     const el = document.getElementById('dbStatus');
     try {
@@ -225,11 +282,12 @@
       const d = await r.json();
       const n = d.count ?? (d.balances || []).length ?? 0;
       el.textContent = n
-        ? `В базе сейчас: ${n} строк остатков (карта/анализ берут только их).`
+        ? `Сейчас открыт последний импорт: ${n} строк. Карта берёт его.`
         : 'В базе сейчас: остатков нет — загрузите свой Excel.';
     } catch (_) {
       el.textContent = 'В базе сейчас: не удалось проверить.';
     }
+    renderImportList('bal', '/api/branches/balances/imports', refreshDbStatus);
   }
   refreshDbStatus();
 
@@ -280,7 +338,7 @@
     }
   };
 
-  function wireImport(prefix, url, clearUrl, statusUrl, statusText, onDone) {
+  function wireImport(prefix, url, clearUrl, statusUrl, statusText, onDone, listUrl) {
     const drop = document.getElementById(prefix + '-drop');
     const input = document.getElementById(prefix + '-input');
     const name = document.getElementById(prefix + '-file');
@@ -305,8 +363,10 @@
       const el = document.getElementById(prefix + '-status');
       try {
         const d = await (await fetch(API + statusUrl)).json();
-        el.textContent = statusText(d);
+        const label = d.import && d.import.label ? d.import.label + ' · ' : '';
+        el.textContent = label + statusText(d);
       } catch (_) { el.textContent = 'В базе сейчас: не удалось проверить.'; }
+      if (listUrl) renderImportList(prefix, listUrl, status);
     }
     status();
     document.getElementById(prefix + '-clear').onclick = async () => {
@@ -342,21 +402,21 @@
   }
 
   wireImport('ledger', '/api/branch-ledger/import', '/api/branch-ledger/clear', '/api/branch-ledger/analytics',
-    (d) => d.rows ? `В базе на ${d.latest_day}: ${d.rows} строк, филиалов ${d.branch_count}.` : 'В базе сейчас: отчёта нет — загрузите Excel.',
+    (d) => d.rows ? `на ${d.latest_day}: ${d.rows} строк, филиалов ${d.branch_count}.` : 'отчёта нет — загрузите Excel.',
     (d) => {
       document.getElementById('ledger-imported').textContent = d.imported ?? 0;
       document.getElementById('ledger-days').textContent = d.days ?? 0;
       document.getElementById('ledger-branches').textContent = d.branches ?? 0;
       document.getElementById('ledger-errors').textContent = d.validation_errors_count ?? 0;
-    });
+    }, '/api/branch-ledger/imports');
   wireImport('vops', '/api/vash/operations/import', '/api/vash/operations/clear', '/api/vash/operations/analytics',
-    (d) => d.operations ? `В базе сейчас: ${d.operations} операций, пунктов ${d.point_count}.` : 'В базе сейчас: операций ВАШ нет.',
+    (d) => d.operations ? `${d.operations} операций, пунктов ${d.point_count}.` : 'операций ВАШ нет.',
     (d) => {
       document.getElementById('vops-imported').textContent = d.imported ?? 0;
       document.getElementById('vops-days').textContent = d.days ?? 0;
       document.getElementById('vops-points').textContent = d.points ?? 0;
       document.getElementById('vops-errors').textContent = d.validation_errors_count ?? 0;
-    });
+    }, '/api/vash/operations/imports');
 </script>
 <script src="/dashboard/js/auth-nav.js"></script>
 </body>

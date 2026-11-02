@@ -114,6 +114,7 @@ from core.branch_balance import (
     parse_branch_balances_xlsx,
     replace_branch_balances,
 )
+from core.dataset_imports import KIND_BALANCES, delete_dataset_import, list_dataset_imports
 from core.cash_equipment import (
     cash_equipment_by_branch,
     equipment_replacement_plan,
@@ -127,6 +128,10 @@ from core.ledger_vash import (
     branch_ledger_analytics,
     clear_branch_ledger,
     clear_vash_operations,
+    delete_branch_ledger_import,
+    delete_vash_operation_import,
+    list_branch_ledger_imports,
+    list_vash_operation_imports,
     parse_branch_ledger_xlsx,
     parse_vash_operations_xlsx,
     replace_branch_ledger,
@@ -808,10 +813,12 @@ async def import_branch_balances(
             parsed = parse_branch_balances_xlsx(tmp_path)
         except ValueError as e:
             raise HTTPException(400, str(e))
-        stats = replace_branch_balances(parsed["records"])
+        stats = replace_branch_balances(parsed["records"], file.filename)
         return {
             "ok": True,
             "filename": file.filename,
+            "import_id": stats["import_id"],
+            "label": stats["label"],
             "header_row": parsed["header_row"],
             "columns_detected": parsed["columns"],
             "total_rows_in_file": parsed["total_rows"],
@@ -824,6 +831,18 @@ async def import_branch_balances(
         }
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+@app.get("/api/branches/balances/imports", summary="Список загрузок остатков филиалов")
+async def get_branch_balance_imports():
+    return {"imports": list_dataset_imports(KIND_BALANCES)}
+
+
+@app.delete("/api/branches/balances/imports/{import_id}", summary="Удалить одну загрузку остатков филиалов")
+async def remove_branch_balance_import(import_id: int):
+    if not delete_dataset_import(KIND_BALANCES, import_id):
+        raise HTTPException(status_code=404, detail="Импорт не найден.")
+    return {"ok": True}
 
 
 @app.post("/api/branches/balances/clear", summary="Очистить все кассовые остатки филиалов")
@@ -840,12 +859,28 @@ def _save_upload(file: UploadFile, prefix: str) -> tuple[str, str]:
     return tmp_dir, tmp_path
 
 
-@app.get("/api/branch-ledger/analytics", summary="Остатки счетов филиалов на последнюю дату")
+@app.get("/api/branch-ledger/imports", summary="Список загрузок отчёта остатков")
+async def get_branch_ledger_imports():
+    return {"imports": list_branch_ledger_imports()}
+
+
+@app.delete("/api/branch-ledger/imports/{import_id}", summary="Удалить одну загрузку отчёта остатков")
+async def remove_branch_ledger_import(import_id: int):
+    if not delete_branch_ledger_import(import_id):
+        raise HTTPException(status_code=404, detail="Импорт не найден.")
+    return {"ok": True}
+
+
+@app.get("/api/branch-ledger/analytics", summary="Остатки счетов филиалов на последнюю дату выбранной загрузки")
 async def get_branch_ledger_analytics(
     branch_id: Optional[str] = Query(None),
     limit: int = Query(500, ge=1, le=2000),
+    import_id: Optional[int] = Query(None, description="ID загрузки (пусто — последняя)"),
 ):
-    return branch_ledger_analytics(branch_id, limit)
+    try:
+        return branch_ledger_analytics(branch_id, limit, import_id)
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Импорт не найден.")
 
 
 @app.post("/api/branch-ledger/import", summary="Импорт отчёта остатков: oper_day, coa_code, code, code_currency, acc_id, branch_id, saldo_out")
@@ -858,10 +893,12 @@ async def import_branch_ledger(file: UploadFile = File(...)):
             parsed = parse_branch_ledger_xlsx(tmp_path)
         except ValueError as e:
             raise HTTPException(400, str(e))
-        stats = replace_branch_ledger(parsed["records"])
+        stats = replace_branch_ledger(parsed["records"], file.filename)
         return {
             "ok": True,
             "filename": file.filename,
+            "import_id": stats["import_id"],
+            "label": stats["label"],
             "header_row": parsed["header_row"],
             "imported": stats["saved"],
             "days": stats["days"],
@@ -878,9 +915,26 @@ async def clear_branch_ledger_endpoint():
     return {"ok": True, "deleted": clear_branch_ledger()}
 
 
+@app.get("/api/vash/operations/imports", summary="Список загрузок операций ВАШ")
+async def get_vash_operation_imports():
+    return {"imports": list_vash_operation_imports()}
+
+
+@app.delete("/api/vash/operations/imports/{import_id}", summary="Удалить одну загрузку операций ВАШ")
+async def remove_vash_operation_import(import_id: int):
+    if not delete_vash_operation_import(import_id):
+        raise HTTPException(status_code=404, detail="Импорт не найден.")
+    return {"ok": True}
+
+
 @app.get("/api/vash/operations/analytics", summary="Где операций ВАШ много и где мало")
-async def get_vash_operations_analytics():
-    return vash_operations_analytics()
+async def get_vash_operations_analytics(
+    import_id: Optional[int] = Query(None, description="ID загрузки (пусто — последняя)"),
+):
+    try:
+        return vash_operations_analytics(import_id)
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Импорт не найден.")
 
 
 @app.post("/api/vash/operations/import", summary="Импорт операций ВАШ: ci_acc, co_acc, obmen_punkt, branch, date")
@@ -893,10 +947,12 @@ async def import_vash_operations(file: UploadFile = File(...)):
             parsed = parse_vash_operations_xlsx(tmp_path)
         except ValueError as e:
             raise HTTPException(400, str(e))
-        stats = replace_vash_operations(parsed["records"])
+        stats = replace_vash_operations(parsed["records"], file.filename)
         return {
             "ok": True,
             "filename": file.filename,
+            "import_id": stats["import_id"],
+            "label": stats["label"],
             "header_row": parsed["header_row"],
             "imported": stats["saved"],
             "days": stats["days"],

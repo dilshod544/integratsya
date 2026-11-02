@@ -1128,7 +1128,7 @@ function vashGroupTitle(g) {
 async function loadVash() {
   const [res, opsRes] = await Promise.all([
     fetch(`${API_BASE}/api/vash/branches`),
-    fetch(`${API_BASE}/api/vash/operations/analytics`).catch(() => null),
+    fetch(`${API_BASE}/api/vash/operations/analytics` + (new URLSearchParams(location.search).get('vash_import') ? '?import_id=' + encodeURIComponent(new URLSearchParams(location.search).get('vash_import')) : '')).catch(() => null),
   ]);
   if (!res.ok) throw new Error('HTTP ' + res.status);
   vashData = await res.json();
