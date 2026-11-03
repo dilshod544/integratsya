@@ -65,11 +65,24 @@
     .stat .l { font-size: 11px; color: var(--muted); margin-top: 2px; }
     .info { margin-top: 18px; font-size: 12.5px; color: var(--muted); line-height: 1.55; background: #f8fafc; border: 1px solid var(--border); border-radius: 12px; padding: 14px; }
     code { background: #ecfeff; padding: 1px 6px; border-radius: 6px; font-size: 12px; }
-    .imports { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 13px; }
-    .imports th, .imports td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--border); vertical-align: middle; }
-    .imports th { color: var(--muted); font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .03em; }
+    .imports-box {
+      margin-top: 18px; padding: 16px; border-radius: 14px;
+      background: #f8fafc; border: 1px solid var(--border);
+    }
+    .imports-box h3 {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 14px; font-weight: 850; margin: 0 0 4px;
+    }
+    .imports-box .hint {
+      font-size: 12px; color: var(--muted); margin-bottom: 12px; line-height: 1.45;
+    }
+    .imports { width: 100%; border-collapse: collapse; font-size: 13px; background: #fff; border-radius: 10px; overflow: hidden; }
+    .imports th, .imports td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    .imports th { color: var(--muted); font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .03em; background: #f1f5f9; }
+    .imports tr:last-child td { border-bottom: 0; }
     .imports td.num { text-align: right; font-variant-numeric: tabular-nums; }
     .imports .btn-danger { padding: 6px 10px; }
+    .imports .empty { padding: 14px 12px; color: var(--muted); font-size: 13px; }
   </style>
 </head>
 <body>
@@ -111,7 +124,6 @@
       </button>
     </div>
     <div class="status-line" id="dbStatus">В базе сейчас: загрузка…</div>
-    <div id="bal-imports"></div>
 
     <div class="progress" id="progress"><div class="spinner"></div><span>Загружаю…</span></div>
 
@@ -123,6 +135,12 @@
         <div class="stat"><div class="v" id="rErrors">0</div><div class="l">Ошибок</div></div>
       </div>
       <div id="rNote" style="margin-top:12px;font-size:13px;color:var(--muted)"></div>
+    </div>
+
+    <div class="imports-box">
+      <h3><i data-lucide="history" style="width:16px;height:16px"></i> Загруженные импорты остатков</h3>
+      <div class="hint">Как у кассиров: каждый файл — отдельный номер (1-й, 2-й…). Ошибочный можно удалить. На карте открыт последний.</div>
+      <div id="bal-imports"><div class="empty">Загрузка…</div></div>
     </div>
 
     <div class="info">
@@ -160,7 +178,6 @@
       <a class="btn-ghost" href="/dashboard/analytics.html#kassa" style="text-decoration:none">Аналитика кассы →</a>
     </div>
     <div class="status-line" id="ledger-status">В базе сейчас: загрузка…</div>
-    <div id="ledger-imports"></div>
     <div class="progress" id="ledger-progress"><div class="spinner"></div><span>Загружаю…</span></div>
     <div class="result" id="ledger-result">
       <div class="summary">
@@ -169,6 +186,11 @@
         <div class="stat"><div class="v" id="ledger-branches">0</div><div class="l">Филиалов</div></div>
         <div class="stat"><div class="v" id="ledger-errors">0</div><div class="l">Пропущено</div></div>
       </div>
+    </div>
+    <div class="imports-box">
+      <h3><i data-lucide="history" style="width:16px;height:16px"></i> Загруженные импорты отчёта</h3>
+      <div class="hint">Каждый Excel — отдельный импорт. Аналитика кассы по умолчанию берёт последний; здесь можно удалить лишний.</div>
+      <div id="ledger-imports"><div class="empty">Загрузка…</div></div>
     </div>
   </div>
 
@@ -194,7 +216,6 @@
       <a class="btn-ghost" href="/dashboard/analytics.html#vash" style="text-decoration:none">Аналитика ВАШ →</a>
     </div>
     <div class="status-line" id="vops-status">В базе сейчас: загрузка…</div>
-    <div id="vops-imports"></div>
     <div class="progress" id="vops-progress"><div class="spinner"></div><span>Загружаю…</span></div>
     <div class="result" id="vops-result">
       <div class="summary">
@@ -203,6 +224,11 @@
         <div class="stat"><div class="v" id="vops-points">0</div><div class="l">Пунктов</div></div>
         <div class="stat"><div class="v" id="vops-errors">0</div><div class="l">Пропущено</div></div>
       </div>
+    </div>
+    <div class="imports-box">
+      <h3><i data-lucide="history" style="width:16px;height:16px"></i> Загруженные импорты операций ВАШ</h3>
+      <div class="hint">Каждый файл — отдельный номер. Аналитика ВАШ по умолчанию открывает последний импорт.</div>
+      <div id="vops-imports"><div class="empty">Загрузка…</div></div>
     </div>
   </div>
 </div>
@@ -247,7 +273,7 @@
       return;
     }
     if (!rows.length) {
-      box.innerHTML = '<div class="status-line">Импортов пока нет.</div>';
+      box.innerHTML = '<div class="empty">Импортов пока нет — загрузите Excel выше.</div>';
       return;
     }
     box.innerHTML = `<table class="imports"><thead><tr>
@@ -263,6 +289,7 @@
     box.querySelectorAll('[data-del]').forEach(btn => {
       btn.onclick = () => deleteImport(listUrl, Number(btn.dataset.del), afterDelete || (() => renderImportList(prefix, listUrl)));
     });
+    if (window.lucide) lucide.createIcons();
   }
   async function deleteImport(listUrl, id, done) {
     const rows = (await (await fetch(API + listUrl)).json()).imports || [];

@@ -76,6 +76,22 @@
     .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 800; background: #eef2ff; color: #3730a3; }
     .info { margin-top: 18px; font-size: 12.5px; color: var(--muted); line-height: 1.55; background: #f8fafc; border: 1px solid var(--border); border-radius: 12px; padding: 14px; }
     code { background: #eef2ff; padding: 1px 6px; border-radius: 6px; font-size: 12px; }
+    .imports-box {
+      margin-top: 18px; padding: 16px; border-radius: 14px;
+      background: #f8fafc; border: 1px solid var(--border);
+    }
+    .imports-box h3 {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 14px; font-weight: 850; margin: 0 0 4px;
+    }
+    .imports-box .hint { font-size: 12px; color: var(--muted); margin-bottom: 12px; line-height: 1.45; }
+    .imports { width: 100%; border-collapse: collapse; font-size: 13px; background: #fff; border-radius: 10px; overflow: hidden; }
+    .imports th, .imports td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    .imports th { color: var(--muted); font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .03em; background: #eef2ff; }
+    .imports tr:last-child td { border-bottom: 0; }
+    .imports td.num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 800; }
+    .imports .btn-danger { padding: 6px 10px; }
+    .imports .empty { padding: 14px 12px; color: var(--muted); font-size: 13px; }
   </style>
 </head>
 <body>
@@ -95,8 +111,9 @@
       Excel со списком ВАШ: <code>№</code>, <code>ВАШ рақами</code>, <code>БХМ коди</code>, <code>БХМ номи</code>,
       <code>Манзил</code>, <code>Локация</code> (широта и долгота — в одной ячейке, в двух колонках или ссылкой на карту).
       Таблица может начинаться с любой строки и колонки. ВАШ привязывается к филиалу по <b>БХМ коду</b>,
-      число ВАШ у каждого филиала считается автоматически. Каждая загрузка <b>заменяет</b> предыдущий список;
-      реестр филиалов не меняется.
+      число ВАШ у каждого филиала считается автоматически. Каждая загрузка — отдельный номер
+      (<b>1-й импорт</b>, <b>2-й импорт</b>), как у кассиров. Они не смешиваются; карта берёт последний.
+      Реестр филиалов не меняется.
     </p>
 
     <div class="dropzone" id="dropzone">
@@ -117,6 +134,11 @@
       </button>
     </div>
     <div class="status-line" id="dbStatus">В базе сейчас: загрузка…</div>
+    <div class="imports-box">
+      <h3><i data-lucide="history" style="width:16px;height:16px"></i> Загруженные импорты шохобча</h3>
+      <div class="hint">Каждый Excel — отдельный номер. Ошибочный можно удалить. На карте открыт последний импорт.</div>
+      <div id="zone-imports"><div class="empty">Загрузка…</div></div>
+    </div>
 
     <div class="progress" id="progress"><div class="spinner"></div><span>Загружаю…</span></div>
 
@@ -185,14 +207,53 @@
     uploadBtn.disabled = false;
   }
 
+  async function renderZoneImports() {
+    const box = document.getElementById('zone-imports');
+    let rows = [];
+    try {
+      rows = (await (await fetch(API + '/api/vash/imports')).json()).imports || [];
+    } catch (_) {
+      box.innerHTML = '<div class="empty">Список импортов не загрузился.</div>';
+      return;
+    }
+    if (!rows.length) {
+      box.innerHTML = '<div class="empty">Импортов пока нет — загрузите Excel выше.</div>';
+      return;
+    }
+    box.innerHTML = `<table class="imports"><thead><tr>
+      <th>Импорт</th><th>Файл</th><th class="num">ВАШ</th><th>Загружен</th><th></th>
+    </tr></thead><tbody>${rows.map(m => `<tr>
+      <td><b>${esc(m.label)}</b></td>
+      <td>${esc(m.filename || '—')}</td>
+      <td class="num">${esc(m.rows_count)}</td>
+      <td>${esc(m.imported_at ? new Date(m.imported_at).toLocaleString('ru-RU') : '—')}</td>
+      <td><button class="btn-danger" type="button" data-del="${Number(m.id)}">Удалить</button></td>
+    </tr>`).join('')}</tbody></table>`;
+    box.querySelectorAll('[data-del]').forEach(btn => {
+      btn.onclick = async () => {
+        const m = rows.find(x => x.id === Number(btn.dataset.del));
+        const name = m ? `${m.label} («${m.filename || 'без имени'}», ${m.rows_count} ВАШ)` : 'этот импорт';
+        if (!confirm(`Удалить ${name}?\nОстальные импорты останутся.`)) return;
+        const res = await fetch(API + '/api/vash/imports/' + btn.dataset.del, { method: 'DELETE' });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) { alert(data.detail || 'Не удалось удалить'); return; }
+        await refreshDbStatus();
+      };
+    });
+    lucide.createIcons();
+  }
+
   async function refreshDbStatus() {
     const el = document.getElementById('dbStatus');
     try {
       const d = await (await fetch(API + '/api/vash')).json();
-      el.textContent = d.count ? `В базе сейчас: ${d.count} ВАШ.` : 'В базе сейчас: ВАШ нет — загрузите Excel.';
+      el.textContent = d.count
+        ? `Сейчас открыт последний импорт: ${d.count} ВАШ. Карта берёт его.`
+        : 'В базе сейчас: ВАШ нет — загрузите Excel.';
     } catch (_) {
       el.textContent = 'В базе сейчас: не удалось проверить.';
     }
+    await renderZoneImports();
   }
   refreshDbStatus();
 

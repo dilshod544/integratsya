@@ -141,7 +141,9 @@ from core.ledger_vash import (
 from core.vash import (
     clear_vash_zones,
     count_vash_zones,
+    delete_vash_zone_import,
     known_branch_codes,
+    list_vash_zone_imports,
     parse_vash_xlsx,
     replace_vash_zones,
     vash_by_branch,
@@ -1024,14 +1026,31 @@ async def clear_cash_equipment_endpoint():
     return {"ok": True, "deleted": clear_cash_equipment()}
 
 
-@app.get("/api/vash", summary="Сколько ВАШ загружено")
+@app.get("/api/vash", summary="Сколько ВАШ загружено (последний импорт)")
 async def get_vash_status():
     return {"count": count_vash_zones()}
 
 
+@app.get("/api/vash/imports", summary="Список загрузок шохобча ВАШ")
+async def get_vash_zone_imports():
+    return {"imports": list_vash_zone_imports()}
+
+
+@app.delete("/api/vash/imports/{import_id}", summary="Удалить одну загрузку шохобча ВАШ")
+async def remove_vash_zone_import(import_id: int):
+    if not delete_vash_zone_import(import_id):
+        raise HTTPException(status_code=404, detail="Импорт не найден.")
+    return {"ok": True}
+
+
 @app.get("/api/vash/branches", summary="ВАШ (валюта айирбошлаш шохобчалари) по филиалам — для карты")
-async def get_vash_branches():
-    return vash_by_branch()
+async def get_vash_branches(
+    import_id: Optional[int] = Query(None, description="ID загрузки (пусто — последняя)"),
+):
+    try:
+        return vash_by_branch(import_id)
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Импорт не найден.")
 
 
 @app.post("/api/vash/import", summary="Импорт списка ВАШ (XLSX)")
@@ -1049,11 +1068,13 @@ async def import_vash(
             parsed = parse_vash_xlsx(tmp_path, known_branch_codes())
         except ValueError as e:
             raise HTTPException(400, str(e))
-        stats = replace_vash_zones(parsed["records"])
-        grouped = vash_by_branch()
+        stats = replace_vash_zones(parsed["records"], file.filename)
+        grouped = vash_by_branch(stats["import_id"])
         return {
             "ok": True,
             "filename": file.filename,
+            "import_id": stats["import_id"],
+            "label": stats["label"],
             "sheets": parsed["sheets"],
             "imported": stats["saved"],
             "matched_to_branches": stats["matched"],

@@ -643,9 +643,22 @@ def vash_operations_analytics(import_id: Optional[int] = None) -> Dict[str, Any]
             """,
             (current["id"],),
         ).fetchall()
-        zones = conn.execute(
-            "SELECT id, vash_number, address, lat, lon, bxm_code, bxm_name FROM vash_zones"
-        ).fetchall()
+        from .dataset_imports import KIND_VASH_ZONES, adopt_unassigned
+        adopt_unassigned(conn, KIND_VASH_ZONES, "vash_zones")
+        zones_import = conn.execute(
+            "SELECT id FROM dataset_imports WHERE kind = %s ORDER BY seq DESC LIMIT 1",
+            (KIND_VASH_ZONES,),
+        ).fetchone()
+        if zones_import is None:
+            zones = []
+        else:
+            zones = conn.execute(
+                """
+                SELECT id, vash_number, address, lat, lon, bxm_code, bxm_name
+                FROM vash_zones WHERE import_id = %s
+                """,
+                (zones_import["id"],),
+            ).fetchall()
     zone_by_key = {}
     for z in zones:
         zone_by_key.setdefault(_punkt_key(z["vash_number"]), z)

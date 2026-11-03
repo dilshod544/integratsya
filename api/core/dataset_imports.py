@@ -11,6 +11,7 @@ from datetime import date, datetime
 from typing import Any, Dict, List, Optional
 
 KIND_VASH = "vash_operations"
+KIND_VASH_ZONES = "vash_zones"
 KIND_LEDGER = "branch_ledger"
 KIND_BALANCES = "branch_balances"
 

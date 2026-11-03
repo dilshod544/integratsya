@@ -135,8 +135,13 @@ def test_single_location_cell_and_grouping(pg_db, tmp_path):
     assert sum(1 for r in parsed["records"] if r["lat"] is not None) == 6
     assert len(parsed["errors"]) == 2
 
-    stats = replace_vash_zones(parsed["records"])
-    assert stats == {"saved": 8, "matched": 7, "unmatched": 1, "branches_matched": 2, "with_coords": 6}
+    stats = replace_vash_zones(parsed["records"], "vash2.xlsx")
+    assert stats["saved"] == 8
+    assert stats["matched"] == 7
+    assert stats["unmatched"] == 1
+    assert stats["branches_matched"] == 2
+    assert stats["with_coords"] == 6
+    assert stats["label"] == "1-й импорт"
 
     data = vash_by_branch()
     by_code = {g["local_code"]: g for g in data["branches"]}
@@ -146,6 +151,31 @@ def test_single_location_cell_and_grouping(pg_db, tmp_path):
     assert by_code["10463"]["branch_name"] == "Юнусобод БХМ"
     assert data["unmatched"][0]["bxm_code"] == "99999"
     assert (data["total"], data["matched"], data["with_coords"]) == (8, 7, 6)
+    assert data["import"]["seq"] == 1
+
+
+def test_vash_zone_imports_stay_separate(pg_db):
+    from api.core.vash import count_vash_zones, delete_vash_zone_import, list_vash_zone_imports
+
+    bulk_insert_branches(BRANCHES)
+    first = replace_vash_zones([{
+        "row_no": 1, "vash_number": "A1", "bxm_code": "10463", "bxm_name": "Y",
+        "address": "a", "lat": 41.3, "lon": 69.2, "location_raw": None, "sheet": "s", "source_row": 1,
+    }], "a.xlsx")
+    second = replace_vash_zones([{
+        "row_no": 1, "vash_number": "B1", "bxm_code": "10853", "bxm_name": "T",
+        "address": "b", "lat": 41.2, "lon": 69.3, "location_raw": None, "sheet": "s", "source_row": 1,
+    }, {
+        "row_no": 2, "vash_number": "B2", "bxm_code": "10853", "bxm_name": "T",
+        "address": "c", "lat": 41.21, "lon": 69.31, "location_raw": None, "sheet": "s", "source_row": 2,
+    }], "b.xlsx")
+    assert [i["label"] for i in list_vash_zone_imports()] == ["1-й импорт", "2-й импорт"]
+    assert count_vash_zones() == 2
+    assert vash_by_branch()["total"] == 2
+    assert vash_by_branch(first["import_id"])["total"] == 1
+    assert delete_vash_zone_import(second["import_id"]) is True
+    assert count_vash_zones() == 1
+    assert vash_by_branch()["branches"][0]["local_code"] == "10463"
 
 
 def test_headerless_summary_copy_and_sections(tmp_path):
