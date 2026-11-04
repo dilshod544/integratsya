@@ -335,7 +335,7 @@ async def auth_gate(request: Request, call_next):
     код его читает (Starlette оборачивает в обратном порядке регистрации)."""
     path = request.url.path
 
-    # AUTH_DISABLED=1 — вход и роли выключены (только для локального тестирования).
+    # Вход и роли выключены (по умолчанию); AUTH_DISABLED=0 включает их.
     if AUTH_DISABLED:
         return _no_cache(path, await call_next(request))
 
