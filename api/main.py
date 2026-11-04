@@ -78,9 +78,11 @@ from starlette.middleware.sessions import SessionMiddleware
 import atm_monitor.api as atm_monitor_api
 import atm_monitor.db as atm_monitor_db
 import atm_monitor.forecast as atm_forecast
+import atm_monitor.history as atm_history
 import atm_monitor.scheduler as atm_collector
-from core import atm_analytics, atm_live, auth
-from core.config import BASE_DIR, SECRET_KEY
+from core import atm_analytics, atm_live, auth, economics, savings
+from core import incassation_plan as inc_plan
+from core.config import AUTH_DISABLED, BASE_DIR, SECRET_KEY
 from core.db import (
     DatabaseUnavailableError,
     bulk_insert_atms,
@@ -173,6 +175,31 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 
+# ── Загрузка файлов ──────────────────────────────────────────
+
+# Битый/не-Excel файл openpyxl отдаёт как BadZipFile/InvalidFileException/KeyError —
+# это ошибка пользователя (400), а не сервера (500).
+from zipfile import BadZipFile
+from openpyxl.utils.exceptions import InvalidFileException
+
+_PARSE_ERRORS = (ValueError, BadZipFile, InvalidFileException, KeyError, OSError)
+
+
+def _parse_error_text(e: Exception) -> str:
+    if isinstance(e, ValueError) and not isinstance(e, BadZipFile):
+        return str(e)
+    return "Не удалось прочитать файл: это не Excel (.xlsx) или файл повреждён."
+
+
+def _safe_upload_name(file: UploadFile) -> str:
+    """Имя файла от клиента — только базовое имя без каталогов: «../x.xlsx» не должен
+    записаться за пределы временной папки."""
+    name = os.path.basename((file.filename or "").replace("\\", "/")).strip()
+    if name in ("", ".", ".."):
+        name = "upload.xlsx"
+    return name
+
+
 # ── Lifespan ─────────────────────────────────────────────────
 
 @asynccontextmanager
@@ -187,7 +214,14 @@ async def lifespan(app: FastAPI):
         logging.getLogger("uvicorn.error").setLevel(logging.CRITICAL)
         os._exit(1)
     log.info("БД готова. ATM в базе: %d, филиалов: %d", count_atms(), count_branches())
-    atm_collector.start_background()   # atm_monitor: почасовой опрос BTech в фоне
+    # История из уже накопленных снимков (например, база перенесена с другого ПК).
+    def _history_and_plan():
+        atm_history.safe_process_history()
+        inc_plan.safe_refresh_plan()
+
+    threading.Thread(target=_history_and_plan, name="atm-history-backfill", daemon=True).start()
+    atm_collector.on_after_poll(inc_plan.safe_refresh_plan)
+    atm_collector.start_background()   # atm_monitor: опрос BTech в фоне (раз в 15 мин)
     atm_forecast.start_background()    # прогноз снятий: переобучение раз в сутки
     yield
     atm_collector.stop_background()
@@ -273,6 +307,8 @@ def _public_user(user: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def require_admin(request: Request) -> Dict[str, Any]:
+    if AUTH_DISABLED:
+        return {"username": "local", "is_admin": True}
     user = _current_user(request)
     if not user:
         raise HTTPException(401, "Не авторизован")
@@ -297,11 +333,11 @@ async def auth_gate(request: Request, call_next):
     файлу (после этого декоратора), поэтому оборачивает auth_gate снаружи —
     request.session уже заполнен из подписанной cookie к моменту, когда этот
     код его читает (Starlette оборачивает в обратном порядке регистрации)."""
-    # TEMP: login/roles off for local testing. Uncomment the gate body below
-    # and remove this return to restore auth.
-    return _no_cache(request.url.path, await call_next(request))
-
     path = request.url.path
+
+    # AUTH_DISABLED=1 — вход и роли выключены (только для локального тестирования).
+    if AUTH_DISABLED:
+        return _no_cache(path, await call_next(request))
 
     if path in auth.PUBLIC_PATHS:
         return await call_next(request)
@@ -369,6 +405,9 @@ async def logout(request: Request):
 
 @app.get("/api/auth/me", summary="Текущий пользователь")
 async def me(request: Request):
+    if AUTH_DISABLED:
+        return {"username": "local", "full_name": None, "role_name": "admin", "role_label": "Вход выключен",
+                "is_admin": True, "pages": list(auth.PAGE_KEYS), "auth_disabled": True}
     user = _current_user(request)
     if not user:
         raise HTTPException(401, "Не авторизован")
@@ -637,15 +676,15 @@ async def import_atms(
         raise HTTPException(400, "Ожидается .xlsx файл")
 
     tmp_dir = tempfile.mkdtemp(prefix="atm_import_")
-    tmp_path = os.path.join(tmp_dir, file.filename)
+    tmp_path = os.path.join(tmp_dir, _safe_upload_name(file))
     try:
         with open(tmp_path, "wb") as f:
             shutil.copyfileobj(file.file, f)
 
         try:
             parsed = parse_xlsx(tmp_path)
-        except ValueError as e:
-            raise HTTPException(400, str(e))
+        except _PARSE_ERRORS as e:
+            raise HTTPException(400, _parse_error_text(e))
 
         deleted = truncate_atms() if replace else 0
         stats = bulk_insert_atms(parsed["records"])
@@ -776,14 +815,14 @@ async def import_sqb_rates(
     if not file.filename or not file.filename.lower().endswith((".xlsx", ".xlsm")):
         raise HTTPException(400, "Ожидается .xlsx файл")
     tmp_dir = tempfile.mkdtemp(prefix="sqb_rates_")
-    tmp_path = os.path.join(tmp_dir, file.filename)
+    tmp_path = os.path.join(tmp_dir, _safe_upload_name(file))
     try:
         with open(tmp_path, "wb") as f:
             shutil.copyfileobj(file.file, f)
         try:
             parsed = parse_sqb_rates_xlsx(tmp_path)
-        except ValueError as e:
-            raise HTTPException(400, str(e))
+        except _PARSE_ERRORS as e:
+            raise HTTPException(400, _parse_error_text(e))
         stats = replace_sqb_rates(parsed["records"])
         return {
             "ok": True,
@@ -807,14 +846,14 @@ async def import_branch_balances(
         raise HTTPException(400, "Ожидается .xlsx файл")
 
     tmp_dir = tempfile.mkdtemp(prefix="branch_bal_import_")
-    tmp_path = os.path.join(tmp_dir, file.filename)
+    tmp_path = os.path.join(tmp_dir, _safe_upload_name(file))
     try:
         with open(tmp_path, "wb") as f:
             shutil.copyfileobj(file.file, f)
         try:
             parsed = parse_branch_balances_xlsx(tmp_path)
-        except ValueError as e:
-            raise HTTPException(400, str(e))
+        except _PARSE_ERRORS as e:
+            raise HTTPException(400, _parse_error_text(e))
         stats = replace_branch_balances(parsed["records"], file.filename)
         return {
             "ok": True,
@@ -855,7 +894,7 @@ async def clear_branch_cash_balances():
 
 def _save_upload(file: UploadFile, prefix: str) -> tuple[str, str]:
     tmp_dir = tempfile.mkdtemp(prefix=prefix)
-    tmp_path = os.path.join(tmp_dir, os.path.basename(file.filename or "upload.xlsx"))
+    tmp_path = os.path.join(tmp_dir, _safe_upload_name(file))
     with open(tmp_path, "wb") as f:
         shutil.copyfileobj(file.file, f)
     return tmp_dir, tmp_path
@@ -893,8 +932,8 @@ async def import_branch_ledger(file: UploadFile = File(...)):
     try:
         try:
             parsed = parse_branch_ledger_xlsx(tmp_path)
-        except ValueError as e:
-            raise HTTPException(400, str(e))
+        except _PARSE_ERRORS as e:
+            raise HTTPException(400, _parse_error_text(e))
         stats = replace_branch_ledger(parsed["records"], file.filename)
         return {
             "ok": True,
@@ -947,8 +986,8 @@ async def import_vash_operations(file: UploadFile = File(...)):
     try:
         try:
             parsed = parse_vash_operations_xlsx(tmp_path)
-        except ValueError as e:
-            raise HTTPException(400, str(e))
+        except _PARSE_ERRORS as e:
+            raise HTTPException(400, _parse_error_text(e))
         stats = replace_vash_operations(parsed["records"], file.filename)
         return {
             "ok": True,
@@ -996,14 +1035,14 @@ async def import_cash_equipment(
     if not file.filename or not file.filename.lower().endswith((".xlsx", ".xlsm")):
         raise HTTPException(400, "Ожидается .xlsx файл")
     tmp_dir = tempfile.mkdtemp(prefix="cash_eq_import_")
-    tmp_path = os.path.join(tmp_dir, file.filename)
+    tmp_path = os.path.join(tmp_dir, _safe_upload_name(file))
     try:
         with open(tmp_path, "wb") as f:
             shutil.copyfileobj(file.file, f)
         try:
             parsed = parse_cash_equipment_xlsx(tmp_path)
-        except ValueError as e:
-            raise HTTPException(400, str(e))
+        except _PARSE_ERRORS as e:
+            raise HTTPException(400, _parse_error_text(e))
         stats = replace_cash_equipment(parsed["records"])
         return {
             "ok": True,
@@ -1060,14 +1099,14 @@ async def import_vash(
     if not file.filename or not file.filename.lower().endswith((".xlsx", ".xlsm")):
         raise HTTPException(400, "Ожидается .xlsx файл")
     tmp_dir = tempfile.mkdtemp(prefix="vash_import_")
-    tmp_path = os.path.join(tmp_dir, os.path.basename(file.filename))
+    tmp_path = os.path.join(tmp_dir, _safe_upload_name(file))
     try:
         with open(tmp_path, "wb") as f:
             shutil.copyfileobj(file.file, f)
         try:
             parsed = parse_vash_xlsx(tmp_path, known_branch_codes())
-        except ValueError as e:
-            raise HTTPException(400, str(e))
+        except _PARSE_ERRORS as e:
+            raise HTTPException(400, _parse_error_text(e))
         stats = replace_vash_zones(parsed["records"], file.filename)
         grouped = vash_by_branch(stats["import_id"])
         return {
@@ -1117,15 +1156,15 @@ async def import_branches(
         raise HTTPException(400, "Ожидается .xlsx файл")
 
     tmp_dir = tempfile.mkdtemp(prefix="branch_import_")
-    tmp_path = os.path.join(tmp_dir, file.filename)
+    tmp_path = os.path.join(tmp_dir, _safe_upload_name(file))
     try:
         with open(tmp_path, "wb") as f:
             shutil.copyfileobj(file.file, f)
 
         try:
             parsed = parse_branches_xlsx(tmp_path)
-        except ValueError as e:
-            raise HTTPException(400, str(e))
+        except _PARSE_ERRORS as e:
+            raise HTTPException(400, _parse_error_text(e))
 
         deleted = truncate_branches() if replace else 0
         stats = bulk_insert_branches(parsed["records"])
@@ -1358,6 +1397,75 @@ async def incassation_plan(days: int = Query(2, ge=1, le=14)):
 
 
 # ═══════════════════════════════════════════════════════════
+# ПЛАН ИНКАССАЦИЙ (dashboard/incassation-plan.html) И ЭКОНОМИЯ
+# ═══════════════════════════════════════════════════════════
+
+def _who(request: Request) -> Optional[str]:
+    user = _current_user(request)
+    return user["username"] if user else ("local" if AUTH_DISABLED else None)
+
+
+@app.get("/api/incassation/queue", summary="Какие инкассации нужны: сумма, номиналы, срок, срочность 1–10, рейсы")
+def incassation_queue(
+    min_score: int = Query(1, ge=1, le=10),
+    route_min_score: int = Query(5, ge=1, le=10),
+    max_stops: int = Query(12, ge=1, le=60),
+    roads: bool = Query(False, description="Маршрут по дорогам (OSRM) — медленнее"),
+):
+    return inc_plan.queue_with_routes(min_score, route_min_score, max_stops, roads)
+
+
+@app.post("/api/incassation/queue/refresh", summary="Пересчитать рекомендации по последним данным")
+def incassation_queue_refresh():
+    atm_history.safe_process_history()
+    return inc_plan.refresh_plan()
+
+
+class RecStatusRequest(BaseModel):
+    status: str  # accepted | open
+
+
+@app.post("/api/incassation/queue/{rec_id}/status", summary="Принять план в работу / отменить принятие")
+def incassation_queue_status(rec_id: int, payload: RecStatusRequest, request: Request):
+    try:
+        row = inc_plan.set_status(rec_id, payload.status, _who(request))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    if not row:
+        raise HTTPException(404, "Рекомендация не найдена или уже закрыта")
+    return row
+
+
+@app.get("/api/savings/summary", summary="Экономия: факт банка vs рекомендации системы по реальным циклам инкассации")
+def savings_summary_endpoint(days: int = Query(90, ge=7, le=730)):
+    return savings.savings_summary(days)
+
+
+@app.get("/api/savings/cycles", summary="Циклы инкассации с оценкой (по банкомату или по сети)")
+def savings_cycles_endpoint(days: int = Query(90, ge=7, le=730), atm_id: Optional[int] = None):
+    return {"cycles": savings.compute_cycles(days, atm_id)}
+
+
+@app.get("/api/settings/economics", summary="Экономические параметры банка (стоимость денег, выезда…)")
+def get_economics():
+    return economics.get_settings()
+
+
+class EconomicsUpdate(BaseModel):
+    values: Dict[str, Optional[float]]
+
+
+@app.put("/api/settings/economics", summary="Изменить экономические параметры (только админ)")
+def put_economics(payload: EconomicsUpdate, user: Dict[str, Any] = Depends(require_admin)):
+    try:
+        result = economics.update_settings(payload.values, user.get("username"))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    threading.Thread(target=inc_plan.safe_refresh_plan, daemon=True).start()
+    return result
+
+
+# ═══════════════════════════════════════════════════════════
 # АНАЛИТИКА ATM (dashboard/analytics.html)
 # ═══════════════════════════════════════════════════════════
 
@@ -1399,6 +1507,7 @@ def analytics_forecast_run():
     def job():
         atm_forecast.run_forecast()
         atm_analytics.invalidate_cache()
+        inc_plan.safe_refresh_plan()
 
     threading.Thread(target=job, name="atm-forecast-manual", daemon=True).start()
     return {"started": True}
@@ -1431,7 +1540,7 @@ async def import_cashiers(
         )
 
     tmp_dir = tempfile.mkdtemp(prefix="cashier_import_")
-    tmp_path = Path(tmp_dir) / Path(file.filename).name
+    tmp_path = Path(tmp_dir) / _safe_upload_name(file)
     try:
         tmp_path.write_bytes(await file.read())
         try:

@@ -5,8 +5,8 @@
 // - показывает, кто вошёл, и даёт выйти.
 (function () {
   const PAGE_DEFINITIONS = [
-    { key: 'atm_map', html: ['/dashboard/map.html', '/dashboard/incassation.html', '/dashboard/import-atms.html', '/dashboard/import-branches.html', '/dashboard/import-cash-equipment.html', '/dashboard/equipment-replacement.html'] },
-    { key: 'atm_analytics', html: ['/dashboard/analytics.html'] },
+    { key: 'atm_map', html: ['/dashboard/map.html', '/dashboard/incassation.html', '/dashboard/incassation-plan.html', '/dashboard/import-vash.html', '/dashboard/import-atms.html', '/dashboard/import-branches.html', '/dashboard/import-cash-equipment.html', '/dashboard/equipment-replacement.html'] },
+    { key: 'atm_analytics', html: ['/dashboard/analytics.html', '/dashboard/savings.html'] },
     { key: 'treasury', html: ['/dashboard/branch-cash.html', '/dashboard/import-branch-balances.html', '/dashboard/import-sqb-rates.html'] },
     { key: 'hr_cashiers', html: ['/dashboard/cashiers.html', '/dashboard/cashier-detail.html', '/dashboard/import-cashiers.html'] },
   ];
@@ -61,8 +61,6 @@
   }
 
   async function init() {
-    // TEMP: login/roles off for local testing. Remove this return to restore.
-    return;
     let me;
     try {
       const res = await fetch('/api/auth/me');
@@ -71,6 +69,7 @@
         return;
       }
       me = await res.json();
+      if (me.auth_disabled) return; // AUTH_DISABLED=1 на сервере: вход выключен
     } catch (err) {
       return; // сервер недоступен — не мешаем странице, серверный гейт всё равно защищает API
     }

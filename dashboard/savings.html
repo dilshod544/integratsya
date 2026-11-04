@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Экономия инкассации</title>
+  <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    :root { --bg: #f6f8fb; --surface: #fff; --surface-2: #f8fafc; --border: #e5eaf3; --border-strong: #d5ddec;
+      --text: #111827; --muted: #667085; --primary: #2563eb; --success: #16a34a; --warning: #d97706; --danger: #dc2626;
+      --shadow-sm: 0 1px 2px rgba(16,24,40,.06); }
+    body { font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--text);
+      background: radial-gradient(circle at top left, rgba(22,163,74,.08), transparent 30%), linear-gradient(180deg,#fbfdff 0%,var(--bg) 42%,#eef3fb 100%); min-height: 100vh; }
+    header { background: rgba(255,255,255,.9); border-bottom: 1px solid var(--border); padding: 14px 24px; display: flex; align-items: center;
+      gap: 12px; flex-wrap: wrap; position: sticky; top: 0; z-index: 10; backdrop-filter: blur(18px); box-shadow: var(--shadow-sm); }
+    header h1 { font-size: 19px; font-weight: 800; letter-spacing: -.02em; }
+    .logo { width: 34px; height: 34px; border-radius: 12px; background: linear-gradient(135deg, #16a34a, #4ade80); color: #fff;
+      display: flex; align-items: center; justify-content: center; box-shadow: 0 8px 18px rgba(22,163,74,.25); }
+    .logo svg { width: 18px; height: 18px; }
+    .spacer { flex: 1; }
+    .top-nav { display: flex; gap: 8px; flex-wrap: wrap; }
+    .top-nav a, .btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 11px; border: 1px solid var(--border); border-radius: 12px;
+      color: var(--muted); background: #fff; text-decoration: none; font-size: 12px; font-weight: 800; cursor: pointer; }
+    .top-nav a:hover, .btn:hover { border-color: #c7d2fe; color: var(--primary); }
+    .btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+    .top-nav svg, .btn svg { width: 14px; height: 14px; }
+    main { padding: 18px 24px 60px; max-width: 1400px; margin: 0 auto; }
+    .muted { color: var(--muted); }
+    .hero { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; margin-bottom: 14px; }
+    .kpi { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 16px 18px; box-shadow: var(--shadow-sm); }
+    .kpi .label { font-size: 12px; color: var(--muted); font-weight: 700; }
+    .kpi .value { font-size: 28px; font-weight: 850; margin-top: 6px; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+    .kpi .sub { font-size: 12px; color: var(--muted); margin-top: 4px; line-height: 1.45; }
+    .kpi.good .value { color: var(--success); } .kpi.bad .value { color: var(--danger); }
+    .kpi .na { font-size: 15px; color: var(--muted); font-weight: 700; }
+    .grid2 { display: grid; grid-template-columns: 1.3fr 1fr; gap: 14px; margin-bottom: 14px; align-items: start; }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; box-shadow: var(--shadow-sm); padding: 16px 18px; }
+    .card h2 { font-size: 15px; font-weight: 850; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+    .card h2 svg { width: 16px; height: 16px; color: var(--muted); }
+    .compare { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+    .compare th, .compare td { padding: 9px 8px; border-bottom: 1px solid var(--border); text-align: right; font-variant-numeric: tabular-nums; }
+    .compare th:first-child, .compare td:first-child { text-align: left; }
+    .compare th { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+    .compare td.diff { font-weight: 850; color: var(--success); }
+    #atms { overflow-x: auto; } #atms table { min-width: 900px; }
+    table.list { width: 100%; border-collapse: collapse; font-size: 13px; }
+    table.list th { text-align: left; font-size: 11px; text-transform: uppercase; color: var(--muted); padding: 8px; border-bottom: 1px solid var(--border); background: var(--surface-2); white-space: nowrap; }
+    table.list td { padding: 8px; border-bottom: 1px solid var(--border); font-variant-numeric: tabular-nums; }
+    table.list td.r, table.list th.r { text-align: right; }
+    .form { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+    .field label { display: block; font-size: 12.5px; font-weight: 800; margin-bottom: 4px; }
+    .field .hint { font-size: 11.5px; color: var(--muted); margin-top: 4px; line-height: 1.4; }
+    .field input { width: 100%; border: 1px solid var(--border-strong); border-radius: 10px; padding: 8px 10px; font-size: 14px; }
+    .tag { font-size: 10.5px; font-weight: 800; padding: 1px 6px; border-radius: 999px; margin-left: 6px; }
+    .tag.bank { background: #ecfdf3; color: #067647; } .tag.default { background: #eef4ff; color: #3538cd; } .tag.missing { background: #fef3f2; color: #b42318; }
+    details.method { font-size: 13px; line-height: 1.6; color: #344054; }
+    details.method summary { cursor: pointer; font-weight: 800; }
+    details.method p, details.method li { margin: 6px 0; } details.method ul { margin-left: 18px; }
+    code { background: #f2f4f7; padding: 1px 5px; border-radius: 5px; font-size: 12px; }
+    select { border: 1px solid var(--border-strong); border-radius: 10px; padding: 7px 10px; font-size: 13px; background: #fff; }
+    .note { font-size: 12px; color: var(--muted); margin-top: 8px; }
+    @media (max-width: 900px) { .grid2 { grid-template-columns: 1fr; } main { padding: 14px 16px 40px; } }
+  </style>
+</head>
+<body>
+<header>
+  <div class="logo"><i data-lucide="piggy-bank"></i></div>
+  <div><h1>Экономия инкассации</h1><div class="muted" style="font-size:12px" id="sub">—</div></div>
+  <div class="spacer"></div>
+  <select id="days"><option value="30">30 дней</option><option value="90" selected>90 дней</option><option value="180">180 дней</option><option value="365">год</option></select>
+  <nav class="top-nav">
+    <a href="/dashboard/incassation-plan.html"><i data-lucide="route"></i> План инкассаций</a>
+    <a href="/dashboard/analytics.html"><i data-lucide="bar-chart-3"></i> Аналитика</a>
+    <a href="/dashboard/index.html"><i data-lucide="home"></i> Главная</a>
+  </nav>
+</header>
+<main>
+  <div class="hero" id="hero"></div>
+  <div class="grid2">
+    <div class="card"><h2><i data-lucide="scale"></i> Банк (факт) и система на тех же циклах</h2><div id="compare"></div></div>
+    <div class="card"><h2><i data-lucide="calendar-range"></i> По месяцам</h2><canvas id="chart" height="220"></canvas></div>
+  </div>
+  <div class="card" style="margin-bottom:14px"><h2><i data-lucide="list"></i> Где больше всего лишних денег</h2><div id="atms"></div></div>
+  <div class="card" id="settings" style="margin-bottom:14px">
+    <h2><i data-lucide="sliders-horizontal"></i> Параметры банка</h2>
+    <div class="muted" style="font-size:12.5px;margin-bottom:12px">Без стоимости денег и стоимости выезда экономия показывается только в натуральных величинах
+      (деньги, которые можно освободить; выезды). Суммы в сумах система не выдумывает — их даёт банк. Менять может только администратор.</div>
+    <div class="form" id="form"></div>
+    <div style="margin-top:12px;display:flex;gap:10px;align-items:center"><button class="btn primary" id="save"><i data-lucide="save"></i> Сохранить</button><span id="saveMsg" class="muted" style="font-size:12px"></span></div>
+  </div>
+  <div class="card">
+    <details class="method">
+      <summary>Как считается (методика)</summary>
+      <p><b>Цикл</b> — время между двумя фактическими загрузками банкомата. Загрузки находятся по данным BTech: смена суммы загрузки
+        (<code>cdmInitialAmount</code>) или резкий рост остатка; при снятии кассет «до» берётся остаток перед снятием.</p>
+      <ul>
+        <li><b>Банк (факт):</b> средний <i>доступный</i> остаток за цикл по каждому опросу (неисправные кассеты не считаются), 1 выезд за цикл,
+          часы, когда банкомат был онлайн без денег.</li>
+        <li><b>Система:</b> сумма из рекомендации, записанной <i>до</i> этой загрузки. Для циклов до запуска системы — бэктест той же формулой
+          только по спросу за 14 дней <i>до</i> начала цикла (без знания будущего). Затем эта сумма проверяется на <i>реальном</i> спросе цикла:
+          хватит на <code>T = (L − S) / w</code> дней, средний остаток <code>S + (L − S) / 2</code>.</li>
+        <li><b>Затраты в день:</b> <code>K / T + r · средний остаток</code>, где K — стоимость выезда, r — дневная стоимость денег.
+          Экономия = (затраты банка − затраты системы) × длина цикла.</li>
+        <li><b>Освобождаемые деньги</b> — насколько меньше наличных в среднем держали бы банкоматы. Это не зависит от ставок: деньги можно
+          не выдавать из хранилища или разместить.</li>
+        <li><b>Реализовано</b> — циклы, начатые загрузкой по плану, который бригада <i>приняла</i> на странице «План инкассаций»:
+          их фактические затраты сравниваются с медианой циклов этого же банкомата без плана.</li>
+        <li>Цикл не оценивается, если опросами покрыто меньше половины его времени или снятий не было.</li>
+      </ul>
+    </details>
+  </div>
+</main>
+<script src="/dashboard/js/utils.js"></script>
+<script>
+  const API = location.origin;
+  let chart = null, DATA = null;
+  const fmtM = (v) => v == null ? '—' : (Math.abs(v) >= 1e9 ? (v / 1e9).toFixed(2).replace('.', ',') + ' млрд' : Math.abs(v) >= 1e6 ? Math.round(v / 1e6).toLocaleString('ru-RU') + ' млн' : Math.abs(v) >= 1e3 ? Math.round(v / 1e3).toLocaleString('ru-RU') + ' тыс' : Math.round(v).toLocaleString('ru-RU'));
+  const fmtN = (v, d = 0) => v == null ? '—' : (+v).toLocaleString('ru-RU', { maximumFractionDigits: d });
+  const na = (txt) => `<div class="na">${txt}</div>`;
+
+  function render() {
+    const d = DATA, p = d.potential, money = d.money_available, s = d.settings;
+    document.getElementById('sub').textContent = `${p.cycles} циклов инкассации · ${p.atms} банкоматов · ${fmtN(p.atm_days)} банкомато-дней за ${d.period_days} дн.` +
+      (d.skipped && Object.keys(d.skipped).length ? ` · не оценено: ${Object.entries(d.skipped).map(([k, v]) => `${v} (${k})`).join(', ')}` : '');
+    const missing = s.items.filter((i) => s.missing.includes(i.key)).map((i) => i.label.toLowerCase());
+    document.getElementById('hero').innerHTML = `
+      <div class="kpi good"><div class="label">Экономия за период (потенциал)</div>
+        ${p.saving != null ? `<div class="value">${fmtM(p.saving)} сум</div><div class="sub">≈ ${fmtM(p.saving_per_month)} в месяц по сети · выезды + стоимость денег</div>`
+          : na('Нужны: ' + escapeHtml(missing.filter((m) => !m.includes('доход')).join(', ') || '—')) + '<div class="sub"><a href="#settings">Задать параметры</a></div>'}</div>
+      <div class="kpi good"><div class="label">Можно освободить наличных</div><div class="value">${fmtM(p.freed_cash)}</div>
+        <div class="sub">в среднем по сети: банк держит ${fmtM(p.bank_avg_cash)}, системе хватило бы ${fmtM(p.system_avg_cash)}</div></div>
+      <div class="kpi"><div class="label">Выезды за период</div><div class="value">${fmtN(p.bank_trips)} → ${fmtN(p.system_trips, 1)}</div>
+        <div class="sub">факт банка → по плану системы на том же спросе</div></div>
+      <div class="kpi ${p.cashout_hours > 0 ? 'bad' : ''}"><div class="label">Простой без денег (факт)</div><div class="value">${fmtN(p.cashout_hours, 1)} ч</div>
+        <div class="sub">не выдано ≈ ${fmtM(p.lost_withdrawals)}${p.lost_income != null ? ` · потерянный доход ${fmtM(p.lost_income)} сум` : ' · задайте доход со снятия, чтобы оценить потери'}</div></div>
+      <div class="kpi"><div class="label">Реализовано по принятым планам</div>
+        ${d.realized.cycles ? `<div class="value">${d.realized.saving != null ? fmtM(d.realized.saving) + ' сум' : fmtM(d.realized.freed_cash)}</div>
+          <div class="sub">${d.realized.compared} из ${d.realized.cycles} циклов сравнено · ${escapeHtml(d.realized.note)}</div>`
+          : na('пока нет') + `<div class="sub">${escapeHtml(d.realized.note)}</div>`}</div>`;
+
+    const row = (label, a, b, fmt = fmtM, better = 'lower') => {
+      const diff = a != null && b != null ? a - b : null;
+      return `<tr><td>${label}</td><td>${fmt(a)}</td><td>${fmt(b)}</td><td class="diff">${diff == null ? '—' : (better === 'lower' ? fmt(diff) : fmt(-diff))}</td></tr>`;
+    };
+    document.getElementById('compare').innerHTML = `<table class="compare"><thead><tr><th></th><th>Банк</th><th>Система</th><th>Разница</th></tr></thead><tbody>
+      ${row('Средний остаток в банкоматах', p.bank_avg_cash, p.system_avg_cash)}
+      ${row('Выездов', p.bank_trips, p.system_trips, (v) => fmtN(v, 1))}
+      ${row('Затраты, сум', p.bank_cost, p.system_cost)}
+      </tbody></table>
+      <div class="note">Стоимость хранения лишних денег: ${p.carrying_saving != null ? fmtM(p.carrying_saving) + ' сум' : 'нужна стоимость денег'} ·
+      циклы: ${p.by_method.recorded} по записанным рекомендациям, ${p.by_method.backtest} — бэктест по прошлому спросу.
+      ${d.now && d.now.cash_now != null ? `<br>Сейчас в ${d.now.atms} банкоматах ${fmtM(d.now.cash_now)}; по текущему плану в среднем держалось бы ${fmtM(d.now.plan_avg_cash)} (${d.now.with_plan} банкоматов с планом).` : ''}</div>`;
+
+    const atms = d.atms.slice(0, 50);
+    document.getElementById('atms').innerHTML = atms.length ? `<table class="list"><thead><tr><th>TID</th><th>Адрес</th><th class="r">Циклов</th>
+      <th class="r">Банк держит</th><th class="r">Системе хватило бы</th><th class="r">Освободить</th><th class="r">Выезды банк → система</th><th class="r">Без денег, ч</th><th class="r">Экономия, сум</th></tr></thead><tbody>
+      ${atms.map((a) => `<tr><td><b>${escapeHtml(a.tid)}</b></td><td class="muted">${escapeHtml(a.address || '')}</td><td class="r">${a.cycles}</td>
+        <td class="r">${fmtM(a.bank_avg_cash)}</td><td class="r">${fmtM(a.system_avg_cash)}</td><td class="r"><b>${fmtM(a.freed_cash)}</b></td>
+        <td class="r">${a.bank_trips} → ${fmtN(a.sys_trips, 1)}</td><td class="r">${fmtN(a.cashout_hours, 1)}</td><td class="r">${money ? fmtM(a.saving) : '—'}</td></tr>`).join('')}
+      </tbody></table>` : '<div class="muted" style="padding:20px;text-align:center">Нет завершённых циклов инкассации за период. Нужны минимум две загрузки банкомата в истории BTech.</div>';
+
+    const ctx = document.getElementById('chart');
+    if (chart) chart.destroy();
+    const m = d.by_month;
+    chart = new Chart(ctx, {
+      type: 'bar',
+      data: { labels: m.map((x) => x.month), datasets: money
+        ? [{ label: 'Экономия, млн сум', data: m.map((x) => x.saving / 1e6), backgroundColor: '#16a34a', borderRadius: 6 }]
+        : [{ label: 'Освободить наличных на банкомат, млн', data: m.map((x) => x.avg_freed_cash_per_atm / 1e6), backgroundColor: '#2563eb', borderRadius: 6 }] },
+      options: { plugins: { legend: { labels: { font: { size: 11 } } } }, scales: { y: { beginAtZero: true } } },
+    });
+
+    document.getElementById('form').innerHTML = s.items.map((i) => `<div class="field">
+      <label>${escapeHtml(i.label)}, ${escapeHtml(i.unit)}<span class="tag ${i.source}">${{ bank: 'задано банком', default: 'по умолчанию', missing: 'не задано' }[i.source]}</span></label>
+      <input type="number" step="any" min="${i.min}" max="${i.max}" data-key="${i.key}" value="${i.source === 'bank' ? i.value : ''}" placeholder="${i.default ?? ''}">
+      <div class="hint">${escapeHtml(i.hint)}${i.updated_by ? ` · изменил ${escapeHtml(i.updated_by)}` : ''}</div></div>`).join('');
+    lucide.createIcons();
+  }
+
+  async function load() {
+    const days = document.getElementById('days').value;
+    DATA = await fetch(`${API}/api/savings/summary?days=${days}`).then((r) => r.json());
+    render();
+  }
+
+  document.getElementById('save').addEventListener('click', async () => {
+    const values = {};
+    document.querySelectorAll('#form input').forEach((inp) => { values[inp.dataset.key] = inp.value === '' ? null : +inp.value; });
+    const r = await fetch(`${API}/api/settings/economics`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ values }) });
+    const msg = document.getElementById('saveMsg');
+    if (!r.ok) { msg.textContent = (await r.json().catch(() => ({}))).detail || 'Не удалось сохранить'; return; }
+    msg.textContent = 'Сохранено. План инкассаций пересчитывается.';
+    load();
+  });
+  document.getElementById('days').addEventListener('change', load);
+  load();
+</script>
+<script src="/dashboard/js/auth-nav.js"></script>
+</body>
+</html>

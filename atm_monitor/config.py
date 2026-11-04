@@ -32,7 +32,12 @@ class Settings:
     DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://localhost:5432/bank_intelligence")
 
     # --- Scheduling ---
-    POLL_INTERVAL_HOURS = int(os.getenv("POLL_INTERVAL_HOURS", "1"))
+    # Опрос раз в 15 минут: точнее видны инкассации, часы без денег и время снятий.
+    # POLL_INTERVAL_HOURS (старое название) учитывается, если POLL_INTERVAL_MINUTES не задан.
+    POLL_INTERVAL_MINUTES = int(
+        os.getenv("POLL_INTERVAL_MINUTES")
+        or (int(os.getenv("POLL_INTERVAL_HOURS")) * 60 if os.getenv("POLL_INTERVAL_HOURS") else 15)
+    )
     REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "30"))
     PAGE_LIMIT = int(os.getenv("PAGE_LIMIT", "500"))
     RUN_IMMEDIATELY_ON_START = _bool("RUN_IMMEDIATELY_ON_START", "true")

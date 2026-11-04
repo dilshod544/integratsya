@@ -17,6 +17,8 @@ from typing import Any, Dict, List, Optional
 
 from atm_monitor.db import connect
 
+from .config import DEFAULT_CAPACITY
+
 log = logging.getLogger(__name__)
 
 # Реальный номинал купюры в Узбекистане: 1000 и выше. Платформа иногда отдаёт
@@ -61,7 +63,9 @@ def latest_states_by_tid(force: bool = False) -> Dict[str, Dict[str, Any]]:
             a.serial AS serial,
             a.latitude AS latitude,
             a.longitude AS longitude,
+            a.id AS atm_id,
             snap.cdm_total_uzs AS balance,
+            snap.cdm_available_uzs AS available,
             snap.agent_status AS agent_status,
             snap.agent_last_online AS agent_last_online,
             snap.polled_at AS polled_at,
@@ -81,6 +85,16 @@ def latest_states_by_tid(force: bool = False) -> Dict[str, Dict[str, Any]]:
         """
     )
 
+    capacities: Dict[int, float] = {}
+    if rows:
+        try:
+            from atm_monitor.history import capacity_by_atm
+
+            with connect() as conn:
+                capacities = capacity_by_atm(conn, 0)
+        except Exception as e:  # noqa: BLE001
+            log.warning("Ёмкость банкоматов по истории недоступна: %s", e)
+
     data = {}
     for r in rows:
         tid = str(r["tid"])
@@ -88,6 +102,9 @@ def latest_states_by_tid(force: bool = False) -> Dict[str, Dict[str, Any]]:
             "lat": float(r["latitude"]) if r.get("latitude") is not None else None,
             "lon": float(r["longitude"]) if r.get("longitude") is not None else None,
             "balance": float(r["balance"]) if r.get("balance") is not None else None,
+            "available": float(r["available"]) if r.get("available") is not None else None,
+            "capacity": capacities.get(int(r["atm_id"])) if r.get("atm_id") is not None else None,
+            "btech_atm_id": int(r["atm_id"]) if r.get("atm_id") is not None else None,
             "agent_status": r.get("agent_status"),
             "agent_last_online": r.get("agent_last_online"),
             "forecast_hours": float(r["forecast_hours"]) if r.get("forecast_hours") is not None else None,
@@ -127,6 +144,12 @@ def _fill_live(
     row["live_tid"] = tid
     if live.get("balance") is not None:
         row["balance"] = live["balance"]
+    # Деньги только в исправных кассетах — по ним статус и срок до опустошения.
+    row["available_balance"] = live.get("available") if live.get("available") is not None else live.get("balance")
+    row["btech_atm_id"] = live.get("btech_atm_id")
+    # Реальная ёмкость (максимум загрузки по BTech) — вместо значения по умолчанию из реестра.
+    if live.get("capacity") and (not row.get("capacity") or row.get("capacity") == DEFAULT_CAPACITY):
+        row["capacity"] = live["capacity"]
     row["agent_status"] = live.get("agent_status")
     row["forecast_hours"] = live.get("forecast_hours")
     row["balance_polled_at"] = live.get("polled_at")

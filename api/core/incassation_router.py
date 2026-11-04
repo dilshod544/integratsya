@@ -350,7 +350,8 @@ def hours_to_low_cash(atm: Dict[str, Any]) -> Optional[float]:
     (atm_monitor/forecast.py, XGBoost по истории BTech) — по нему, иначе
     консервативная оценка расхода от текущей заполненности."""
     cap = atm.get("capacity") or DEFAULT_CAPACITY
-    bal = atm.get("balance")
+    # Доступные деньги (без неисправных кассет), если известны.
+    bal = atm.get("available_balance", atm.get("balance"))
     if bal is None or not cap:
         return None
     ml_per_day = atm.get("ml_withdrawal_per_day")
@@ -586,7 +587,7 @@ def _osrm_geometry(points: Sequence[Dict[str, Any]], timeout: int = 15) -> Tuple
             import certifi
             ctx = ssl.create_default_context(cafile=certifi.where())
         except Exception:
-            ctx = ssl._create_unverified_context()
+            ctx = ssl.create_default_context()  # системные сертификаты; проверку не отключаем
         req = urllib.request.Request(url, headers={"User-Agent": "bank-intelligence/1.0"})
         # Corporate HTTPS_PROXY often returns 403 on CONNECT to OSRM; talk to it directly.
         opener = urllib.request.build_opener(

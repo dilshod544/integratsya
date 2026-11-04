@@ -241,7 +241,7 @@ def _enrich(x: dict, detail: bool = False):
 
 _VACANT_KEYWORDS = ('вакант', 'вакансия', 'vakant', 'vakansiya', 'бош урин', 'буш урин', 'свобод')
 _SUMMARY_OP_KEYS = ('жамибек', 'jamibek', 'жамифронт', 'jamfront', 'жамиамали',
-                    'beкфарк', 'фронтфарк', 'bekfark', 'frontfark', 'жами')
+                    'бекфарк', 'фронтфарк', 'bekfark', 'frontfark', 'жами')
 
 
 def _branch_key(branch: Any) -> str:

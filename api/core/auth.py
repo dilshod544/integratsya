@@ -34,6 +34,8 @@ PAGE_DEFINITIONS: List[Dict[str, Any]] = [
         "html": [
             "/dashboard/map.html",
             "/dashboard/incassation.html",
+            "/dashboard/incassation-plan.html",
+            "/dashboard/import-vash.html",
             "/dashboard/import-atms.html",
             "/dashboard/import-branches.html",
             "/dashboard/import-cash-equipment.html",
@@ -48,8 +50,8 @@ PAGE_DEFINITIONS: List[Dict[str, Any]] = [
     {
         "key": "atm_analytics",
         "label": "Аналитика",
-        "html": ["/dashboard/analytics.html"],
-        "api_prefixes": ["/api/analytics", "/api/transactions"],
+        "html": ["/dashboard/analytics.html", "/dashboard/savings.html"],
+        "api_prefixes": ["/api/analytics", "/api/transactions", "/api/savings", "/api/settings"],
     },
     {
         "key": "treasury",

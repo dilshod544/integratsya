@@ -117,14 +117,18 @@ def classify(snap: Dict[str, Any], latest_poll: Optional[datetime], capacity: fl
         reason = OUT_OF_SERVICE_REASONS.get(app, app)
 
     balance = snap.get("cdm_total_uzs")
+    available = snap.get("cdm_available_uzs")
+    if available is None:
+        available = balance
     if balance is None:
         cash = "unknown"
     elif balance > forecast.MAX_PLAUSIBLE_UZS:
         cash = "anomaly"
-    elif balance <= 0:
+    elif available <= 0:
         cash = "empty"
     else:
-        cash = _compute_status(balance, capacity)
+        # По доступным деньгам: купюры в неисправной (INOP) кассете клиенту не выдать.
+        cash = _compute_status(available, capacity)
 
     faults = []
     for col, label in DEVICES:
@@ -156,7 +160,7 @@ def _network_status() -> Dict[str, Any]:
             """
             SELECT a.id AS atm_id, a.tid, a.serial, a.address, a.place, a.vendor_name, a.model_name,
                    s.id AS snapshot_id, s.polled_at, s.agent_status, s.agent_last_online,
-                   s.service_status, s.app_status, s.cdm_total_uzs,
+                   s.service_status, s.app_status, s.cdm_total_uzs, s.cdm_available_uzs,
                    s.last_transaction_cash_out, s.last_transaction_cash_in, s.last_transaction_last,
                    s.dispenser_status, s.acceptor_status, s.card_reader_status, s.contactless_status,
                    s.epp_status, s.printer_status, s.jprinter_status, s.barcode_reader_status
@@ -180,6 +184,9 @@ def _network_status() -> Dict[str, Any]:
         ).fetchall():
             cassettes.setdefault(int(c["atm_snapshot_id"]), []).append(c)
         fc = _latest_forecast_by_atm(conn)
+        from atm_monitor.history import capacity_by_atm
+
+        capacities = capacity_by_atm(conn, 0)
 
     registry = _registry_by_tid()
     latest_poll = max((_ts(s["polled_at"]) for s in snaps), default=None)
@@ -190,7 +197,7 @@ def _network_status() -> Dict[str, Any]:
     cash_by_nominal: Dict[int, float] = {}
     for s in snaps:
         reg = registry.get(str(s["tid"])) or {}
-        capacity = reg.get("capacity") or DEFAULT_CAPACITY
+        capacity = reg.get("capacity") or capacities.get(int(s["atm_id"])) or DEFAULT_CAPACITY
         cls = classify(s, latest_poll, capacity)
 
         bills = []
@@ -217,6 +224,7 @@ def _network_status() -> Dict[str, Any]:
             "branch": reg.get("branch"),
             "registry_terminal_id": reg.get("registry_terminal_id"),
             "balance": balance,
+            "available": s.get("cdm_available_uzs") if s.get("cdm_available_uzs") is not None else balance,
             "capacity": capacity,
             "balance_pct": round(balance / capacity * 100, 1) if balance is not None and capacity else None,
             "agent_status": s.get("agent_status"),

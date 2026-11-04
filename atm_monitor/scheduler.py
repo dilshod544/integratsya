@@ -1,4 +1,4 @@
-"""Сборщик данных atm_monitor: опрашивает monitoring.btech.uz раз в POLL_INTERVAL_HOURS.
+"""Сборщик данных atm_monitor: опрашивает monitoring.btech.uz раз в POLL_INTERVAL_MINUTES.
 
 Работает двумя способами:
   * фоновым потоком внутри сервера (start_background) — так его запускает ./run.sh;
@@ -14,6 +14,7 @@ import time
 from .api_client import fetch_all_atms
 from .config import settings
 from .db import connect, init_db
+from .history import safe_process_history
 from .ingest import ingest
 
 logger = logging.getLogger("atm_monitor.scheduler")
@@ -28,6 +29,23 @@ _stop = threading.Event()
 _run_lock = threading.Lock()
 
 
+# Хук «после опроса» — платформа (api/main.py) регистрирует пересчёт рекомендаций.
+_after_poll_hooks = []
+
+
+def on_after_poll(fn) -> None:
+    if fn not in _after_poll_hooks:
+        _after_poll_hooks.append(fn)
+
+
+def _after_poll() -> None:
+    for fn in _after_poll_hooks:
+        try:
+            fn()
+        except Exception:  # noqa: BLE001
+            logger.exception("Ошибка обработчика после опроса")
+
+
 def run_once() -> bool:
     """Один опрос. Ошибки логируются, но не пробрасываются (сборщик не должен
     ронять сервер). Возвращает True при успехе."""
@@ -40,6 +58,8 @@ def run_once() -> bool:
         logger.info("Получено %d записей, сохраняем в БД...", len(items))
         poll_run_id = ingest(items)
         logger.info("Готово, poll_run_id=%s", poll_run_id)
+        safe_process_history()          # события, инкассации, суточные итоги
+        _after_poll()                   # рекомендации инкассаций по свежим данным
         return True
     except Exception as e:  # noqa: BLE001
         logger.error("Опрос завершился с ошибкой (%s), следующая попытка по расписанию", e)
@@ -61,7 +81,7 @@ def _last_success_ts() -> float:
 
 
 def _loop():
-    interval = settings.POLL_INTERVAL_HOURS * 3600
+    interval = settings.POLL_INTERVAL_MINUTES * 60
     # Опрашиваем сразу, только если данные устарели (или опроса ещё не было) —
     # частые перезапуски сервера (--reload) не должны долбить платформу.
     stale = time.time() - _last_success_ts() >= interval
@@ -95,7 +115,7 @@ def start_background():
     _stop.clear()
     _thread = threading.Thread(target=_loop, name="atm-monitor-collector", daemon=True)
     _thread.start()
-    logger.info("Сборщик atm_monitor запущен (интервал %d ч).", settings.POLL_INTERVAL_HOURS)
+    logger.info("Сборщик atm_monitor запущен (интервал %d мин).", settings.POLL_INTERVAL_MINUTES)
 
 
 def stop_background():

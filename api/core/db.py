@@ -219,6 +219,7 @@ def init_db() -> None:
     from .auth import create_auth_tables, write_admin_credentials
     from .branch_balance import create_branch_balance_tables
     from .cash_equipment import create_cash_equipment_tables
+    from .economics import create_settings_tables
     from .cashier.repository import create_cashier_tables
     from .sqb_rates import create_sqb_rate_tables
     from .ledger_vash import create_ledger_vash_tables
@@ -235,6 +236,7 @@ def init_db() -> None:
             create_sqb_rate_tables(conn)
             create_vash_tables(conn)
             create_ledger_vash_tables(conn)
+            create_settings_tables(conn)
             seeded_password = create_auth_tables(conn)
             create_atm_monitor_schema(conn)
         # Файл с паролем пишется только после commit — иначе при откате он не совпал бы с базой.
@@ -286,8 +288,11 @@ def _apply_live_state(
 def _decorate_atm(d: Dict[str, Any]) -> Dict[str, Any]:
     cap = d.get("capacity") or DEFAULT_CAPACITY
     bal = d.get("balance")
+    avail = d.get("available_balance", bal)
     d["balance_pct"] = round((bal / cap) * 100, 1) if bal is not None and cap else None
-    d["status"] = _compute_status(bal, cap)
+    d["available_pct"] = round((avail / cap) * 100, 1) if avail is not None and cap else None
+    # Статус — по доступным деньгам: неисправная кассета с купюрами не выдаёт их клиенту.
+    d["status"] = _compute_status(avail, cap)
     return d
 
 

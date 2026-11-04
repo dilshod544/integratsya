@@ -10,7 +10,9 @@
 на лагах, скользящих средних и календаре (день недели, дни зарплаты,
 праздники). Прогноз строится рекурсивно на FORECAST_DAYS дней вперёд; по нему
 считается, когда остаток опустится ниже LOW_CASH_PCT ёмкости и до нуля, и
-сколько загрузить, чтобы хватило на весь горизонт.
+сколько загрузить, чтобы хватило на весь горизонт. Остаток для проекции —
+доступный (без неисправных кассет, см. history.py), ёмкость — максимум,
+который реально загружали в этот банкомат (history.capacity_by_atm).
 
 Пока истории мало (первые недели после запуска сборщика), XGBoost не
 обучается и работает запасной вариант: среднее за последние полные дни или
@@ -107,7 +109,7 @@ _DAILY_SQL = _WITHDRAWALS_SQL.replace("{bucket}", "(polled_at AT TIME ZONE %(tz)
 _HOURLY_SQL = _WITHDRAWALS_SQL.replace("{bucket}", "date_trunc('hour', polled_at AT TIME ZONE %(tz)s)")
 
 _CURRENT_SQL = """
-SELECT a.id AS atm_id, s.cdm_total_uzs AS balance, s.polled_at,
+SELECT a.id AS atm_id, COALESCE(s.cdm_available_uzs, s.cdm_total_uzs) AS balance, s.polled_at,
        (SELECT t.forecast_hours FROM turnover_snapshots t
          WHERE t.atm_id = a.id AND (t.currency IS NULL OR UPPER(t.currency) = 'UZS')
          ORDER BY t.polled_at DESC, t.id DESC LIMIT 1) AS btech_hours
@@ -376,7 +378,9 @@ def build_forecast(conn, now: Optional[datetime] = None) -> Dict[str, Any]:
     recent = hist[hist["day"] >= today - pd.Timedelta(days=7)] if not hist.empty else hist
     mean_recent = recent.groupby("atm_id")["withdrawal"].mean().to_dict() if not recent.empty else {}
 
-    low_level = settings.LOW_CASH_PCT * settings.DEFAULT_CAPACITY
+    from .history import capacity_by_atm
+
+    capacities = capacity_by_atm(conn, settings.DEFAULT_CAPACITY)
     results = []
     current = conn.execute(
         _CURRENT_SQL,
@@ -393,12 +397,15 @@ def build_forecast(conn, now: Optional[datetime] = None) -> Dict[str, Any]:
             method, preds = "btech", [balance / float(cur["btech_hours"]) * 24.0] * horizon
         else:
             continue
-        proj = project_balance(balance, preds, now, now.date(), low_level, settings.DEFAULT_CAPACITY)
+        capacity = capacities.get(atm_id, float(settings.DEFAULT_CAPACITY))
+        low_level = settings.LOW_CASH_PCT * capacity
+        proj = project_balance(balance, preds, now, now.date(), low_level, capacity)
         results.append({
             "atm_id": atm_id,
             "method": method,
             "history_days": int(days_by_atm.get(atm_id, 0)),
             "balance_uzs": balance,
+            "capacity_uzs": capacity,
             "daily": preds,
             **proj,
         })
@@ -454,6 +461,9 @@ def run_forecast() -> Optional[int]:
         return None
     started = datetime.now(timezone.utc)
     run_id = None
+    from .history import safe_process_history
+
+    safe_process_history()   # доступный остаток и ёмкость нужны прогнозу
     try:
         with connect() as conn:
             run_id = conn.execute(

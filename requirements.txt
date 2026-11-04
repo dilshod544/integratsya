@@ -10,5 +10,6 @@ psycopg[binary]>=3.2
 psycopg-pool>=3.2
 pandas>=2.2
 xgboost>=2.1
+scikit-learn>=1.5    # нужен XGBRegressor (sklearn-API xgboost 3.x)
 tzdata>=2024.1
 pytest>=8.0.0

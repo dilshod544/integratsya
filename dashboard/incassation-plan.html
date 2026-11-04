@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>План инкассаций</title>
+  <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #f6f8fb; --surface: #fff; --surface-2: #f8fafc; --border: #e5eaf3; --border-strong: #d5ddec;
+      --text: #111827; --muted: #667085; --primary: #2563eb; --success: #16a34a; --warning: #d97706;
+      --danger: #dc2626; --purple: #7c3aed; --shadow-sm: 0 1px 2px rgba(16,24,40,.06); --shadow-md: 0 12px 28px rgba(16,24,40,.08);
+    }
+    body { font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--text);
+      background: radial-gradient(circle at top left, rgba(37,99,235,.10), transparent 30%), linear-gradient(180deg,#fbfdff 0%,var(--bg) 42%,#eef3fb 100%);
+      min-height: 100vh; }
+    header { background: rgba(255,255,255,.9); border-bottom: 1px solid var(--border); padding: 14px 24px; display: flex;
+      align-items: center; gap: 12px; flex-wrap: wrap; position: sticky; top: 0; z-index: 1000; backdrop-filter: blur(18px); box-shadow: var(--shadow-sm); }
+    header h1 { font-size: 19px; font-weight: 800; letter-spacing: -.02em; }
+    .logo { width: 34px; height: 34px; border-radius: 12px; background: linear-gradient(135deg, #0ea5e9, #6366f1); color: #fff;
+      display: flex; align-items: center; justify-content: center; box-shadow: 0 8px 18px rgba(99,102,241,.25); }
+    .logo svg { width: 18px; height: 18px; }
+    .spacer { flex: 1; }
+    .top-nav { display: flex; gap: 8px; flex-wrap: wrap; }
+    .top-nav a, .btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 11px; border: 1px solid var(--border);
+      border-radius: 12px; color: var(--muted); background: #fff; text-decoration: none; font-size: 12px; font-weight: 800; cursor: pointer; }
+    .top-nav a:hover, .btn:hover { border-color: #c7d2fe; color: var(--primary); }
+    .btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+    .btn.primary:hover { background: #1d4ed8; color: #fff; }
+    .btn.ok { background: #ecfdf3; border-color: #abefc6; color: #067647; }
+    .btn svg, .top-nav svg { width: 14px; height: 14px; }
+    main { padding: 18px 24px 60px; max-width: 1500px; margin: 0 auto; }
+    .muted { color: var(--muted); }
+    .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 14px; }
+    .kpi { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 14px 16px; box-shadow: var(--shadow-sm); }
+    .kpi .label { font-size: 12px; color: var(--muted); font-weight: 700; }
+    .kpi .value { font-size: 24px; font-weight: 850; margin-top: 4px; letter-spacing: -.02em; }
+    .kpi .sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .kpi.danger .value { color: var(--danger); } .kpi.warn .value { color: var(--warning); }
+    .banner { background: #fffaeb; border: 1px solid #fedf89; color: #93370d; border-radius: 14px; padding: 10px 14px;
+      font-size: 13px; margin-bottom: 14px; display: flex; gap: 8px; align-items: flex-start; }
+    .banner a { color: inherit; font-weight: 800; }
+    .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+    .tabs { display: inline-flex; background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 3px; }
+    .tabs button { border: 0; background: none; padding: 7px 14px; border-radius: 9px; font-weight: 800; font-size: 13px; color: var(--muted); cursor: pointer; }
+    .tabs button.active { background: var(--primary); color: #fff; }
+    select, input[type=search] { border: 1px solid var(--border-strong); border-radius: 10px; padding: 8px 10px; font-size: 13px; background: #fff; color: var(--text); }
+    input[type=search] { min-width: 220px; }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; box-shadow: var(--shadow-sm); overflow: hidden; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted);
+      padding: 10px 12px; background: var(--surface-2); border-bottom: 1px solid var(--border); white-space: nowrap; }
+    td { padding: 11px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    tr.row:hover td { background: #fafcff; }
+    tr.row { cursor: pointer; }
+    .score { width: 38px; height: 38px; border-radius: 12px; display: flex; align-items: center; justify-content: center;
+      font-weight: 900; font-size: 17px; color: #fff; }
+    .s10, .s9 { background: #b42318; } .s8 { background: #d92d20; } .s7 { background: #f04438; }
+    .s6 { background: #f79009; } .s5 { background: #fdb022; color: #422006; } .s4 { background: #fde272; color: #422006; }
+    .s3, .s2, .s1 { background: #e4e7ec; color: #344054; }
+    .tid { font-weight: 800; } .addr { color: var(--muted); font-size: 12px; max-width: 320px; }
+    .bar { height: 6px; border-radius: 999px; background: #eef2f6; overflow: hidden; margin-top: 6px; width: 140px; }
+    .bar > span { display: block; height: 100%; background: var(--success); }
+    .bar.low > span { background: var(--danger); } .bar.mid > span { background: var(--warning); }
+    .num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .big { font-weight: 850; font-size: 14px; }
+    .notes { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
+    .chip { font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 999px; background: #eef4ff; color: #3538cd; white-space: nowrap; }
+    .chip.tech { background: #fef3f2; color: #b42318; } .chip.gray { background: #f2f4f7; color: #475467; }
+    .chip.ok { background: #ecfdf3; color: #067647; }
+    tr.detail { display: none; } tr.open + tr.detail { display: table-row; }
+    .reasons ul { margin: 2px 0 4px 18px; font-size: 12.5px; color: #344054; line-height: 1.6; }
+    .detail td { background: #fbfcfe; }
+    .trips { display: grid; grid-template-columns: minmax(340px, 1fr) minmax(360px, 1.2fr); gap: 14px; }
+    .trip { padding: 14px 16px; border-bottom: 1px solid var(--border); cursor: pointer; }
+    .trip:hover, .trip.active { background: #f5f8ff; }
+    .trip h3 { font-size: 14px; font-weight: 850; display: flex; gap: 8px; align-items: center; }
+    .trip .meta { font-size: 12px; color: var(--muted); margin-top: 4px; display: flex; gap: 12px; flex-wrap: wrap; }
+    .warn-txt { color: var(--danger); font-weight: 800; }
+    #tab-list { overflow-x: auto; } #tab-list table { min-width: 1100px; }
+    #map { height: 640px; position: sticky; top: 80px; }
+    .stops { margin-top: 8px; font-size: 12.5px; } .stops li { margin: 3px 0 3px 18px; }
+    .empty { padding: 40px; text-align: center; color: var(--muted); }
+    .scale { display: flex; gap: 3px; align-items: center; font-size: 11px; color: var(--muted); }
+    .scale span.sq { width: 16px; height: 16px; border-radius: 5px; display: inline-flex; align-items: center; justify-content: center; color: #fff; font-weight: 800; font-size: 10px; }
+    @media (max-width: 900px) { .trips { grid-template-columns: 1fr; } #map { height: 380px; position: static; } main { padding: 14px 16px 40px; } }
+  </style>
+</head>
+<body>
+<header>
+  <div class="logo"><i data-lucide="route"></i></div>
+  <div>
+    <h1>План инкассаций</h1>
+    <div class="muted" style="font-size:12px" id="fresh">—</div>
+  </div>
+  <div class="spacer"></div>
+  <button class="btn" id="refresh"><i data-lucide="refresh-cw"></i> Пересчитать</button>
+  <nav class="top-nav">
+    <a href="/dashboard/savings.html"><i data-lucide="piggy-bank"></i> Экономия</a>
+    <a href="/dashboard/map.html"><i data-lucide="map"></i> Карта</a>
+    <a href="/dashboard/incassation.html"><i data-lucide="calendar"></i> Календарь</a>
+    <a href="/dashboard/index.html"><i data-lucide="home"></i> Главная</a>
+  </nav>
+</header>
+<main>
+  <div id="banner"></div>
+  <div class="kpis" id="kpis"></div>
+  <div class="toolbar">
+    <div class="tabs"><button data-tab="list" class="active">Список</button><button data-tab="trips">Рейсы</button></div>
+    <select id="minScore" title="Минимальная срочность">
+      <option value="5" selected>Срочность ≥ 5 (нужна инкассация)</option>
+      <option value="8">Срочность ≥ 8 (сегодня)</option>
+      <option value="1">Все банкоматы</option>
+    </select>
+    <select id="region"><option value="">Все вилояты</option></select>
+    <input type="search" id="q" placeholder="TID, адрес, филиал…">
+    <div class="spacer"></div>
+    <div class="scale" title="Срочность: 10 — денег нет уже сейчас, 1 — хватит больше чем на неделю">
+      Срочность:
+      <span class="sq s10">10</span><span class="sq s8">8</span><span class="sq s6">6</span><span class="sq s5">5</span><span class="sq s4">4</span><span class="sq s2" style="color:#344054">1–3</span>
+    </div>
+  </div>
+  <section id="tab-list" class="card"></section>
+  <section id="tab-trips" class="trips" style="display:none">
+    <div class="card" id="tripList"></div>
+    <div class="card"><div id="map"></div></div>
+  </section>
+</main>
+<script src="/dashboard/js/utils.js"></script>
+<script>
+  const API = location.origin;
+  let DATA = null, SETTINGS = null, openRow = null, map = null, layer = null;
+
+  const fmtM = (v) => v == null ? '—' : (Math.abs(v) >= 1e9 ? (v / 1e9).toFixed(2).replace('.', ',') + ' млрд' : Math.round(v / 1e6).toLocaleString('ru-RU') + ' млн');
+  const fmtH = (h) => h == null ? 'надолго' : h <= 0 ? 'уже нет' : h < 24 ? `${Math.max(1, Math.round(h))} ч` : `${Math.floor(h / 24)} д ${Math.round(h % 24)} ч`;
+  const fmtDT = (iso) => { if (!iso) return '—'; const d = new Date(iso); return d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }); };
+  const METHOD = { xgboost: 'XGBoost', mean_7d: 'среднее 7 дн.', btech: 'скорость BTech', history: 'факт 14 дн.' };
+  const notesHtml = (notes) => Object.entries(notes || {}).sort((a, b) => b[0] - a[0])
+    .map(([n, c]) => `<span class="chip">${(+n / 1000).toLocaleString('ru-RU')}k × ${(+c).toLocaleString('ru-RU')}</span>`).join('');
+
+  function filtered() {
+    if (!DATA) return [];
+    const min = +document.getElementById('minScore').value;
+    const reg = document.getElementById('region').value;
+    const q = document.getElementById('q').value.trim().toLowerCase();
+    return DATA.items.filter((it) => it.score >= min && (!reg || it.region === reg) &&
+      (!q || [it.tid, it.address, it.branch, it.region, it.registry_terminal_id].join(' ').toLowerCase().includes(q)));
+  }
+
+  function renderKpis() {
+    const items = DATA.items;
+    const today = items.filter((i) => i.score >= 8 && !DATA.blocked.includes(i.id));
+    const soon = items.filter((i) => i.score >= 5 && !DATA.blocked.includes(i.id));
+    const bring = soon.reduce((s, i) => s + (i.amount_to_bring || 0), 0);
+    const tech = items.filter((i) => i.needs_technician);
+    const accepted = items.filter((i) => i.status === 'accepted');
+    document.getElementById('kpis').innerHTML = `
+      <div class="kpi danger"><div class="label">Нужно сегодня (срочность 8–10)</div><div class="value">${today.length}</div><div class="sub">деньги кончатся в течение ~12 ч</div></div>
+      <div class="kpi warn"><div class="label">Нужна инкассация (≥ 5)</div><div class="value">${soon.length}</div><div class="sub">в ближайшие ~2 суток</div></div>
+      <div class="kpi"><div class="label">Довезти наличных (≥ 5)</div><div class="value">${fmtM(bring)}</div><div class="sub">до рекомендованной загрузки</div></div>
+      <div class="kpi"><div class="label">Рейсов</div><div class="value">${DATA.trips.length}</div><div class="sub">${DATA.trips.reduce((s, t) => s + t.stops.length, 0)} остановок</div></div>
+      <div class="kpi"><div class="label">Нужен техник</div><div class="value">${tech.length}</div><div class="sub">офлайн, диспенсер, кассеты INOP</div></div>
+      <div class="kpi"><div class="label">Принято в работу</div><div class="value">${accepted.length}</div><div class="sub">сравним с фактической загрузкой</div></div>`;
+  }
+
+  function renderBanner() {
+    const el = document.getElementById('banner');
+    if (!SETTINGS || !SETTINGS.missing.length) { el.innerHTML = ''; return; }
+    const names = SETTINGS.items.filter((i) => SETTINGS.missing.includes(i.key)).map((i) => i.label.toLowerCase()).join(', ');
+    el.innerHTML = `<div class="banner"><i data-lucide="info" style="width:16px;flex-shrink:0"></i><div>Цикл загрузки сейчас — ${SETTINGS.values.default_cycle_days} дн. по умолчанию:
+      не заданы ${escapeHtml(names)}. С ними система посчитает оптимальный цикл (сколько класть, чтобы выезды и «замороженные» деньги стоили банку меньше всего).
+      <a href="/dashboard/savings.html#settings">Задать параметры</a></div></div>`;
+  }
+
+  function renderList() {
+    const items = filtered();
+    const el = document.getElementById('tab-list');
+    if (!items.length) {
+      el.innerHTML = `<div class="empty">${DATA.items.length ? 'Под фильтр ничего не попало.' : 'Рекомендаций пока нет: нужны данные сборщика BTech (AUTH_USERNAME / AUTH_PASSWORD в .env).'}</div>`;
+      return;
+    }
+    el.innerHTML = `<table><thead><tr>
+      <th></th><th>Банкомат</th><th>Доступно / ёмкость</th><th>Деньги кончатся</th><th>Крайний срок</th>
+      <th>Загрузить до</th><th>Довезти</th><th>Спрос / сутки</th><th>Рейс</th><th></th></tr></thead><tbody>
+      ${items.map((it) => {
+        const pct = it.capacity_uzs ? Math.min(100, it.available_uzs / it.capacity_uzs * 100) : 0;
+        const cls = pct < 20 ? 'low' : pct < 40 ? 'mid' : '';
+        const blocked = DATA.blocked.includes(it.id);
+        return `<tr class="row${openRow === it.id ? ' open' : ''}" data-id="${it.id}">
+          <td><div class="score s${it.score}">${it.score}</div></td>
+          <td><div class="tid">${escapeHtml(it.tid)} ${it.needs_technician ? '<span class="chip tech">техник</span>' : ''}</div>
+              <div class="addr">${escapeHtml(it.address || '')}</div>
+              <div class="addr">${escapeHtml([it.region, it.branch].filter(Boolean).join(' · '))}</div></td>
+          <td class="num"><div class="big">${fmtM(it.available_uzs)}</div><div class="muted">из ${fmtM(it.capacity_uzs)}</div><div class="bar ${cls}"><span style="width:${pct}%"></span></div></td>
+          <td class="num big">${fmtH(it.hours_to_empty)}</td>
+          <td class="num">${fmtDT(it.due_at)}</td>
+          <td class="num"><div class="big">${fmtM(it.load_uzs)}</div><div class="notes">${notesHtml(it.notes)}</div>
+              <div class="muted" style="font-size:11px;margin-top:3px">${it.cycle_days ? `на ${(+it.cycle_days).toFixed(1).replace('.', ',')} дн.` : ''}</div></td>
+          <td class="num big">${it.amount_to_bring == null ? '—' : it.amount_to_bring < 1e6 ? '<span class="muted" style="font-weight:600">не нужно</span>' : fmtM(it.amount_to_bring)}</td>
+          <td class="num">${fmtM(it.demand_per_day)}<div class="muted" style="font-size:11px">${METHOD[it.method] || '—'}</div></td>
+          <td>${blocked ? '<span class="chip tech">сначала ремонт</span>' : it.trip_label ? `<span class="chip gray">${escapeHtml(it.trip_label)}</span>` : '<span class="muted">—</span>'}</td>
+          <td>${it.status === 'accepted'
+            ? `<button class="btn ok" data-act="open" data-id="${it.id}" title="Отменить принятие">✓ Принято</button>`
+            : `<button class="btn primary" data-act="accepted" data-id="${it.id}">Принять</button>`}</td>
+        </tr>
+        <tr class="detail"><td></td><td colspan="9"><div class="reasons"><b style="font-size:12px">Почему срочность ${it.score}:</b>
+          <ul>${it.reasons.map((r) => `<li>${escapeHtml(r)}</li>`).join('')}</ul>
+          <div class="muted" style="font-size:12px">Рекомендация от ${fmtDT(it.created_at)} · данные BTech ${fmtDT(it.polled_at)} · общий остаток ${fmtM(it.balance_uzs)}
+          ${it.accepted_by ? ` · принял ${escapeHtml(it.accepted_by)} ${fmtDT(it.accepted_at)}` : ''}</div></div></td></tr>`;
+      }).join('')}</tbody></table>`;
+  }
+
+  function renderTrips() {
+    const reg = document.getElementById('region').value;
+    const trips = DATA.trips.filter((t) => !reg || t.region === reg);
+    const el = document.getElementById('tripList');
+    if (!trips.length) {
+      el.innerHTML = `<div class="empty">Рейсов нет: нет банкоматов со срочностью ≥ ${DATA.route_min_score} или не загружен реестр филиалов с «Инкассация = 1».</div>`;
+      drawTrip(null); return;
+    }
+    el.innerHTML = trips.map((t, i) => `<div class="trip" data-i="${DATA.trips.indexOf(t)}">
+      <h3><div class="score s${t.max_score}" style="width:28px;height:28px;font-size:13px;border-radius:9px">${t.max_score}</div>${escapeHtml(t.label)}</h3>
+      <div class="meta"><span><b>${t.planned_date ? new Date(t.planned_date).toLocaleDateString('ru-RU') : '—'}</b></span>
+        <span>${t.stops.length} ост.</span><span>${(t.distance_km || 0).toFixed(1).replace('.', ',')} км</span><span>~${((t.est_time_min || 0) / 60).toFixed(1).replace('.', ',')} ч</span>
+        <span>довезти <b>${fmtM(t.amount_to_bring)}</b></span></div>
+      <div class="meta">Выезд: ${escapeHtml(t.departure_branch.address || t.departure_branch.name || '')}</div>
+      <div class="meta">${t.branch_cash_uzs == null ? 'Остаток кассы филиала не загружен'
+        : t.branch_cash_short ? `<span class="warn-txt">В кассе филиала ${fmtM(t.branch_cash_uzs)} — меньше, чем нужно довезти</span>`
+        : `В кассе филиала ${fmtM(t.branch_cash_uzs)} — хватает`}</div>
+      <ol class="stops">${t.stops.map((s) => `<li><b>${escapeHtml(s.tid)}</b> · срочность ${s.score} · довезти ${fmtM(s.amount_to_bring)} <span class="muted">${escapeHtml(s.address || '')}</span></li>`).join('')}</ol>
+    </div>`).join('');
+    drawTrip(DATA.trips.indexOf(trips[0]));
+  }
+
+  function drawTrip(i) {
+    if (!map) {
+      map = L.map('map').setView([41.31, 69.28], 7);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18, attribution: '© OpenStreetMap' }).addTo(map);
+    }
+    if (layer) layer.remove();
+    layer = L.layerGroup().addTo(map);
+    document.querySelectorAll('.trip').forEach((el) => el.classList.toggle('active', +el.dataset.i === i));
+    if (i == null) return;
+    const t = DATA.trips[i];
+    const line = (t.geometry || []).map((p) => [p.lat, p.lon]);
+    if (line.length) L.polyline(line, { color: '#2563eb', weight: 4, opacity: .75, dashArray: t.routing_provider === 'osrm' ? null : '6 6' }).addTo(layer);
+    const dep = t.departure_branch;
+    if (dep.lat != null) L.circleMarker([dep.lat, dep.lon], { radius: 9, color: '#7c3aed', fillOpacity: .9 }).bindTooltip('Филиал: ' + (dep.address || '')).addTo(layer);
+    t.stops.forEach((s, k) => {
+      const color = s.score >= 8 ? '#d92d20' : s.score >= 6 ? '#f79009' : '#fdb022';
+      L.marker([s.lat, s.lon], { icon: L.divIcon({ className: '', html: `<div style="background:${color};color:#fff;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font:800 12px Inter,sans-serif;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.3)">${k + 1}</div>` }) })
+        .bindTooltip(`${escapeHtml(s.tid)} · срочность ${s.score} · довезти ${fmtM(s.amount_to_bring)}`).addTo(layer);
+    });
+    const pts = [...line, ...t.stops.map((s) => [s.lat, s.lon])];
+    if (pts.length) map.fitBounds(pts, { padding: [30, 30] });
+    setTimeout(() => map.invalidateSize(), 50);
+  }
+
+  async function load() {
+    const [q, s] = await Promise.all([
+      fetch(`${API}/api/incassation/queue?min_score=1&route_min_score=5`).then((r) => r.json()),
+      fetch(`${API}/api/settings/economics`).then((r) => r.ok ? r.json() : null).catch(() => null),
+    ]);
+    DATA = q; SETTINGS = s;
+    const regions = [...new Set(DATA.items.map((i) => i.region).filter(Boolean))].sort();
+    const sel = document.getElementById('region'); const cur = sel.value;
+    sel.innerHTML = '<option value="">Все вилояты</option>' + regions.map((r) => `<option ${r === cur ? 'selected' : ''}>${escapeHtml(r)}</option>`).join('');
+    const last = DATA.items.map((i) => i.polled_at).filter(Boolean).sort().pop();
+    document.getElementById('fresh').textContent = last ? `Данные BTech на ${fmtDT(last)} · обновляется после каждого опроса` : 'Нет данных BTech';
+    renderBanner(); renderKpis(); renderList();
+    if (document.getElementById('tab-trips').style.display !== 'none') renderTrips();
+    lucide.createIcons();
+  }
+
+  document.getElementById('tab-list').addEventListener('click', async (e) => {
+    const btn = e.target.closest('button[data-act]');
+    if (btn) {
+      e.stopPropagation();
+      btn.disabled = true;
+      const r = await fetch(`${API}/api/incassation/queue/${btn.dataset.id}/status`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: btn.dataset.act }) });
+      if (!r.ok) alert((await r.json()).detail || 'Не удалось');
+      await load(); return;
+    }
+    const row = e.target.closest('tr.row');
+    if (row) { openRow = openRow === +row.dataset.id ? null : +row.dataset.id; renderList(); }
+  });
+  document.getElementById('tripList').addEventListener('click', (e) => {
+    const t = e.target.closest('.trip'); if (t) drawTrip(+t.dataset.i);
+  });
+  document.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('click', () => {
+    document.querySelectorAll('.tabs button').forEach((x) => x.classList.toggle('active', x === b));
+    document.getElementById('tab-list').style.display = b.dataset.tab === 'list' ? '' : 'none';
+    document.getElementById('tab-trips').style.display = b.dataset.tab === 'trips' ? '' : 'none';
+    if (b.dataset.tab === 'trips') renderTrips();
+  }));
+  ['minScore', 'q'].forEach((id) => document.getElementById(id).addEventListener('input', renderList));
+  document.getElementById('region').addEventListener('change', () => { renderList(); if (document.getElementById('tab-trips').style.display !== 'none') renderTrips(); });
+  document.getElementById('refresh').addEventListener('click', async (e) => {
+    e.currentTarget.disabled = true;
+    await fetch(`${API}/api/incassation/queue/refresh`, { method: 'POST' });
+    await load(); e.currentTarget.disabled = false;
+  });
+  load();
+  setInterval(load, 5 * 60 * 1000);
+</script>
+<script src="/dashboard/js/auth-nav.js"></script>
+</body>
+</html>

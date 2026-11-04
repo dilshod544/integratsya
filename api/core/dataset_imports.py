@@ -90,6 +90,8 @@ def start_import(
     date_to: Optional[date],
     imported_at: Optional[datetime] = None,
 ) -> Dict[str, Any]:
+    # Две одновременные загрузки одного вида не должны получить одинаковый seq.
+    conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ("dataset_imports:" + kind,))
     seq = int(conn.execute(
         "SELECT COALESCE(MAX(seq), 0) + 1 AS n FROM dataset_imports WHERE kind = %s",
         (kind,),
