@@ -80,7 +80,7 @@ import atm_monitor.db as atm_monitor_db
 import atm_monitor.forecast as atm_forecast
 import atm_monitor.history as atm_history
 import atm_monitor.scheduler as atm_collector
-from core import atm_analytics, atm_live, auth, economics, savings
+from core import ai_assistant, atm_analytics, atm_live, auth, economics, savings
 from core import incassation_plan as inc_plan
 from core.config import AUTH_DISABLED, BASE_DIR, SECRET_KEY
 from core.db import (
@@ -1444,6 +1444,20 @@ def savings_summary_endpoint(days: int = Query(90, ge=7, le=730)):
 @app.get("/api/savings/cycles", summary="Циклы инкассации с оценкой (по банкомату или по сети)")
 def savings_cycles_endpoint(days: int = Query(90, ge=7, le=730), atm_id: Optional[int] = None):
     return {"cycles": savings.compute_cycles(days, atm_id)}
+
+
+class AIChatRequest(BaseModel):
+    messages: List[Dict[str, str]] = []
+    days: int = 90
+    explain: bool = False
+
+
+@app.post("/api/savings/ai", summary="ИИ-помощник по экономии: в модель уходят только обезличенный текст и плейсхолдеры")
+def savings_ai(payload: AIChatRequest):
+    try:
+        return ai_assistant.ask(payload.messages, max(7, min(730, payload.days)), payload.explain)
+    except ai_assistant.AIError as e:
+        raise HTTPException(e.status, str(e))
 
 
 @app.get("/api/settings/economics", summary="Экономические параметры банка (стоимость денег, выезда…)")
