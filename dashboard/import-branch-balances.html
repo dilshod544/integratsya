@@ -97,72 +97,12 @@
 <div class="page">
   <a class="back-link" href="/dashboard/import.html">← Назад</a>
   <div class="card">
-    <h2><i data-lucide="wallet" style="width:18px;height:18px"></i> Загрузить остатки филиалов</h2>
-    <p>
-      Отдельный Excel — <b>не меняет</b> реестр филиалов с координатами.
-      Связка <b>только</b> по <code>Код БХМ</code> ↔ локал код филиала (по названию — нет).
-      Пустые ячейки и <code>-</code> = нет данных; <code>0</code> = ноль.
-      Каждая загрузка хранится отдельно: <b>1-й импорт</b>, <b>2-й импорт</b> и дальше.
-      Новая не стирает старую и не смешивается с ней. На карте открыт последний импорт.
-    </p>
-
-    <div class="dropzone" id="dropzone">
-      <i data-lucide="upload-cloud" style="width:48px;height:48px;color:#0d9488"></i>
-      <div class="label">Перетащите XLSX или выберите файл</div>
-      <div class="hint">Код БХМ · Филиал номи · Сўм · Лимит сўм · Лимит доллар · валюты</div>
-      <div class="file" id="fileName" style="display:none"></div>
-      <input type="file" id="fileInput" accept=".xlsx,.xlsm" style="display:none" />
-    </div>
-
-    <div class="actions">
-      <button class="btn-primary" id="uploadBtn" disabled>
-        <i data-lucide="play" style="width:16px;height:16px"></i> Загрузить
-      </button>
-      <button class="btn-ghost" id="resetBtn">Сбросить файл</button>
-      <button class="btn-danger" id="clearDbBtn" type="button">
-        <i data-lucide="trash-2" style="width:16px;height:16px"></i> Очистить остатки в БД
-      </button>
-    </div>
-    <div class="status-line" id="dbStatus">В базе сейчас: загрузка…</div>
-
-    <div class="progress" id="progress"><div class="spinner"></div><span>Загружаю…</span></div>
-
-    <div class="result" id="result">
-      <div class="summary">
-        <div class="stat"><div class="v" id="rImported">0</div><div class="l">Импортировано</div></div>
-        <div class="stat"><div class="v" id="rMatched">0</div><div class="l">Связано с филиалами</div></div>
-        <div class="stat"><div class="v" id="rUnmatched">0</div><div class="l">Без привязки</div></div>
-        <div class="stat"><div class="v" id="rErrors">0</div><div class="l">Ошибок</div></div>
-      </div>
-      <div id="rNote" style="margin-top:12px;font-size:13px;color:var(--muted)"></div>
-    </div>
-
-    <div class="imports-box">
-      <h3><i data-lucide="history" style="width:16px;height:16px"></i> Загруженные импорты остатков</h3>
-      <div class="hint">Как у кассиров: каждый файл — отдельный номер (1-й, 2-й…). Ошибочный можно удалить. На карте открыт последний.</div>
-      <div id="bal-imports"><div class="empty">Загрузка…</div></div>
-    </div>
-
-    <div class="info">
-      <b>Ожидаемые колонки:</b>
-      <code>Код БХМ</code>, <code>Филиал (БХМ) номи</code>, <code>Сўм</code>,
-      <code>Лимит сўм</code>, <code>Лимит доллар</code>,
-      <code>АҚШ доллари 840</code>, <code>Йена 392</code>, <code>Россия рубли 643</code>,
-      <code>Швейцария франки 756</code>, <code>Фунт стерлинг 826</code>, <code>Евро 978</code>,
-      <code>Тенге 398</code>, <code>Юан 156</code>, <code>Сомони 972</code>.<br><br>
-      На карте: включите слой филиалов → клик по филиалу → блок «Касса филиала».
-      Лимиты берутся отсюда. Сумма в кассе — из отчёта счетов ниже, на последнюю дату филиала.
-    </div>
-  </div>
-
-  <div class="card">
     <h2><i data-lucide="file-spreadsheet" style="width:18px;height:18px"></i> Отчёт остатков по счетам</h2>
     <p>
-      Строки идут как в файле: <code>oper_day</code>, <code>coa_code</code>, <code>code</code>,
+      Это основной источник остатков. Строки идут как в файле: <code>oper_day</code>, <code>coa_code</code>, <code>code</code>,
       <code>code_currency</code>, <code>acc_id</code>, <code>branch_id</code>, <code>saldo_out</code>.
-      Каждая загрузка — отдельный номер (<b>1-й импорт</b>, <b>2-й импорт</b>).
-      Они не складываются. Аналитика и карта берут выбранный импорт, по умолчанию последний.
-      Лимиты этот файл не меняет.
+      Каждая загрузка — отдельный номер. Аналитика и карта берут выбранный импорт, по умолчанию последний.
+      Лимиты этот файл не меняет: они редактируются ниже.
     </p>
     <div class="dropzone" id="ledger-drop">
       <i data-lucide="upload-cloud" style="width:48px;height:48px;color:#0d9488"></i>
@@ -192,6 +132,16 @@
       <div class="hint">Каждый Excel — отдельный импорт. Аналитика кассы по умолчанию берёт последний; здесь можно удалить лишний.</div>
       <div id="ledger-imports"><div class="empty">Загрузка…</div></div>
     </div>
+  </div>
+
+  <div class="card">
+    <h2><i data-lucide="sliders-horizontal" style="width:18px;height:18px"></i> Лимит сўм и лимит доллар</h2>
+    <p>
+      Эти два числа больше не приходят из файла остатков. Они сохранены отдельно и их можно менять.
+      Анализ берёт сумму и валюту из отчёта выше, а лимит — отсюда.
+    </p>
+    <input id="limit-q" placeholder="Код или название филиала…" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:12px;margin-bottom:12px" />
+    <div class="imports-box" style="margin-top:0;max-height:480px;overflow:auto" id="limit-box"><div class="empty">Загрузка…</div></div>
   </div>
 
   <div class="card">
@@ -236,29 +186,15 @@
 <script>
   lucide.createIcons();
   const API = location.origin;
-  const dropzone = document.getElementById('dropzone');
-  const fileInput = document.getElementById('fileInput');
-  const fileName = document.getElementById('fileName');
-  const uploadBtn = document.getElementById('uploadBtn');
-  let selectedFile = null;
-
-  dropzone.addEventListener('click', () => fileInput.click());
-  ['dragover','dragenter'].forEach(e => dropzone.addEventListener(e, ev => { ev.preventDefault(); dropzone.classList.add('drag-over'); }));
-  ['dragleave','drop'].forEach(e => dropzone.addEventListener(e, ev => { ev.preventDefault(); dropzone.classList.remove('drag-over'); }));
-  dropzone.addEventListener('drop', ev => { if (ev.dataTransfer.files[0]) pick(ev.dataTransfer.files[0]); });
-  fileInput.addEventListener('change', () => { if (fileInput.files[0]) pick(fileInput.files[0]); });
-
-  function pick(f) {
-    selectedFile = f;
-    fileName.style.display = 'block';
-    fileName.textContent = f.name + ' · ' + Math.round(f.size/1024) + ' КБ';
-    uploadBtn.disabled = false;
-  }
 
   function esc(s) {
     return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   }
   function periodText(m) {
+    if (m.period_label) {
+      const iso = !m.date_from ? '' : (m.date_from === m.date_to ? m.date_from : `${m.date_from} — ${m.date_to}`);
+      return iso ? `${m.period_label} (${iso})` : m.period_label;
+    }
     if (!m.date_from) return '—';
     return m.date_from === m.date_to ? m.date_from : `${m.date_from} — ${m.date_to}`;
   }
@@ -302,68 +238,64 @@
     if (done) await done();
   }
 
-  async function refreshDbStatus() {
-    const el = document.getElementById('dbStatus');
-    try {
-      const r = await fetch(API + '/api/branch-balances');
-      const d = await r.json();
-      const n = d.count ?? (d.balances || []).length ?? 0;
-      el.textContent = n
-        ? `Сейчас открыт последний импорт: ${n} строк. Карта берёт его.`
-        : 'В базе сейчас: остатков нет — загрузите свой Excel.';
-    } catch (_) {
-      el.textContent = 'В базе сейчас: не удалось проверить.';
-    }
-    renderImportList('bal', '/api/branches/balances/imports', refreshDbStatus);
+  let limitRows = [];
+  function limitInput(code, field, value) {
+    const shown = value == null ? '' : value;
+    return `<input data-code="${esc(code)}" data-field="${field}" value="${esc(shown)}" inputmode="decimal" style="width:140px;padding:6px 8px;border:1px solid var(--border);border-radius:8px;text-align:right" />`;
   }
-  refreshDbStatus();
-
-  document.getElementById('resetBtn').onclick = () => {
-    selectedFile = null; fileInput.value = '';
-    fileName.style.display = 'none'; uploadBtn.disabled = true;
-    document.getElementById('result').classList.remove('show');
-  };
-
-  document.getElementById('clearDbBtn').onclick = async () => {
-    if (!confirm('Удалить все кассовые остатки из базы? Реестр филиалов не трогается.')) return;
-    try {
-      const res = await fetch(API + '/api/branches/balances/clear', { method: 'POST' });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Ошибка очистки');
-      alert('Удалено строк: ' + (data.deleted ?? 0));
-      document.getElementById('result').classList.remove('show');
-      await refreshDbStatus();
-    } catch (e) {
-      alert(e.message || e);
+  function renderLimits() {
+    const box = document.getElementById('limit-box');
+    const q = (document.getElementById('limit-q').value || '').trim().toLowerCase();
+    const rows = limitRows.filter(r => !q || `${r.local_code} ${r.name || ''} ${r.region || ''}`.toLowerCase().includes(q));
+    box.innerHTML = `<table class="imports"><thead><tr>
+      <th>Филиал</th><th class="num">Лимит сўм</th><th class="num">Лимит доллар</th><th></th>
+    </tr></thead><tbody>${rows.map(r => `<tr>
+      <td><b>${esc(r.local_code)}</b><div style="color:var(--muted);font-size:12px">${esc(r.name || '')}${r.region ? ' · ' + esc(r.region) : ''}</div></td>
+      <td class="num">${limitInput(r.local_code, 'limit_uzs', r.limit_uzs)}</td>
+      <td class="num">${limitInput(r.local_code, 'limit_usd', r.limit_usd)}</td>
+      <td><button class="btn-primary" type="button" data-save="${esc(r.local_code)}" style="padding:6px 10px">Сохранить</button></td>
+    </tr>`).join('') || '<tr><td colspan="4" class="empty">Филиалов нет</td></tr>'}</tbody></table>`;
+    box.querySelectorAll('[data-save]').forEach(btn => {
+      btn.onclick = () => saveLimit(btn.dataset.save, btn);
+    });
+  }
+  async function saveLimit(code, btn) {
+    const inputs = [...document.querySelectorAll(`#limit-box input[data-code="${CSS.escape(code)}"]`)];
+    const body = {};
+    for (const input of inputs) {
+      const raw = input.value.trim().replace(/\s/g, '').replace(',', '.');
+      body[input.dataset.field] = raw === '' ? null : Number(raw);
+      if (body[input.dataset.field] != null && Number.isNaN(body[input.dataset.field])) {
+        alert('Введите число');
+        return;
+      }
     }
-  };
-
-  uploadBtn.onclick = async () => {
-    if (!selectedFile) return;
-    const progress = document.getElementById('progress');
-    const result = document.getElementById('result');
-    progress.classList.add('show'); result.classList.remove('show'); uploadBtn.disabled = true;
+    btn.disabled = true;
+    const res = await fetch(API + '/api/branch-cash/limits/' + encodeURIComponent(code), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    btn.disabled = false;
+    if (!res.ok) { alert(data.detail || 'Не сохранилось'); return; }
+    const row = limitRows.find(r => r.local_code === code);
+    if (row) { row.limit_uzs = data.limit_uzs; row.limit_usd = data.limit_usd; }
+    btn.textContent = 'Сохранено';
+    setTimeout(() => { btn.textContent = 'Сохранить'; }, 1200);
+  }
+  async function loadLimits() {
+    const box = document.getElementById('limit-box');
     try {
-      const fd = new FormData();
-      fd.append('file', selectedFile);
-      const res = await fetch(API + '/api/branches/balances/import', { method: 'POST', body: fd });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || data.message || 'Ошибка импорта');
-      document.getElementById('rImported').textContent = data.imported ?? 0;
-      document.getElementById('rMatched').textContent = data.matched_to_branches ?? 0;
-      document.getElementById('rUnmatched').textContent = data.unmatched ?? 0;
-      document.getElementById('rErrors').textContent = data.validation_errors_count ?? 0;
-      document.getElementById('rNote').textContent =
-        (data.note || '') + ' Откройте карту и включите слой филиалов.';
-      result.classList.add('show');
-      await refreshDbStatus();
-    } catch (e) {
-      alert(e.message || e);
-    } finally {
-      progress.classList.remove('show');
-      uploadBtn.disabled = !selectedFile;
+      limitRows = (await (await fetch(API + '/api/branch-cash/limits')).json()).limits || [];
+    } catch (_) {
+      box.innerHTML = '<div class="empty">Лимиты не загрузились.</div>';
+      return;
     }
-  };
+    renderLimits();
+  }
+  document.getElementById('limit-q').addEventListener('input', renderLimits);
+  loadLimits();
 
   function wireImport(prefix, url, clearUrl, statusUrl, statusText, onDone, listUrl) {
     const drop = document.getElementById(prefix + '-drop');

@@ -15,6 +15,43 @@ KIND_VASH_ZONES = "vash_zones"
 KIND_LEDGER = "branch_ledger"
 KIND_BALANCES = "branch_balances"
 
+_RU_MONTH = (
+    "",
+    "январь",
+    "февраль",
+    "март",
+    "апрель",
+    "май",
+    "июнь",
+    "июль",
+    "август",
+    "сентябрь",
+    "октябрь",
+    "ноябрь",
+    "декабрь",
+)
+
+
+def format_period_label(date_from: Optional[date], date_to: Optional[date]) -> Optional[str]:
+    """Masalan: «сентябрь 2026» yoki «сентябрь — октябрь 2026»."""
+    if date_from is None and date_to is None:
+        return None
+    d0 = date_from or date_to
+    d1 = date_to or date_from
+    if d0 is None:
+        return None
+    if d0.year == d1.year and d0.month == d1.month:
+        return f"{_RU_MONTH[d0.month]} {d0.year}"
+    if d0.year == d1.year:
+        return f"{_RU_MONTH[d0.month]} — {_RU_MONTH[d1.month]} {d0.year}"
+    return f"{_RU_MONTH[d0.month]} {d0.year} — {_RU_MONTH[d1.month]} {d1.year}"
+
+
+def month_label_from_key(key: str) -> str:
+    """2026-09 → «сентябрь 2026»."""
+    y, m = key.split("-", 1)
+    return f"{_RU_MONTH[int(m)]} {y}"
+
 
 def create_dataset_import_tables(conn) -> None:
     conn.execute("""
@@ -154,6 +191,12 @@ def _iso(value: Any) -> Optional[str]:
 
 def _public(row: Dict[str, Any]) -> Dict[str, Any]:
     seq = int(row["seq"])
+    d0 = row.get("date_from")
+    d1 = row.get("date_to")
+    if d0 is not None and not isinstance(d0, date):
+        d0 = date.fromisoformat(str(d0)[:10])
+    if d1 is not None and not isinstance(d1, date):
+        d1 = date.fromisoformat(str(d1)[:10])
     return {
         "id": int(row["id"]),
         "seq": seq,
@@ -163,4 +206,5 @@ def _public(row: Dict[str, Any]) -> Dict[str, Any]:
         "rows_count": int(row.get("rows_count") or 0),
         "date_from": _iso(row.get("date_from")),
         "date_to": _iso(row.get("date_to")),
+        "period_label": format_period_label(d0, d1),
     }

@@ -9,7 +9,7 @@ sanaladi va mavjud vash_zones ro'yxatidagi nuqta bilan raqam orqali bog'lanadi.
 from __future__ import annotations
 
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
@@ -24,6 +24,7 @@ from .dataset_imports import (
     delete_dataset_import,
     ensure_import_column,
     list_dataset_imports,
+    month_label_from_key,
     resolve_import,
     restore_original_import_time,
     start_import,
@@ -407,27 +408,128 @@ def _branch_names() -> Dict[str, Dict[str, Any]]:
 
 def _empty_ledger(current: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     return {
-        "latest_day": None, "rows": 0, "branches": [], "accounts": [], "by_currency": [],
-        "total_uzs": 0, "import": current,
+        "latest_day": None,
+        "selected_day": None,
+        "filter_month": None,
+        "rows": 0,
+        "branches": [],
+        "accounts": [],
+        "by_currency": [],
+        "total_uzs": 0,
+        "import": current,
     }
+
+
+def _month_bounds(month: str) -> Tuple[date, date]:
+    m = re.match(r"^(\d{4})-(\d{2})$", (month or "").strip())
+    if not m:
+        raise ValueError("month must be YYYY-MM")
+    y, mo = int(m.group(1)), int(m.group(2))
+    if mo < 1 or mo > 12:
+        raise ValueError("month must be YYYY-MM")
+    start = date(y, mo, 1)
+    if mo == 12:
+        end = date(y, 12, 31)
+    else:
+        end = date(y, mo + 1, 1) - timedelta(days=1)
+    return start, end
+
+
+def _as_date_value(value: Any) -> date:
+    if isinstance(value, date) and not isinstance(value, datetime):
+        return value
+    if isinstance(value, datetime):
+        return value.date()
+    return date.fromisoformat(str(value)[:10])
+
+
+def _distinct_dates(conn, table: str, date_col: str, import_id: int) -> List[date]:
+    rows = conn.execute(
+        f"SELECT DISTINCT {date_col} AS d FROM {table} WHERE import_id = %s ORDER BY d",
+        (import_id,),
+    ).fetchall()
+    return [_as_date_value(r["d"]) for r in rows]
+
+
+def _periods_payload(kind: str, import_id: Optional[int], table: str, date_col: str) -> Dict[str, Any]:
+    current = resolve_import(kind, import_id)
+    if import_id is not None and current is None:
+        raise LookupError("Импорт не найден")
+    if current is None:
+        return {"import": None, "days": [], "months": []}
+    with connect() as conn:
+        days = _distinct_dates(conn, table, date_col, current["id"])
+    months_map: Dict[str, List[str]] = {}
+    for d in days:
+        key = d.strftime("%Y-%m")
+        months_map.setdefault(key, []).append(d.isoformat())
+    months = [
+        {"key": key, "label": month_label_from_key(key), "days": months_map[key], "day_count": len(months_map[key])}
+        for key in sorted(months_map)
+    ]
+    return {"import": current, "days": [d.isoformat() for d in days], "months": months}
+
+
+def ledger_import_periods(import_id: Optional[int] = None) -> Dict[str, Any]:
+    return _periods_payload(KIND_LEDGER, import_id, "branch_ledger", "oper_day")
+
+
+def vash_import_periods(import_id: Optional[int] = None) -> Dict[str, Any]:
+    return _periods_payload(KIND_VASH, import_id, "vash_operations", "op_date")
+
+
+def _pick_ledger_day(
+    conn,
+    import_pk: int,
+    oper_day: Optional[str] = None,
+    month: Optional[str] = None,
+) -> Optional[date]:
+    if oper_day:
+        row = conn.execute(
+            "SELECT oper_day AS d FROM branch_ledger WHERE import_id = %s AND oper_day = %s LIMIT 1",
+            (import_pk, oper_day),
+        ).fetchone()
+        if not row:
+            raise LookupError("Дата не найдена в этом импорте")
+        d = row["d"]
+        return d.date() if isinstance(d, datetime) else d
+    if month:
+        d0, d1 = _month_bounds(month)
+        latest = conn.execute(
+            """
+            SELECT MAX(oper_day) AS d FROM branch_ledger
+            WHERE import_id = %s AND oper_day >= %s AND oper_day <= %s
+            """,
+            (import_pk, d0, d1),
+        ).fetchone()["d"]
+        return latest
+    latest = conn.execute(
+        "SELECT MAX(oper_day) AS d FROM branch_ledger WHERE import_id = %s",
+        (import_pk,),
+    ).fetchone()["d"]
+    return latest
 
 
 def branch_ledger_analytics(
     branch_id: Optional[str] = None,
     limit: int = 500,
     import_id: Optional[int] = None,
+    oper_day: Optional[str] = None,
+    month: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Tanlangan yuklashning oxirgi sanasi. Berilmasa — eng so'nggi import."""
+    """Tanlangan yuklash: butun fayl, bitta oy (oxirgi kun) yoki aniq kun."""
     current = resolve_import(KIND_LEDGER, import_id)
     if import_id is not None and current is None:
         raise LookupError("Импорт не найден")
     if current is None:
         return _empty_ledger(None)
+    if oper_day and month:
+        raise ValueError("Укажите либо month, либо oper_day")
     with connect() as conn:
-        latest = conn.execute(
-            "SELECT MAX(oper_day) AS d FROM branch_ledger WHERE import_id = %s",
-            (current["id"],),
-        ).fetchone()["d"]
+        try:
+            latest = _pick_ledger_day(conn, current["id"], oper_day, month)
+        except LookupError:
+            raise
         if latest is None:
             return _empty_ledger(current)
         params: Dict[str, Any] = {"day": latest, "imp": current["id"], "limit": max(1, min(limit, 2000))}
@@ -486,6 +588,8 @@ def branch_ledger_analytics(
     branches = sorted(by_branch.values(), key=lambda b: -b["uzs"])
     return {
         "latest_day": _iso_date(latest),
+        "selected_day": _iso_date(latest),
+        "filter_month": month if month and not oper_day else None,
         "rows": int(counted["n"] or 0),
         "branch_count": int(counted["branches"] or 0),
         "total_uzs": round(total_uzs, 2),
@@ -505,6 +609,130 @@ def branch_ledger_analytics(
             for r in accounts
         ],
         "import": current,
+    }
+
+
+def ledger_cash_overview(
+    import_id: Optional[int] = None,
+    oper_day: Optional[str] = None,
+    month: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Qoldiqlar tanlangan hisobot kunidan. Limitlar alohida saqlanadi."""
+    from .branch_balance import limits_by_code
+
+    current = resolve_import(KIND_LEDGER, import_id)
+    if import_id is not None and current is None:
+        raise LookupError("Импорт не найден")
+    empty = {
+        "selected_day": None,
+        "import": current,
+        "overall": {
+            "branches": 0, "branches_with_uzs": 0, "balance_uzs": 0, "usd_amount": 0,
+            "limit_uzs": 0, "usage_pct": None, "currencies": [],
+        },
+        "by_region": [],
+        "branches": [],
+    }
+    if current is None:
+        return empty
+    if oper_day and month:
+        raise ValueError("Укажите либо month, либо oper_day")
+    with connect() as conn:
+        day = _pick_ledger_day(conn, current["id"], oper_day, month)
+        if day is None:
+            return empty
+        grouped = conn.execute(
+            """
+            SELECT branch_id, code_currency, SUM(saldo_out) AS saldo, COUNT(*) AS accounts
+            FROM branch_ledger
+            WHERE import_id = %s AND oper_day = %s
+            GROUP BY branch_id, code_currency
+            """,
+            (current["id"], day),
+        ).fetchall()
+    limits = limits_by_code()
+    names = _branch_names()
+    by_branch: Dict[str, Dict[str, Any]] = {}
+    ccy_totals: Dict[str, Dict[str, Any]] = {}
+    for row in grouped:
+        code = str(row["branch_id"])
+        info = names.get(code) or names.get(code.lstrip("0")) or {}
+        limit = limits.get(code) or limits.get(code.lstrip("0")) or {}
+        item = by_branch.get(code)
+        if item is None:
+            item = by_branch[code] = {
+                "local_code": code,
+                "branch_name": info.get("name") or "",
+                "region": info.get("region") or "Не указан",
+                "balance_uzs": 0.0,
+                "usd_amount": 0.0,
+                "limit_uzs": limit.get("limit_uzs"),
+                "limit_usd": limit.get("limit_usd"),
+                "currencies": [],
+            }
+        saldo = float(row["saldo"] or 0)
+        ccy = str(row["code_currency"] or "").strip()
+        if is_uzs(ccy):
+            item["balance_uzs"] += saldo
+        else:
+            meta = CURRENCY_META.get(ccy, {})
+            label = meta.get("code") or ccy or "—"
+            item["currencies"].append({"code": label, "iso": ccy, "amount": round(saldo, 2)})
+            if ccy == "840":
+                item["usd_amount"] += saldo
+            bucket = ccy_totals.setdefault(ccy, {
+                "iso": ccy,
+                "code": label,
+                "name_ru": meta.get("name_ru") or label,
+                "amount": 0.0,
+                "branches_with_amount": 0,
+            })
+            bucket["amount"] += saldo
+            bucket["branches_with_amount"] += 1
+    branches = []
+    for item in by_branch.values():
+        item["balance_uzs"] = round(item["balance_uzs"], 2)
+        item["usd_amount"] = round(item["usd_amount"], 2)
+        lim_usd = item.get("limit_usd")
+        item["usd_below_minimum"] = (
+            lim_usd is not None and float(lim_usd) > 0 and item["usd_amount"] < float(lim_usd)
+        )
+        branches.append(item)
+    branches.sort(key=lambda b: -b["balance_uzs"])
+    total_uzs = round(sum(b["balance_uzs"] for b in branches), 2)
+    total_usd = round(sum(b["usd_amount"] for b in branches), 2)
+    limit_vals = [b["limit_uzs"] for b in branches if b.get("limit_uzs") is not None]
+    limit_sum = round(sum(float(v) for v in limit_vals), 2) if limit_vals else None
+    usage = round(total_uzs / limit_sum * 100, 1) if limit_sum else None
+    by_region_map: Dict[str, List[Dict[str, Any]]] = {}
+    for b in branches:
+        by_region_map.setdefault(b["region"], []).append(b)
+    by_region = []
+    for region, rows in sorted(by_region_map.items(), key=lambda x: -sum(i["balance_uzs"] for i in x[1])):
+        by_region.append({
+            "region": region,
+            "branches": len(rows),
+            "balance_uzs": round(sum(i["balance_uzs"] for i in rows), 2),
+            "usd_amount": round(sum(i["usd_amount"] for i in rows), 2),
+            "limit_uzs": round(sum(float(i["limit_uzs"]) for i in rows if i.get("limit_uzs") is not None), 2),
+        })
+    currencies = sorted(ccy_totals.values(), key=lambda c: -abs(c["amount"]))
+    for c in currencies:
+        c["amount"] = round(c["amount"], 2)
+    return {
+        "selected_day": _iso_date(day),
+        "import": current,
+        "overall": {
+            "branches": len(branches),
+            "branches_with_uzs": sum(1 for b in branches if b["balance_uzs"]),
+            "balance_uzs": total_uzs,
+            "usd_amount": total_usd,
+            "limit_uzs": limit_sum,
+            "usage_pct": usage,
+            "currencies": currencies,
+        },
+        "by_region": by_region,
+        "branches": branches,
     }
 
 
@@ -609,26 +837,72 @@ def _punkt_key(value: Any) -> str:
     return s.lstrip("0")
 
 
-def vash_operations_analytics(import_id: Optional[int] = None) -> Dict[str, Any]:
-    """Tanlangan yuklashdagi operatsiyalar. Berilmasa — eng so'nggi import."""
+def _vash_date_filter(
+    oper_day: Optional[str],
+    month: Optional[str],
+    date_from: Optional[str],
+    date_to: Optional[str],
+) -> Tuple[str, List[Any]]:
+    """SQL qo'shimchasi va parametrlar (op_date ustuni)."""
+    if oper_day and (month or date_from or date_to):
+        raise ValueError("oper_day cannot be combined with month or date range")
+    if month and (date_from or date_to):
+        raise ValueError("month cannot be combined with date_from/date_to")
+    if oper_day:
+        return " AND op_date = %s", [oper_day]
+    if month:
+        d0, d1 = _month_bounds(month)
+        return " AND op_date >= %s AND op_date <= %s", [d0, d1]
+    extra: List[Any] = []
+    parts: List[str] = []
+    if date_from:
+        parts.append("op_date >= %s")
+        extra.append(date_from)
+    if date_to:
+        parts.append("op_date <= %s")
+        extra.append(date_to)
+    if not parts:
+        return "", []
+    return " AND " + " AND ".join(parts), extra
+
+
+def vash_operations_analytics(
+    import_id: Optional[int] = None,
+    oper_day: Optional[str] = None,
+    month: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Tanlangan yuklashdagi operatsiyalar; ixtiyoriy oy/kun bo'yicha filtr."""
     current = resolve_import(KIND_VASH, import_id)
     if import_id is not None and current is None:
         raise LookupError("Импорт не найден")
-    empty = {"operations": 0, "points": [], "from": None, "to": None, "high": 0, "low": 0, "import": current}
+    empty = {
+        "operations": 0,
+        "points": [],
+        "from": None,
+        "to": None,
+        "high": 0,
+        "low": 0,
+        "filter_month": month if month and not oper_day else None,
+        "filter_day": oper_day,
+        "import": current,
+    }
     if current is None:
         return empty
+    date_sql, date_params = _vash_date_filter(oper_day, month, date_from, date_to)
     with connect() as conn:
         span = conn.execute(
-            """
+            f"""
             SELECT COUNT(*) AS n, COUNT(DISTINCT obmen_punkt) AS points, MIN(op_date) AS d0, MAX(op_date) AS d1
-            FROM vash_operations WHERE import_id = %s
+            FROM vash_operations WHERE import_id = %s{date_sql}
             """,
-            (current["id"],),
+            (current["id"], *date_params),
         ).fetchone()
         if not span["n"]:
             return empty
         grouped = conn.execute(
-            """
+            f"""
             SELECT obmen_punkt,
                    MAX(branch) AS branch,
                    COUNT(*) AS ops,
@@ -637,11 +911,11 @@ def vash_operations_analytics(import_id: Optional[int] = None) -> Dict[str, Any]
                    MIN(op_date) AS first_date,
                    MAX(op_date) AS last_date
             FROM vash_operations
-            WHERE import_id = %s
+            WHERE import_id = %s{date_sql}
             GROUP BY obmen_punkt
             ORDER BY ops DESC, obmen_punkt
             """,
-            (current["id"],),
+            (current["id"], *date_params),
         ).fetchall()
         from .dataset_imports import KIND_VASH_ZONES, adopt_unassigned
         adopt_unassigned(conn, KIND_VASH_ZONES, "vash_zones")
@@ -734,5 +1008,7 @@ def vash_operations_analytics(import_id: Optional[int] = None) -> Dict[str, Any]
         "mid": len(points) - none - high - low,
         "none": none,
         "points": points,
+        "filter_month": month if month and not oper_day else None,
+        "filter_day": oper_day,
         "import": current,
     }

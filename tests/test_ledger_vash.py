@@ -24,6 +24,49 @@ def _xlsx(path: Path, headers, rows):
     wb.save(path)
 
 
+def test_ledger_filter_by_month_in_one_import(pg_db, tmp_path):
+    path = tmp_path / "ledger-span.xlsx"
+    _xlsx(path, ["oper_day", "coa_code", "code", "code_currency", "acc_id", "branch_id", "saldo_out"], [
+        [date(2026, 9, 28), "10101", "20208000", "000", "A1", "10463", 111],
+        [date(2026, 10, 1), "10101", "20208000", "000", "A1", "10463", 200],
+        [date(2026, 10, 19), "10101", "20208000", "000", "A1", "10463", 500],
+    ])
+    replace_branch_ledger(parse_branch_ledger_xlsx(path)["records"], "span.xlsx")
+    sept = branch_ledger_analytics(month="2026-09")
+    assert sept["selected_day"] == "2026-09-28"
+    assert sept["total_uzs"] == 111
+    assert sept["filter_month"] == "2026-09"
+    october = branch_ledger_analytics(month="2026-10")
+    assert october["selected_day"] == "2026-10-19"
+    assert october["total_uzs"] == 500
+    one_day = branch_ledger_analytics(oper_day="2026-10-01")
+    assert one_day["selected_day"] == "2026-10-01"
+    assert one_day["total_uzs"] == 200
+    assert one_day["filter_month"] is None
+    periods = __import__("api.core.ledger_vash", fromlist=["ledger_import_periods"]).ledger_import_periods()
+    assert [m["key"] for m in periods["months"]] == ["2026-09", "2026-10"]
+
+
+def test_vash_filter_by_month_in_one_import(pg_db, tmp_path):
+    path = tmp_path / "vash-span.xlsx"
+    _xlsx(path, ["ci_acc", "co_acc", "obmen_punkt", "branch", "date"], [
+        ["CI", "CO", "12", "10463", date(2026, 9, 2)],
+        ["CI", "CO", "12", "10463", date(2026, 9, 14)],
+        ["CI", "CO", "99", "11000", date(2026, 10, 1)],
+    ])
+    replace_vash_operations(parse_vash_operations_xlsx(path)["records"], "span.xlsx")
+    sept = vash_operations_analytics(month="2026-09")
+    assert sept["operations"] == 2
+    assert sept["filter_month"] == "2026-09"
+    assert sept["from"] == "2026-09-02" and sept["to"] == "2026-09-14"
+    october = vash_operations_analytics(month="2026-10")
+    assert october["operations"] == 1
+    assert next(p for p in october["points"] if p["obmen_punkt"] == "99")["ops"] == 1
+    one_day = vash_operations_analytics(oper_day="2026-09-02")
+    assert one_day["operations"] == 1
+    assert one_day["filter_day"] == "2026-09-02"
+
+
 def test_ledger_latest_day_keeps_limits(pg_db, tmp_path):
     path = tmp_path / "ledger.xlsx"
     _xlsx(path, ["oper_day", "coa_code", "code", "code_currency", "acc_id", "branch_id", "saldo_out"], [

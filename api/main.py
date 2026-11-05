@@ -107,14 +107,16 @@ from core.db import (
 from core.importer import parse_branches_xlsx, parse_xlsx
 from core.branch_balance import (
     balances_by_local_code_map,
-    branch_cash_analytics,
     clear_branch_balances,
     get_all_branch_forecasts,
     get_branch_balance_by_local_code,
     get_branch_balance_history,
     list_branch_balances,
+    list_editable_limits,
+    migrate_balance_import_to_limits,
     parse_branch_balances_xlsx,
     replace_branch_balances,
+    save_cash_limit,
 )
 from core.dataset_imports import KIND_BALANCES, delete_dataset_import, list_dataset_imports
 from core.cash_equipment import (
@@ -132,13 +134,16 @@ from core.ledger_vash import (
     clear_vash_operations,
     delete_branch_ledger_import,
     delete_vash_operation_import,
+    ledger_import_periods,
     list_branch_ledger_imports,
     list_vash_operation_imports,
     parse_branch_ledger_xlsx,
     parse_vash_operations_xlsx,
     replace_branch_ledger,
     replace_vash_operations,
+    vash_import_periods,
     vash_operations_analytics,
+    ledger_cash_overview,
 )
 from core.vash import (
     clear_vash_zones,
@@ -207,6 +212,12 @@ async def lifespan(app: FastAPI):
     log.info("Инициализация БД Bank Intelligence Platform (PostgreSQL)...")
     try:
         init_db()
+        migrated = migrate_balance_import_to_limits()
+        if migrated["copied"] or migrated["deleted_balance_rows"]:
+            log.info(
+                "Лимиты кассы сохранены: %s. Старый импорт остатков удалён: %s строк.",
+                migrated["copied"], migrated["deleted_balance_rows"],
+            )
     except DatabaseUnavailableError as e:
         # Показываем понятную инструкцию вместо сырого traceback драйвера БД
         # и глушим вывод стектрейса Starlette — он здесь ничего не добавляет.
@@ -790,9 +801,41 @@ async def get_all_branch_balances():
     return {"balances": rows, "count": len(rows)}
 
 
-@app.get("/api/branch-balances/analytics", summary="Сводка кассы: всего и по регионам")
-async def get_branch_cash_analytics():
-    return branch_cash_analytics()
+@app.get("/api/branch-cash/limits", summary="Лимиты кассы филиалов (сўм и доллар)")
+async def get_cash_limits():
+    return {"limits": list_editable_limits()}
+
+
+@app.put("/api/branch-cash/limits/{local_code}", summary="Изменить лимит филиала")
+async def update_cash_limit(local_code: str, body: Dict[str, Any] = Body(...)):
+    def _num(key: str):
+        if key not in body or body[key] is None or body[key] == "":
+            return None
+        try:
+            return float(body[key])
+        except (TypeError, ValueError):
+            raise HTTPException(400, f"{key} должно быть числом")
+    try:
+        saved = save_cash_limit(local_code, _num("limit_uzs"), _num("limit_usd"))
+    except LookupError:
+        raise HTTPException(404, "Филиал не найден")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True, **saved}
+
+
+@app.get("/api/branch-balances/analytics", summary="Сводка кассы из отчёта счетов и сохранённых лимитов")
+async def get_branch_cash_analytics(
+    import_id: Optional[int] = Query(None, description="ID загрузки отчёта (пусто — последняя)"),
+    month: Optional[str] = Query(None, description="YYYY-MM"),
+    oper_day: Optional[str] = Query(None, description="YYYY-MM-DD"),
+):
+    try:
+        return ledger_cash_overview(import_id, oper_day, month)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e) or "Импорт не найден.")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @app.get("/api/branch-balances/history", summary="История остатков по филиалам (снимок на каждый импорт Excel)")
@@ -912,14 +955,38 @@ async def remove_branch_ledger_import(import_id: int):
     return {"ok": True}
 
 
-@app.get("/api/branch-ledger/analytics", summary="Остатки счетов филиалов на последнюю дату выбранной загрузки")
+@app.get("/api/branch-ledger/periods", summary="Дни и месяцы внутри выбранной загрузки отчёта")
+async def get_branch_ledger_periods(
+    import_id: Optional[int] = Query(None, description="ID загрузки (пусто — последняя)"),
+):
+    try:
+        return ledger_import_periods(import_id)
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Импорт не найден.")
+
+
+@app.get("/api/branch-ledger/analytics", summary="Остатки счетов филиалов на выбранную дату/месяц")
 async def get_branch_ledger_analytics(
     branch_id: Optional[str] = Query(None),
     limit: int = Query(500, ge=1, le=2000),
     import_id: Optional[int] = Query(None, description="ID загрузки (пусто — последняя)"),
+    month: Optional[str] = Query(None, description="YYYY-MM — последний день месяца в этом импорте"),
+    oper_day: Optional[str] = Query(None, description="YYYY-MM-DD — конкретный oper_day"),
 ):
     try:
-        return branch_ledger_analytics(branch_id, limit, import_id)
+        return branch_ledger_analytics(branch_id, limit, import_id, oper_day, month)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e) or "Импорт не найден.")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/vash/operations/periods", summary="Дни и месяцы внутри выбранной загрузки ВАШ")
+async def get_vash_operation_periods(
+    import_id: Optional[int] = Query(None, description="ID загрузки (пусто — последняя)"),
+):
+    try:
+        return vash_import_periods(import_id)
     except LookupError:
         raise HTTPException(status_code=404, detail="Импорт не найден.")
 
@@ -971,11 +1038,17 @@ async def remove_vash_operation_import(import_id: int):
 @app.get("/api/vash/operations/analytics", summary="Где операций ВАШ много и где мало")
 async def get_vash_operations_analytics(
     import_id: Optional[int] = Query(None, description="ID загрузки (пусто — последняя)"),
+    month: Optional[str] = Query(None, description="YYYY-MM — только операции этого месяца"),
+    oper_day: Optional[str] = Query(None, description="YYYY-MM-DD — один день"),
+    date_from: Optional[str] = Query(None, description="YYYY-MM-DD — с даты"),
+    date_to: Optional[str] = Query(None, description="YYYY-MM-DD — по дату"),
 ):
     try:
-        return vash_operations_analytics(import_id)
-    except LookupError:
-        raise HTTPException(status_code=404, detail="Импорт не найден.")
+        return vash_operations_analytics(import_id, oper_day, month, date_from, date_to)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e) or "Импорт не найден.")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @app.post("/api/vash/operations/import", summary="Импорт операций ВАШ: ci_acc, co_acc, obmen_punkt, branch, date")

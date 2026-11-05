@@ -520,6 +520,13 @@ def list_branch_balances() -> List[Dict[str, Any]]:
 
 
 def get_branch_balance_by_local_code(local_code: str) -> Optional[Dict[str, Any]]:
+    """Limit yozuvi. Pul qoldig'i keyin hisobotdan yoziladi."""
+    code = str(local_code or "").strip()
+    if not code:
+        return None
+    limits = limits_by_code()
+    if code in limits:
+        return dict(limits[code])
     ensure_schema()
     with connect() as conn:
         import_id = _current_balance_import_id(conn)
@@ -533,19 +540,154 @@ def get_branch_balance_by_local_code(local_code: str) -> Optional[Dict[str, Any]
              ORDER BY CASE WHEN matched_local_code = %(code)s THEN 0 ELSE 1 END, id DESC
              LIMIT 1
             """,
-            {"code": local_code, "imp": import_id},
+            {"code": code, "imp": import_id},
         ).fetchone()
     return _enrich_balance_row(row, latest_rates().get("by_iso") or {}) if row else None
 
 
-def balances_by_local_code_map() -> Dict[str, Dict[str, Any]]:
-    """Xarita uchun: local_code → balance. Faqat BXM bo'yicha bog'langan yozuvlar."""
+def ensure_cash_limits_table(conn) -> None:
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS branch_cash_limits (
+            local_code TEXT PRIMARY KEY,
+            limit_uzs  DOUBLE PRECISION,
+            limit_usd  DOUBLE PRECISION,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+    """)
+
+
+def limits_by_code() -> Dict[str, Dict[str, Any]]:
+    """Saqlangan limitlar. Qoldiq emas — faqat so'm va dollar limiti."""
+    ensure_schema()
+    with connect() as conn:
+        ensure_cash_limits_table(conn)
+        rows = conn.execute(
+            "SELECT local_code, limit_uzs, limit_usd FROM branch_cash_limits"
+        ).fetchall()
     out: Dict[str, Dict[str, Any]] = {}
-    for b in list_branch_balances():
-        key = b.get("matched_local_code")
-        if key:
-            out[str(key)] = b
+    for r in rows:
+        code = str(r["local_code"]).strip()
+        item = {
+            "matched_local_code": code,
+            "local_code": code,
+            "limit_uzs": r["limit_uzs"],
+            "limit_usd": r["limit_usd"],
+            "balance_uzs": None,
+            "currencies": [],
+        }
+        out[code] = item
+        out.setdefault(code.lstrip("0"), item)
     return out
+
+
+def list_editable_limits() -> List[Dict[str, Any]]:
+    """Har bir filial va uning limiti. Limit yo'q bo'lsa ham qator chiqadi."""
+    ensure_schema()
+    with connect() as conn:
+        ensure_cash_limits_table(conn)
+        rows = conn.execute(
+            """
+            SELECT b.local_code, b.region, b.address, l.limit_uzs, l.limit_usd, l.updated_at
+            FROM branches b
+            LEFT JOIN branch_cash_limits l ON l.local_code = b.local_code
+            WHERE b.local_code IS NOT NULL AND btrim(b.local_code) <> ''
+            ORDER BY b.local_code
+            """
+        ).fetchall()
+    result = []
+    for r in rows:
+        name = str(r["address"] or "").split(".", 1)[0].strip()
+        updated = r["updated_at"]
+        result.append({
+            "local_code": str(r["local_code"]).strip(),
+            "name": name,
+            "region": r["region"],
+            "limit_uzs": r["limit_uzs"],
+            "limit_usd": r["limit_usd"],
+            "updated_at": updated.isoformat() if hasattr(updated, "isoformat") else updated,
+        })
+    return result
+
+
+def save_cash_limit(local_code: str, limit_uzs: Optional[float], limit_usd: Optional[float]) -> Dict[str, Any]:
+    code = str(local_code or "").strip()
+    if not code:
+        raise ValueError("Код филиала пустой")
+    ensure_schema()
+    with connect() as conn:
+        ensure_cash_limits_table(conn)
+        known = conn.execute(
+            "SELECT local_code FROM branches WHERE local_code = %s",
+            (code,),
+        ).fetchone()
+        if not known:
+            raise LookupError("Филиал не найден")
+        row = conn.execute(
+            """
+            INSERT INTO branch_cash_limits (local_code, limit_uzs, limit_usd, updated_at)
+            VALUES (%s, %s, %s, now())
+            ON CONFLICT (local_code) DO UPDATE SET
+                limit_uzs = EXCLUDED.limit_uzs,
+                limit_usd = EXCLUDED.limit_usd,
+                updated_at = now()
+            RETURNING local_code, limit_uzs, limit_usd, updated_at
+            """,
+            (code, limit_uzs, limit_usd),
+        ).fetchone()
+    updated = row["updated_at"]
+    return {
+        "local_code": row["local_code"],
+        "limit_uzs": row["limit_uzs"],
+        "limit_usd": row["limit_usd"],
+        "updated_at": updated.isoformat() if hasattr(updated, "isoformat") else updated,
+    }
+
+
+def migrate_balance_import_to_limits() -> Dict[str, int]:
+    """Eski qoldiq faylidan faqat limitlarni ko'chiradi va o'sha importni o'chiradi."""
+    from .dataset_imports import KIND_BALANCES
+
+    ensure_schema()
+    with connect() as conn:
+        ensure_cash_limits_table(conn)
+        existing = int(conn.execute("SELECT COUNT(*) AS n FROM branch_cash_limits").fetchone()["n"])
+        copied = 0
+        deleted = 0
+        if existing == 0:
+            rows = conn.execute(
+                """
+                SELECT COALESCE(NULLIF(btrim(matched_local_code), ''), NULLIF(btrim(bxm_code), '')) AS code,
+                       limit_uzs, limit_usd
+                FROM branch_balances
+                """
+            ).fetchall()
+            seen = set()
+            for r in rows:
+                code = str(r["code"] or "").strip()
+                if not code or code in seen:
+                    continue
+                if r["limit_uzs"] is None and r["limit_usd"] is None:
+                    continue
+                seen.add(code)
+                conn.execute(
+                    """
+                    INSERT INTO branch_cash_limits (local_code, limit_uzs, limit_usd)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (local_code) DO NOTHING
+                    """,
+                    (code, r["limit_uzs"], r["limit_usd"]),
+                )
+                copied += 1
+            deleted = int(conn.execute("SELECT COUNT(*) AS n FROM branch_balances").fetchone()["n"])
+            conn.execute("DELETE FROM dataset_imports WHERE kind = %s", (KIND_BALANCES,))
+            conn.execute("DELETE FROM branch_balances")
+            conn.execute("DELETE FROM branch_balance_history")
+    return {"copied": copied, "deleted_balance_rows": deleted}
+
+
+def balances_by_local_code_map() -> Dict[str, Dict[str, Any]]:
+    """Xarita: qoldiq hisobotdan keladi, bu yerda faqat saqlangan limitlar."""
+    return limits_by_code()
 
 
 def _sum_optional(values: List[Optional[float]]) -> Optional[float]:

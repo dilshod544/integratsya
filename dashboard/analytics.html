@@ -282,6 +282,24 @@
     .hbar .fill { height: 100%; border-radius: 0 4px 4px 0; background: var(--primary); }
     .hbar .val { font-weight: 850; font-variant-numeric: tabular-nums; }
     .hbar .lbl { color: var(--text); font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cash-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }
+    .cash-kpi {
+      background: rgba(255,255,255,.94); border: 1px solid var(--border); border-radius: 18px;
+      padding: 14px 16px; box-shadow: var(--shadow-sm); min-height: 108px;
+    }
+    .cash-kpi.lead { border-color: #99f6e4; background: linear-gradient(180deg, #f0fdfa, #fff); }
+    .cash-kpi .l { font-size: 10px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+    .cash-kpi .v { margin-top: 8px; font-size: clamp(16px, 1.5vw, 22px); font-weight: 850; letter-spacing: -.03em; line-height: 1.2; word-break: break-word; }
+    .cash-kpi .h { margin-top: 6px; font-size: 11px; color: var(--muted); line-height: 1.4; }
+    .ccy-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+    .ccy-card { background: #f8fafc; border: 1px solid var(--border); border-top-width: 3px; border-radius: 14px; padding: 12px 14px; min-height: 96px; }
+    .ccy-card .code { font-size: 12px; font-weight: 850; letter-spacing: .04em; }
+    .ccy-card .name { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .ccy-card .amt { font-size: 16px; font-weight: 850; margin-top: 8px; }
+    .ccy-card .cnt { font-size: 10px; color: var(--muted); margin-top: 4px; }
+    .ccy-chip { display: inline-block; font-size: 10px; font-weight: 750; color: #334155; background: #f1f5f9; border-radius: 6px; padding: 2px 6px; margin: 1px; white-space: nowrap; }
+    @media (max-width: 980px) { .cash-kpis { grid-template-columns: 1fr 1fr; } .ccy-grid { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 560px) { .cash-kpis, .ccy-grid { grid-template-columns: 1fr; } }
 
     /* столбчатая диаграмма по дням */
     .chart { position: relative; padding: 14px 16px 10px; }
@@ -483,15 +501,27 @@
 
     <!-- ── Снятия по дням ── -->
     <section id="tab-kassa" class="tab-panel">
-      <div class="toolbar" style="margin-top:16px">
-        <span class="stat-label">Загруженный импорт</span>
-        <select id="kassa-import" onchange="loadLedger()"></select>
-        <a class="btn" href="/dashboard/import-branch-balances.html">Список импортов</a>
+      <div id="cash-overview"></div>
+      <div class="panel" style="margin-top:16px">
+        <div class="panel-head">
+          <i data-lucide="file-spreadsheet" class="icon-inline"></i>
+          <h2>Счета на выбранную дату</h2>
+          <span class="spacer"></span>
+          <a class="btn" href="/dashboard/import-branch-balances.html">Список импортов</a>
+        </div>
+        <div class="toolbar">
+          <span class="stat-label">Импорт</span>
+          <select id="kassa-import" onchange="onKassaImportChange()"></select>
+          <span class="stat-label">Месяц</span>
+          <select id="kassa-month" onchange="onKassaMonthChange()"></select>
+          <span class="stat-label">День</span>
+          <select id="kassa-day" onchange="loadLedger(false)"></select>
+        </div>
       </div>
       <div class="stats-bar" id="kassa-kpis"></div>
       <div class="grid-2">
         <div class="panel">
-          <div class="panel-head"><i data-lucide="building-2" class="icon-inline"></i><h2>Филиалы на последнюю дату</h2><span class="spacer"></span></div>
+          <div class="panel-head"><i data-lucide="building-2" class="icon-inline"></i><h2>Филиалы по счетам отчёта</h2><span class="spacer"></span></div>
           <div class="table-wrap" style="max-height:520px;overflow:auto">
             <table class="data">
               <thead><tr><th>Филиал</th><th class="num">Счета</th><th class="num">UZS</th><th>Валюты</th></tr></thead>
@@ -523,7 +553,11 @@
     <section id="tab-vash" class="tab-panel">
       <div class="toolbar" style="margin-top:16px">
         <span class="stat-label">Загруженный импорт</span>
-        <select id="vash-import" onchange="loadVashOps()"></select>
+        <select id="vash-import" onchange="onVashImportChange()"></select>
+        <span class="stat-label">Месяц</span>
+        <select id="vash-month" onchange="onVashMonthChange()"></select>
+        <span class="stat-label">День</span>
+        <select id="vash-day" onchange="loadVashOps(false)"></select>
         <a class="btn" href="/dashboard/import-branch-balances.html">Список импортов</a>
       </div>
       <div class="stats-bar" id="vash-kpis"></div>
@@ -1490,28 +1524,182 @@
       document.querySelectorAll('#kassa-branches tr').forEach(tr => tr.classList.toggle('selected', tr.dataset.code === ledgerBranch));
       renderLedgerRows();
     }
+    function importOptionLabel(m) {
+      const bits = [m.label];
+      if (m.period_label) bits.push(m.period_label);
+      else if (m.date_from) bits.push(m.date_from === m.date_to ? m.date_from : `${m.date_from} — ${m.date_to}`);
+      if (m.filename) bits.push(m.filename);
+      return bits.join(' · ');
+    }
+    let kassaPeriods = null;
+    let vashPeriods = null;
+    function appendPeriodParams(params, prefix) {
+      const day = (document.getElementById(prefix + '-day') || {}).value || '';
+      const month = (document.getElementById(prefix + '-month') || {}).value || '';
+      if (day) params.set('oper_day', day);
+      else if (month) params.set('month', month);
+    }
     async function fillImportSelect(selectId, url) {
       const sel = document.getElementById(selectId);
       if (!sel) return '';
       const chosen = sel.value;
       let imports = [];
       try { imports = (await getJson(url)).imports || []; } catch (_) { imports = []; }
-      sel.innerHTML = imports.map(m => `<option value="${m.id}">${esc(m.label)}${m.filename ? ' · ' + esc(m.filename) : ''}${m.date_from ? ' · ' + esc(m.date_from === m.date_to ? m.date_from : m.date_from + ' — ' + m.date_to) : ''}</option>`).join('');
+      sel.innerHTML = imports.map(m => `<option value="${m.id}">${esc(importOptionLabel(m))}</option>`).join('');
       if (chosen && [...sel.options].some(o => o.value === chosen)) sel.value = chosen;
       else if (sel.options.length) sel.value = sel.options[sel.options.length - 1].value;
       return sel.value;
     }
-    async function loadLedger() {
-      const importId = await fillImportSelect('kassa-import', '/api/branch-ledger/imports');
+    async function fillPeriodSelects(prefix, url, importId, dataCache) {
+      const monthEl = document.getElementById(prefix + '-month');
+      const dayEl = document.getElementById(prefix + '-day');
+      if (!monthEl || !dayEl) return;
+      const prevMonth = monthEl.value;
+      const prevDay = dayEl.value;
+      let data = { months: [], days: [] };
       try {
-        ledgerData = await getJson('/api/branch-ledger/analytics?limit=2000' + (importId ? '&import_id=' + encodeURIComponent(importId) : ''));
+        data = await getJson(url + (importId ? '?import_id=' + encodeURIComponent(importId) : ''));
+      } catch (_) { data = { months: [], days: [] }; }
+      if (prefix === 'kassa') kassaPeriods = data;
+      else vashPeriods = data;
+      const monthAll = prefix === 'kassa' ? 'Последний день файла' : 'Весь импорт';
+      monthEl.innerHTML = `<option value="">${monthAll}</option>` + (data.months || []).map(m =>
+        `<option value="${esc(m.key)}">${esc(m.label)} · ${m.day_count} дн.</option>`).join('');
+      if (prevMonth && [...monthEl.options].some(o => o.value === prevMonth)) monthEl.value = prevMonth;
+      else if ((data.months || []).length === 1) monthEl.value = data.months[0].key;
+      syncPeriodDaySelect(prefix, prevDay);
+    }
+    function syncPeriodDaySelect(prefix, keepDay) {
+      const monthEl = document.getElementById(prefix + '-month');
+      const dayEl = document.getElementById(prefix + '-day');
+      const data = prefix === 'kassa' ? kassaPeriods : vashPeriods;
+      if (!monthEl || !dayEl || !data) return;
+      const monthKey = monthEl.value;
+      let days = data.days || [];
+      let dayHint = prefix === 'kassa' ? 'Последний день файла' : 'Все дни импорта';
+      if (monthKey) {
+        const block = (data.months || []).find(m => m.key === monthKey);
+        days = block ? block.days : [];
+        dayHint = prefix === 'kassa' ? 'Последний день месяца' : 'Все дни месяца';
+      }
+      dayEl.innerHTML = `<option value="">${dayHint}</option>` + days.map(d => `<option value="${esc(d)}">${esc(d)}</option>`).join('');
+      if (keepDay && [...dayEl.options].some(o => o.value === keepDay)) dayEl.value = keepDay;
+      else dayEl.value = '';
+    }
+    function onKassaImportChange() { loadLedger(true); }
+    function onKassaMonthChange() { syncPeriodDaySelect('kassa'); loadLedger(false); }
+    function onVashImportChange() { loadVashOps(true); }
+    function onVashMonthChange() { syncPeriodDaySelect('vash'); loadVashOps(false); }
+    let cashDesk = null;
+    const CCY_COLORS = ['#0d9488', '#2563eb', '#7c3aed', '#ea580c', '#db2777', '#0891b2', '#65a30d', '#ca8a04', '#dc2626'];
+    function exactMoney(v, digits = 0) {
+      if (v === null || v === undefined || v === '') return '—';
+      const n = Number(v);
+      if (Number.isNaN(n)) return '—';
+      return n.toLocaleString('ru-RU', { maximumFractionDigits: digits, minimumFractionDigits: digits });
+    }
+    async function loadCashDesk() {
+      const box = document.getElementById('cash-overview');
+      if (!box) return;
+      const params = new URLSearchParams();
+      const importId = (document.getElementById('kassa-import') || {}).value || '';
+      if (importId) params.set('import_id', importId);
+      appendPeriodParams(params, 'kassa');
+      try {
+        cashDesk = await getJson('/api/branch-balances/analytics?' + params.toString());
+      } catch (e) {
+        box.innerHTML = `<div class="panel" style="margin-top:16px"><div class="empty">${esc(e.message)}</div></div>`;
+        return;
+      }
+      renderCashDesk();
+      icons();
+    }
+    function renderCashDesk() {
+      const box = document.getElementById('cash-overview');
+      if (!box || !cashDesk) return;
+      const o = cashDesk.overall || {};
+      const day = cashDesk.selected_day || '—';
+      const ccy = o.currencies || [];
+      const regions = (cashDesk.by_region || []).filter(r => (r.balance_uzs || 0) !== 0).slice(0, 8);
+      const regionMax = Math.max(1, ...regions.map(r => Math.abs(r.balance_uzs || 0)));
+      box.innerHTML = `
+        <div class="cash-kpis">
+          <div class="cash-kpi lead">
+            <div class="l">Всего сўм</div>
+            <div class="v" style="color:#0d9488">${exactMoney(o.balance_uzs)}</div>
+            <div class="h">${o.branches || 0} филиалов · срез ${esc(day)}</div>
+          </div>
+          <div class="cash-kpi">
+            <div class="l">Всего USD</div>
+            <div class="v" style="color:#9a3412">${exactMoney(o.usd_amount, 2)}</div>
+            <div class="h">Доллары на ${esc(day)}</div>
+          </div>
+          <div class="cash-kpi">
+            <div class="l">Лимит сўм</div>
+            <div class="v" style="color:#1e3a8a">${exactMoney(o.limit_uzs)}</div>
+            <div class="h">Сохранённый лимит этих филиалов</div>
+          </div>
+          <div class="cash-kpi">
+            <div class="l">Занято лимита</div>
+            <div class="v" style="color:#14532d">${o.usage_pct == null ? '—' : exactMoney(o.usage_pct, 1) + '%'}</div>
+            <div class="h">Сўм отчёта / лимит сўм</div>
+          </div>
+        </div>
+        <div class="panel" style="margin-top:16px">
+          <div class="panel-head"><i data-lucide="coins" class="icon-inline"></i><h2>Остатки по валютам</h2><span class="spacer"></span><span class="sub">${esc(day)}</span></div>
+          <div class="panel-body">
+            <div class="ccy-grid">${ccy.length ? ccy.map((c, i) => `
+              <div class="ccy-card" style="border-top-color:${CCY_COLORS[i % CCY_COLORS.length]}">
+                <div class="code" style="color:${CCY_COLORS[i % CCY_COLORS.length]}">${esc(c.code)}</div>
+                <div class="name">${esc(c.name_ru || c.code)}</div>
+                <div class="amt">${exactMoney(c.amount, 2)}</div>
+              </div>`).join('') : '<div class="empty">Валютных остатков нет</div>'}</div>
+          </div>
+        </div>
+        <div class="grid-2">
+          <div class="panel">
+            <div class="panel-head"><i data-lucide="map" class="icon-inline"></i><h2>Сўм по регионам</h2></div>
+            <div class="panel-body">${regions.map(r => `
+              <div class="hbar">
+                <div class="lbl" title="${esc(r.region)}">${esc(r.region || '—')}</div>
+                <div class="track"><div class="fill" style="width:${Math.min(100, Math.abs(r.balance_uzs || 0) / regionMax * 100)}%;background:#0d9488"></div></div>
+                <div class="val">${exactMoney(r.balance_uzs)}</div>
+              </div>`).join('') || '<div class="empty">Нет данных</div>'}</div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><i data-lucide="building-2" class="icon-inline"></i><h2>Филиалы с остатками</h2><span class="spacer"></span><span class="sub">${(cashDesk.branches || []).length}</span></div>
+            <div class="table-wrap" style="max-height:320px;overflow:auto">
+              <table class="data">
+                <thead><tr><th>БХМ</th><th class="num">Сўм</th><th class="num">USD</th><th class="num">Лимит сўм</th></tr></thead>
+                <tbody>${(cashDesk.branches || []).map(b => `
+                  <tr>
+                    <td><div class="strong">${esc(b.local_code || '—')}</div><div class="sub">${esc(b.branch_name || '')}${b.region ? ' · ' + esc(b.region) : ''}</div></td>
+                    <td class="num strong">${exactMoney(b.balance_uzs)}</td>
+                    <td class="num">${exactMoney(b.usd_amount, 2)}</td>
+                    <td class="num">${exactMoney(b.limit_uzs)}</td>
+                  </tr>`).join('') || '<tr><td colspan="4" class="empty">Нет остатков — загрузите отчёт по счетам</td></tr>'}</tbody>
+              </table>
+            </div>
+          </div>
+        </div>`;
+    }
+
+    async function loadLedger(refreshPeriods) {
+      const importId = await fillImportSelect('kassa-import', '/api/branch-ledger/imports');
+      if (refreshPeriods !== false) await fillPeriodSelects('kassa', '/api/branch-ledger/periods', importId);
+      try {
+        const ledgerParams = new URLSearchParams({ limit: '2000' });
+        if (importId) ledgerParams.set('import_id', importId);
+        appendPeriodParams(ledgerParams, 'kassa');
+        ledgerData = await getJson('/api/branch-ledger/analytics?' + ledgerParams.toString());
       } catch (e) {
         document.getElementById('kassa-branches').innerHTML = `<tr><td colspan="4" class="empty">${esc(e.message)}</td></tr>`;
         return;
       }
       const d = ledgerData;
+      const dayOnly = (document.getElementById('kassa-day') || {}).value || '';
       document.getElementById('kassa-kpis').innerHTML = d.latest_day ? [
-        { label: 'Дата отчёта', value: d.latest_day, icon: 'calendar-days' },
+        { label: d.filter_month && !dayOnly ? 'Срез на конец месяца' : 'Дата отчёта', value: d.selected_day || d.latest_day, icon: 'calendar-days', hint: d.filter_month && !dayOnly ? esc(d.filter_month) : '' },
         { label: 'Филиалов', value: num(d.branch_count), icon: 'building-2' },
         { label: 'Строк счетов', value: num(d.rows), icon: 'list' },
         { label: 'Остаток UZS', value: money(d.total_uzs), icon: 'wallet', tone: 'success', hint: 'сумма счетов в сумах' },
@@ -1529,6 +1717,7 @@
       `).join('') || '<div class="empty">Нет валют</div>';
       renderLedgerRows();
       icons();
+      loadCashDesk();
     }
 
     let vashOps = null;
@@ -1574,10 +1763,14 @@
             : '<span class="sub">нет координат</span>'}</td>
         </tr>`).join('') || '<tr><td colspan="6" class="empty">Нет операций. Импорт → Остатки филиалов → «Операции ВАШ».</td></tr>';
     }
-    async function loadVashOps() {
+    async function loadVashOps(refreshPeriods) {
       const importId = await fillImportSelect('vash-import', '/api/vash/operations/imports');
+      if (refreshPeriods !== false) await fillPeriodSelects('vash', '/api/vash/operations/periods', importId);
       try {
-        vashOps = await getJson('/api/vash/operations/analytics' + (importId ? '?import_id=' + encodeURIComponent(importId) : ''));
+        const vashParams = new URLSearchParams();
+        if (importId) vashParams.set('import_id', importId);
+        appendPeriodParams(vashParams, 'vash');
+        vashOps = await getJson('/api/vash/operations/analytics?' + vashParams.toString());
       } catch (e) {
         document.getElementById('vash-points').innerHTML = `<tr><td colspan="6" class="empty">${esc(e.message)}</td></tr>`;
         return;
@@ -1590,8 +1783,9 @@
 
     function paintVashKpis() {
       const d = vashOps;
+      const vashPeriodHint = d.filter_day ? d.filter_day : (d.filter_month ? d.filter_month : (d.from && d.to ? `${d.from} — ${d.to}` : ''));
       document.getElementById('vash-kpis').innerHTML = d && d.operations ? [
-        { label: 'Операций', value: num(d.operations), icon: 'arrow-left-right', hint: d.from && d.to ? `${d.from} — ${d.to}` : '' },
+        { label: 'Операций', value: num(d.operations), icon: 'arrow-left-right', hint: vashPeriodHint },
         { label: 'Пунктов', value: num(d.point_count), icon: 'map-pin' },
         { label: 'Много операций', value: num(d.high), icon: 'trending-up', tone: 'success', hint: 'показать эти зоны', action: "setVashBand('high')", active: vashBand === 'high' },
         { label: 'Мало операций', value: num(d.low), icon: 'trending-down', tone: 'danger', hint: 'показать эти зоны', action: "setVashBand('low')", active: vashBand === 'low' },
