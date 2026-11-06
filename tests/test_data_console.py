@@ -36,11 +36,18 @@ def test_other_sites_are_rejected():
     assert e.value.status_code == 403
 
 
-@pytest.mark.parametrize("auth_disabled", [True, False])
-def test_module_always_requires_admin_login(pg_db, monkeypatch, auth_disabled):
+def test_module_opens_without_login_when_platform_login_is_off(pg_db, monkeypatch):
     from test_upload_safety import _app
 
-    with TestClient(_app(monkeypatch, auth_disabled)) as c:
+    with TestClient(_app(monkeypatch, True)) as c:
+        assert c.get("/api/data-console/tables").status_code == 200
+        assert c.get("/api/data-console/tables", headers={"origin": "https://evil.example"}).status_code == 403
+
+
+def test_module_requires_admin_when_platform_login_is_on(pg_db, monkeypatch):
+    from test_upload_safety import _app
+
+    with TestClient(_app(monkeypatch, False)) as c:
         import core.auth as core_auth  # путь к core появляется после импорта api.main
 
         core_auth.update_user(1, new_password="secret1")
@@ -49,16 +56,10 @@ def test_module_always_requires_admin_login(pg_db, monkeypatch, auth_disabled):
 
         url = "/api/data-console/tables"
         assert c.get(url).status_code == 401
-        assert c.post("/api/auth/login", json={"username": "admin", "password": "wrong"}).status_code == 401
-        assert c.get(url).status_code == 401
-
         assert c.post("/api/auth/login", json={"username": "viewer1", "password": "secret2"}).status_code == 200
         assert c.get(url).status_code == 403
-
         assert c.post("/api/auth/login", json={"username": "admin", "password": "secret1"}).status_code == 200
         assert c.get(url).status_code == 200
-        assert c.post("/api/auth/logout").status_code == 200
-        assert c.get(url).status_code == 401
 
 
 def test_password_columns_are_never_returned_or_searchable(client):

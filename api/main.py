@@ -352,14 +352,9 @@ def require_admin(request: Request) -> Dict[str, Any]:
 
 
 def require_data_console(request: Request) -> Dict[str, Any]:
-    """Вход администратора нужен всегда, даже при AUTH_DISABLED=1: модуль показывает всю базу."""
+    """Как у остальной платформы: при AUTH_DISABLED=1 вход не нужен, при включённом входе — только администратор."""
     data_console.check_request(request)
-    user = _current_user(request)
-    if not user:
-        raise HTTPException(401, "Не авторизован")
-    if not user["is_admin"]:
-        raise HTTPException(403, "Требуются права администратора")
-    return user
+    return require_admin(request)
 
 
 app.include_router(data_console.router, dependencies=[Depends(require_data_console)])
