@@ -266,6 +266,7 @@
       .calendar { min-width: 700px; }
     }
   </style>
+<script src="/dashboard/js/atm-link.js"></script>
 </head>
 <body>
   <header>
@@ -635,7 +636,7 @@
         ? `<ol class="stops">${stops.map((s) => {
             const pct = s.balance_pct != null ? `${s.balance_pct}%` : '';
             const st = s.status || '';
-            return `<li>${s.name || s.terminal_id} · ${st} ${pct}</li>`;
+            return `<li>${atmLink(s.name || s.terminal_id, {terminal: s.terminal_id || s.atm_id})} · ${st} ${pct}</li>`;
           }).join('')}</ol>`
         : '—';
       document.getElementById('dialog').innerHTML = `

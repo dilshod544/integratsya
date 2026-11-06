@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Карточка банкомата</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    :root { --bg: #f6f8fb; --surface: #fff; --surface-2: #f8fafc; --border: #e5eaf3; --border-strong: #d5ddec;
+      --text: #111827; --muted: #667085; --primary: #2563eb; --grid: #eef2f6;
+      --good-bg: #ecfdf3; --good: #067647; --warn-bg: #fffaeb; --warn: #b54708; --bad-bg: #fef3f2; --bad: #b42318; }
+    body { font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--text); background: var(--bg); font-size: 13px; }
+    header { background: #fff; border-bottom: 1px solid var(--border); padding: 12px 20px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; position: sticky; top: 0; z-index: 10; }
+    header h1 { font-size: 17px; font-weight: 800; }
+    header a { color: var(--primary); text-decoration: none; font-weight: 700; }
+    .spacer { flex: 1; }
+    input[type=search] { font: inherit; border: 1px solid var(--border-strong); border-radius: 8px; padding: 6px 10px; width: min(340px, 100%); }
+    main { padding: 14px 20px 40px; max-width: 1500px; margin: 0 auto; display: grid; gap: 14px; }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px; min-width: 0; box-shadow: 0 1px 2px rgba(16,24,40,.06); }
+    h2 { font-size: 14px; font-weight: 800; margin-bottom: 10px; }
+    h3 { font-size: 12.5px; font-weight: 800; margin: 12px 0 6px; }
+    .hint { color: var(--muted); font-size: 12px; line-height: 1.45; }
+    .cols { display: grid; gap: 14px; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; }
+    @media (max-width: 1100px) { .cols { grid-template-columns: minmax(0, 1fr); } }
+    .title-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .title-row .tid { font-size: 22px; font-weight: 850; }
+    .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin-top: 12px; }
+    .kpi { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+    .kpi .v { font-size: 19px; font-weight: 800; font-variant-numeric: tabular-nums; }
+    .kpi .l { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+    dl { display: grid; grid-template-columns: minmax(110px, auto) minmax(0, 1fr); gap: 5px 12px; }
+    dt { color: var(--muted); }
+    dd { font-weight: 600; overflow-wrap: anywhere; }
+    .badge { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; white-space: nowrap; background: #f2f4f7; color: #475467; }
+    .badge.ok { background: var(--good-bg); color: var(--good); }
+    .badge.warn { background: var(--warn-bg); color: var(--warn); }
+    .badge.bad { background: var(--bad-bg); color: var(--bad); }
+    .cassette { margin-bottom: 9px; }
+    .cassette .top { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 3px; }
+    .meter { height: 6px; background: var(--grid); border-radius: 99px; overflow: hidden; }
+    .meter div { height: 100%; background: var(--primary); border-radius: 99px; }
+    .scroll { overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
+    table { border-collapse: collapse; width: 100%; font-size: 12px; font-variant-numeric: tabular-nums; }
+    th { background: var(--surface-2); text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border-strong); white-space: nowrap; font-weight: 700; position: sticky; top: 0; }
+    td { padding: 5px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+    td.wrap { white-space: normal; min-width: 200px; }
+    .r { text-align: right; }
+    tr.cycle { cursor: pointer; }
+    tr.cycle:hover td { background: var(--surface-2); }
+    tr.cycle td:first-child::before { content: '▸ '; color: var(--muted); }
+    tr.cycle.open td:first-child::before { content: '▾ '; }
+    tr.detail td { background: var(--surface-2); white-space: normal; padding: 10px 12px; }
+    .detail-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+    #chart { position: relative; display: flex; align-items: flex-end; gap: 2px; height: 190px; border-bottom: 1px solid var(--border-strong); padding-top: 18px;
+      background-image: linear-gradient(var(--grid) 1px, transparent 1px); background-size: 100% 25%; }
+    .col { flex: 1; min-width: 0; height: 100%; display: flex; align-items: flex-end; justify-content: center; position: relative; }
+    .col:hover { background: rgba(37,99,235,.06); }
+    .bar { width: min(100%, 38px); background: var(--primary); border-radius: 4px 4px 0 0; }
+    .bar.open { opacity: .5; }
+    .bar.none { height: 2px; background: var(--border-strong); border-radius: 0; }
+    .col .peak { position: absolute; left: 50%; transform: translateX(-50%); font-size: 11px; font-weight: 700; white-space: nowrap; }
+    #chart-x { display: flex; gap: 2px; margin-top: 4px; }
+    #chart-x span { flex: 1; min-width: 0; text-align: center; font-size: 10.5px; color: var(--muted); overflow: hidden; white-space: nowrap; }
+    .line-chart { position: relative; width: 100%; touch-action: pan-y; }
+    .line-chart svg { display: block; width: 100%; }
+    .line-chart text { font-size: 11px; fill: var(--muted); font-variant-numeric: tabular-nums; }
+    .line-chart text.direct { fill: var(--text); font-weight: 700; }
+    #tip { position: fixed; display: none; pointer-events: none; z-index: 30; background: #111827; color: #fff; padding: 7px 10px; border-radius: 8px; font-size: 12px; line-height: 1.5; font-variant-numeric: tabular-nums; }
+    details summary { cursor: pointer; font-weight: 800; }
+    pre { white-space: pre-wrap; word-break: break-word; font-size: 12px; line-height: 1.45; background: var(--surface-2); padding: 10px; border-radius: 8px; max-height: 60vh; overflow: auto; margin-top: 8px; }
+    #error { padding: 14px; background: var(--bad-bg); color: var(--bad); border-radius: 8px; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Карточка банкомата</h1>
+    <a href="/dashboard/index.html" id="back">← Назад</a>
+    <div class="spacer"></div>
+    <input type="search" id="find" list="atm-options" placeholder="TID или ID банкомата" aria-label="Найти банкомат">
+    <datalist id="atm-options"></datalist>
+  </header>
+  <main id="root"><p class="hint">Введи TID или ID банкомата вверху.</p></main>
+  <div id="tip"></div>
+
+<script>
+(function () {
+  const API = '/api/atm-monitor';
+  const TZ = 'Asia/Tashkent';
+  const root = document.getElementById('root');
+  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const val = (v) => (v === null || v === undefined || String(v).trim() === '') ? '—' : esc(v);
+  const num = (n) => n === null || n === undefined ? '—' : Number(n).toLocaleString('ru-RU');
+  const money = (n) => n === null || n === undefined ? '—' : Number(n).toLocaleString('ru-RU') + ' UZS';
+  const mln = (n) => (Number(n) / 1e6).toLocaleString('ru-RU', { maximumFractionDigits: 1 }) + ' млн';
+  const dt = (v) => v ? new Date(v).toLocaleString('ru-RU', { timeZone: TZ, day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—';
+  const dshort = (v) => new Date(v).toLocaleDateString('ru-RU', { timeZone: TZ, day: '2-digit', month: '2-digit' });
+  const ruDay = (d) => String(d).slice(0, 10).split('-').reverse().join('.');
+  const get = (o, ...path) => path.reduce((x, k) => (x == null ? x : x[k]), o);
+
+  function statusClass(v) {
+    const s = String(v || '').toUpperCase();
+    if (['ONLINE', 'OK', 'INSERVICE', 'READY', 'NORMAL', 'CUSTOMERSESSION', 'FULL'].includes(s)) return 'ok';
+    if (['BUSY', 'LOW', 'INACTIVE', 'HIGH'].includes(s)) return s === 'BUSY' || s === 'INACTIVE' ? '' : 'warn';
+    if (!s) return '';
+    return 'bad';
+  }
+  const badge = (v) => v ? `<span class="badge ${statusClass(v)}">${esc(v)}</span>` : '<span class="badge">нет данных</span>';
+  const dl = (pairs) => '<dl>' + pairs.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join('') + '</dl>';
+
+  function renderDuplicates(d) {
+    if (!d.same_tid || !d.same_tid.length) return '';
+    const links = d.same_tid.map((o) => `<a href="/dashboard/atm-card.html?id=${o.id}">ID ${o.id}${o.address ? ' · ' + esc(o.address) : ''}</a>`).join(', ');
+    return `<section class="card" style="background:var(--warn-bg);border-color:#fedf89"><b>В BTech несколько записей с TID ${esc(d.atm.tid)}.</b> Показана ID ${d.atm.id}. Другая запись: ${links}</section>`;
+  }
+
+  function renderHero(d) {
+    const a = d.atm, s = d.snapshot || {}, raw = s.raw_json || {};
+    const open = d.encashments.find((c) => !c.finished_at);
+    const initial = get(raw, 'cdmInitialAmount', 'totalUzs') ?? s.cdm_initial_uzs;
+    const left = s.cdm_total_uzs;
+    const pct = initial > 0 && left != null ? Math.round(100 * left / initial) + '% от загрузки' : '';
+    const forecast = d.turnover && d.turnover.forecast_hours > 0
+      ? `≈ ${Math.floor(d.turnover.forecast_hours / 24)} д ${Math.floor(d.turnover.forecast_hours % 24)} ч` : '—';
+    const avail = s.cdm_available_uzs;
+    const availNote = avail != null && left != null && avail < left ? 'часть денег в неисправных кассетах' : 'можно выдать прямо сейчас';
+    return `<section class="card">
+      <div class="title-row">
+        <span class="tid">${val(a.tid)}</span>
+        <span class="hint">ID ${a.id} · ${val(a.place)} · ${val(a.address)}</span>
+      </div>
+      <div class="title-row" style="margin-top:8px">
+        <span class="hint">Агент</span>${badge(s.agent_status)}
+        <span class="hint">Платформа</span>${badge(s.platform_status)}
+        <span class="hint">Приложение</span>${badge(s.app_status)}
+        <span class="hint">Хост</span>${badge(s.app_conn_status)}
+        <span class="hint">Обслуживание</span>${badge(s.service_status)}
+        <span class="hint">Данные на ${dt(s.polled_at)}</span>
+      </div>
+      <div class="kpis">
+        <div class="kpi"><div class="v">${left == null ? '—' : mln(left)}</div><div class="l">Остаток в кассетах ${pct ? '· ' + pct : ''}</div></div>
+        <div class="kpi"><div class="v">${avail == null ? '—' : mln(avail)}</div><div class="l">Доступно · ${availNote}</div></div>
+        <div class="kpi"><div class="v">${initial == null ? '—' : mln(initial)}</div><div class="l">Последняя загрузка</div></div>
+        <div class="kpi"><div class="v">${forecast}</div><div class="l">Прогноз BTech до конца денег</div></div>
+        <div class="kpi"><div class="v">${open && open.dispensed_uzs != null ? mln(open.dispensed_uzs) : '—'}</div><div class="l">Набрано в текущем цикле${open ? ' · с ' + dshort(open.started_at) : ''}</div></div>
+      </div>
+    </section>`;
+  }
+
+  function renderInfo(d) {
+    const a = d.atm, raw = (d.snapshot || {}).raw_json || {};
+    const agent = raw.agentVersion || {}, card = raw.card || {}, extra = card.extraAttrs || {};
+    const gps = a.latitude != null ? `${a.latitude}, ${a.longitude}` : '—';
+    const app = get(raw, 'inventory', 'appInfo') || {};
+    const appPairs = Object.entries(app).filter(([, v]) => v !== null && typeof v !== 'object').map(([k, v]) => [k, val(v)]);
+    return `<section class="card"><h2>Паспорт</h2>${dl([
+      ['Модель', `${val(a.vendor_name)} ${val(a.model_name)}`],
+      ['Тип / вариант', `${val(a.type_name)} / ${val(a.variant_name)}`],
+      ['Серийный номер', val(a.serial)],
+      ['Статус в BTech', val(a.status)],
+      ['Terminal ID', val(a.terminal_id)],
+      ['Merchant ID', val(a.merchant_id)],
+      ['MFO', val(a.mfo)],
+      ['Филиал', val(a.branch_number)],
+      ['Хост', val(a.host_provider || extra.hostProvider)],
+      ['Координаты', esc(gps)],
+      ['Макс. выдача', num(a.max_cashout) + ' купюр'],
+      ['Версия агента', val(agent.agentVersion)],
+      ['Модуль', `${val(agent.module)} ${val(agent.version)}`],
+      ['HW UID', val(a.hw_uid)],
+      ['Создан в BTech', dt(a.api_created_at)],
+      ['Впервые в нашей базе', dt(a.first_seen_at)],
+    ])}${appPairs.length ? '<h3>Приложение</h3>' + dl(appPairs) : ''}</section>`;
+  }
+
+  function renderCash(d) {
+    const open = d.encashments.find((c) => !c.finished_at);
+    const loaded = {};
+    (open ? open.cassettes : []).forEach((c) => { loaded[c.number] = c.loaded; });
+    const cass = d.cassettes.map((c) => {
+      const max = loaded[c.cassette_index];
+      const width = max > 0 ? Math.min(100, Math.round(100 * (c.count || 0) / max)) : 0;
+      const name = c.cassette_type === 'BILLCASSETTE' ? (c.status === 'MISSING' ? 'нет кассеты' : `${num(c.nominal)} ${esc(c.currency || '')}`) : 'Отбраковка';
+      return `<div class="cassette"><div class="top"><span><b>${esc(c.cassette_index)}.</b> ${name}</span>
+        <span><b>${num(c.count)}</b>${max ? ' из ' + num(max) : ''} ${badge(c.status)}</span></div>
+        ${max ? `<div class="meter"><div style="width:${width}%"></div></div>` : ''}</div>`;
+    }).join('');
+    return `<section class="card"><h2>Кассеты сейчас</h2>${cass || '<p class="hint">Нет данных по кассетам</p>'}</section>`;
+  }
+
+  function renderDevices(d) {
+    const s = d.snapshot || {};
+    const raw = s.raw_json || {};
+    const last = raw.lastTransactionTimestamp || {};
+    const lastAction = d.encashments[0] && d.encashments[0].started_at;
+    return `<section class="card"><h2>Устройства</h2>${dl([
+      ['Выдача', badge(s.dispenser_status)], ['Приём', badge(s.acceptor_status)], ['EPP клавиатура', badge(s.epp_status)],
+      ['Считыватель карт', badge(s.card_reader_status)], ['Бесконтактный', badge(s.contactless_status)],
+      ['Чековый принтер', badge(s.printer_status)], ['Журнальный принтер', badge(s.jprinter_status)], ['Сканер штрихкода', badge(s.barcode_reader_status)],
+      ['VDM', badge(s.vdm_status)], ['Супервизор', badge(s.sup_switch_status)],
+    ])}<h3>Активность</h3>${dl([
+      ['Последняя инкассация', dt(lastAction)],
+      ['Последняя транзакция', dt(last.last || s.last_transaction_last)],
+      ['Последняя выдача', dt(last.cashOut || s.last_transaction_cash_out)],
+      ['Последний приём', dt(last.cashIn || s.last_transaction_cash_in)],
+      ['Агент был онлайн', dt(s.agent_last_online)],
+    ])}</section>`;
+  }
+
+  function days(c) {
+    const end = c.finished_at ? new Date(c.finished_at) : new Date();
+    return (end - new Date(c.started_at)) / 86400000;
+  }
+
+  function renderHistoryCharts(d) {
+    const h = d.history || [];
+    if (h.length < 2) {
+      return `<section class="card"><h2>Остаток по дням</h2><p class="hint">История остатка этого банкомата ещё не загружена. Её можно подтянуть в модуле данных.</p></section>`;
+    }
+    const estimated = h.filter((r) => r.withdrawn_estimated).length;
+    const note = estimated ? ` Дней с оценкой выдач по падению остатка: ${estimated}, BTech не отдал по ним данные.` : '';
+    const rows = [...h].reverse().map((r) => `<tr><td>${ruDay(r.day)}${r.load ? ' <span class="badge ok">инкассация</span>' : ''}</td><td class="r">${money(r.balance)}</td><td class="r">${money(r.withdrawn)}${r.withdrawn_estimated ? ' (оценка)' : ''}</td></tr>`).join('');
+    return `<section class="card">
+      <h2>Остаток в банкомате по дням</h2>
+      <p class="hint" style="margin-bottom:8px">На конец дня, по данным BTech. Спады — снятия, резкий рост — загрузка. Точка — день инкассации.</p>
+      <div class="line-chart" id="chart-balance"></div>
+      <h2 style="margin-top:14px">Снятия по дням</h2>
+      <p class="hint" style="margin-bottom:8px">Сколько банкомат выдал клиентам за день.${note}</p>
+      <div class="line-chart" id="chart-withdrawn"></div>
+      <details style="margin-top:10px"><summary>Таблица по дням</summary>
+        <div class="scroll" style="max-height:320px;margin-top:8px"><table><thead><tr><th>Дата</th><th class="r">Остаток</th><th class="r">Снято</th></tr></thead><tbody>${rows}</tbody></table></div>
+      </details>
+    </section>`;
+  }
+
+  // Линейный график: один ряд, одна ось. Значение null — разрыв линии, а не ноль.
+  function drawLine(host, data, key, opts) {
+    const W = Math.max(320, host.clientWidth), H = 222;
+    const M = { top: 26, right: 70, bottom: 24, left: 62 };
+    const iw = W - M.left - M.right, ih = H - M.top - M.bottom;
+    const max = Math.max(1, ...data.map((r) => r[key] || 0));
+    const step = Math.pow(10, Math.floor(Math.log10(max)));
+    const nice = [1, 2, 2.5, 5, 10].map((k) => k * step).find((v) => v >= max) || max;
+    const x = (i) => M.left + (data.length > 1 ? i * iw / (data.length - 1) : 0);
+    const y = (v) => M.top + ih - (v / nice) * ih;
+    let path = '', pen = false;
+    data.forEach((r, i) => {
+      const v = r[key];
+      if (v === null || v === undefined) { pen = false; return; }
+      path += `${pen ? 'L' : 'M'}${x(i).toFixed(1)} ${y(v).toFixed(1)}`;
+      pen = true;
+    });
+    const grid = [0, .25, .5, .75, 1].map((t) => {
+      const v = nice * t, yy = y(v).toFixed(1);
+      return `<line x1="${M.left}" x2="${W - M.right}" y1="${yy}" y2="${yy}" stroke="${t ? 'var(--grid)' : 'var(--border-strong)'}"/><text x="${M.left - 8}" y="${+yy + 4}" text-anchor="end">${(v / 1e6).toLocaleString('ru-RU')}</text>`;
+    }).join('');
+    const every = Math.max(1, Math.ceil(data.length / Math.max(3, Math.floor(iw / 70))));
+    const xs = data.map((r, i) => (i % every === 0 ? `<text x="${x(i).toFixed(1)}" y="${H - 6}" text-anchor="middle">${r.day.slice(8, 10)}.${r.day.slice(5, 7)}</text>` : '')).join('');
+    const dots = opts.dots ? data.map((r, i) => (r.load && r[key] != null ? `<circle cx="${x(i).toFixed(1)}" cy="${y(r[key]).toFixed(1)}" r="4" fill="var(--primary)" stroke="#fff" stroke-width="2"/>` : '')).join('') : '';
+    let lastI = data.length - 1;
+    while (lastI > 0 && data[lastI][key] == null) lastI--;
+    const lastV = data[lastI][key];
+    const direct = lastV == null ? '' : `<text class="direct" x="${(x(lastI) + 8).toFixed(1)}" y="${(y(lastV) + 4).toFixed(1)}">${mln(lastV)}</text>`;
+    host.innerHTML = `<svg viewBox="0 0 ${W} ${H}" height="${H}" role="img" aria-label="${esc(opts.title)}">
+      <text x="${M.left - 8}" y="10" text-anchor="end">млн</text>${grid}${xs}
+      <path d="${path}" fill="none" stroke="var(--primary)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>${dots}${direct}
+      <line class="cross" x1="0" x2="0" y1="${M.top}" y2="${M.top + ih}" stroke="var(--muted)" stroke-dasharray="3 3" visibility="hidden"/>
+      <circle class="focus" r="4" fill="var(--primary)" stroke="#fff" stroke-width="2" visibility="hidden"/>
+    </svg>`;
+    const svg = host.querySelector('svg'), cross = svg.querySelector('.cross'), focus = svg.querySelector('.focus');
+    const tip = document.getElementById('tip');
+    const hide = () => { tip.style.display = 'none'; cross.setAttribute('visibility', 'hidden'); focus.setAttribute('visibility', 'hidden'); };
+    const move = (e) => {
+      const rect = svg.getBoundingClientRect();
+      const px = (e.clientX - rect.left) * (W / rect.width);
+      const i = Math.max(0, Math.min(data.length - 1, Math.round((px - M.left) * (data.length - 1) / iw)));
+      const r = data[i], xx = x(i).toFixed(1);
+      cross.setAttribute('x1', xx); cross.setAttribute('x2', xx); cross.setAttribute('visibility', 'visible');
+      if (r[key] != null) { focus.setAttribute('cx', xx); focus.setAttribute('cy', y(r[key]).toFixed(1)); focus.setAttribute('visibility', 'visible'); }
+      else focus.setAttribute('visibility', 'hidden');
+      const notes = Object.entries(r.notes || {}).sort((a, b) => b[0] - a[0]).map(([n, c]) => `${num(n)}: ${num(c)} шт.`).join('<br>');
+      tip.innerHTML = `<b>${ruDay(r.day)}</b>${r.load ? ' · инкассация' : ''}<br>Остаток: ${money(r.balance)}<br>Снято: ${r.withdrawn == null ? 'нет данных' : money(r.withdrawn) + (r.withdrawn_estimated ? ' (оценка)' : '')}${notes ? '<br>' + notes : ''}`;
+      tip.style.display = 'block';
+      tip.style.left = Math.max(8, Math.min(e.clientX + 14, innerWidth - tip.offsetWidth - 8)) + 'px';
+      tip.style.top = Math.min(e.clientY + 14, innerHeight - tip.offsetHeight - 8) + 'px';
+    };
+    svg.addEventListener('pointermove', move);
+    svg.addEventListener('pointerdown', move);
+    svg.addEventListener('pointerleave', hide);
+  }
+
+  function drawHistory(d) {
+    const balance = document.getElementById('chart-balance');
+    const withdrawn = document.getElementById('chart-withdrawn');
+    if (!balance) return;
+    drawLine(balance, d.history, 'balance', { title: 'Остаток по дням', dots: true });
+    drawLine(withdrawn, d.history, 'withdrawn', { title: 'Снятия по дням' });
+  }
+
+  function renderChart(d) {
+    const cycles = [...d.encashments].reverse();
+    if (!cycles.length) return '';
+    const max = Math.max(1, ...cycles.map((c) => c.dispensed_uzs || 0));
+    const peakId = cycles.reduce((p, c) => ((c.dispensed_uzs || 0) > (p.dispensed_uzs || 0) ? c : p), cycles[0]).id;
+    const step = Math.ceil(cycles.length / 14);
+    const cols = cycles.map((c) => {
+      const has = c.dispensed_uzs != null;
+      const h = has ? Math.max(1, 100 * c.dispensed_uzs / max) : 0;
+      const peak = c.id === peakId && has ? `<span class="peak" style="bottom:calc(${h}% + 2px)">${mln(c.dispensed_uzs)}</span>` : '';
+      return `<div class="col" data-id="${c.id}">${peak}<div class="bar ${has ? '' : 'none'} ${c.finished_at ? '' : 'open'}" style="${has ? `height:${h}%` : ''}"></div></div>`;
+    }).join('');
+    const xs = cycles.map((c, i) => `<span>${i % step === 0 ? dshort(c.started_at) : ''}</span>`).join('');
+    return `<section class="card"><h2>Набрано по циклам инкассации</h2>
+      <p class="hint" style="margin-bottom:10px">Каждый столбец — один цикл по дате начала. Светлый столбец — цикл ещё идёт, серая черта — BTech не отдал суммы. Циклы разной длины, сумма в день в подсказке.</p>
+      <div id="chart">${cols}</div><div id="chart-x">${xs}</div></section>`;
+  }
+
+  function nominalTable(c) {
+    const raw = c.raw_json || {};
+    const rows = [['Загружено', 'loaded'], ['Набрано', 'dispensed'], ['Выдано', 'presented'], ['Отбраковано', 'rejected'], ['Осталось', 'left'], ['Выгружено', 'unloaded']];
+    const noms = new Set();
+    rows.forEach(([, k]) => Object.keys(get(raw, k, 'currencies', 'UZS', 'values') || {}).forEach((n) => noms.add(n)));
+    const sorted = [...noms].map(Number).sort((a, b) => b - a);
+    if (!sorted.length) return '<p class="hint">Разбивки по номиналам нет</p>';
+    return `<div class="scroll"><table><thead><tr><th></th>${sorted.map((n) => `<th class="r">${num(n)}</th>`).join('')}<th class="r">Сумма</th></tr></thead><tbody>${rows.map(([label, k]) => {
+      const block = get(raw, k, 'currencies', 'UZS');
+      if (!block) return '';
+      return `<tr><td>${label}</td>${sorted.map((n) => `<td class="r">${num(get(block, 'values', String(n)))}</td>`).join('')}<td class="r"><b>${num(block.total)}</b></td></tr>`;
+    }).join('')}</tbody></table></div>`;
+  }
+
+  function cycleDetail(c) {
+    const cass = c.cassettes.map((k) => `<tr><td>${k.number}</td><td>${k.cassette_type === 'BILLCASSETTE' ? num(k.nominal) + ' ' + esc(k.currency || '') : 'Отбраковка'}</td><td>${badge(k.status)}</td>
+      <td class="r">${num(k.loaded)}</td><td class="r">${num(k.count)}</td><td class="r">${num(k.dispensed_count)}</td><td class="r">${num(k.presented_count)}</td><td class="r">${num(k.rejected_count)}</td><td class="r">${num(k.retracted_count)}</td></tr>`).join('');
+    const acts = c.actions.map((a) => `<tr><td>${dt(a.created_at)}</td><td class="wrap">${esc(a.data)}</td></tr>`).join('');
+    return `<div class="detail-grid">
+      <div><h3 style="margin-top:0">По номиналам, купюр</h3>${nominalTable(c)}
+        <h3>Кассеты</h3><div class="scroll"><table><thead><tr><th>№</th><th>Номинал</th><th>Статус</th><th class="r">Загружено</th><th class="r">Осталось</th><th class="r">Набрано</th><th class="r">Выдано</th><th class="r">Отбрак.</th><th class="r">Захвач.</th></tr></thead><tbody>${cass || '<tr><td colspan="9">Нет данных</td></tr>'}</tbody></table></div></div>
+      <div><h3 style="margin-top:0">Действия инкассатора</h3><div class="scroll" style="max-height:320px"><table><tbody>${acts || '<tr><td>Нет данных</td></tr>'}</tbody></table></div></div>
+    </div>`;
+  }
+
+  function renderCycles(d) {
+    const total = d.sync && d.sync.source_cycles != null ? ` Всего в BTech: ${num(d.sync.source_cycles)}.` : '';
+    const synced = d.sync && d.sync.last_success_at ? ` Проверено: ${dt(d.sync.last_success_at)}.` : ' Этот банкомат ещё не проверялся.';
+    const rows = d.encashments.map((c) => `<tr class="cycle" data-id="${c.id}">
+      <td>${c.id}</td><td>${dt(c.started_at)}</td><td>${c.finished_at ? dt(c.finished_at) : '<span class="badge ok">идёт</span>'}</td>
+      <td class="r">${days(c).toFixed(1)}</td><td class="r">${money(c.loaded_uzs)}</td><td class="r">${money(c.unloaded_uzs)}</td><td class="r">${money(c.accepted_uzs)}</td>
+      <td class="r">${money(c.dispensed_uzs)}</td><td class="r">${money(c.presented_uzs)}</td><td class="r">${money(c.rejected_uzs)}</td><td class="r">${num(c.retracted_total)}</td></tr>`).join('');
+    return `<section class="card"><h2>Инкассации</h2>
+      <p class="hint" style="margin-bottom:10px">В базе циклов: ${num(d.encashments.length)}.${total}${synced} Нажми на строку, чтобы открыть номиналы, кассеты и действия инкассатора.</p>
+      <div class="scroll"><table id="cycles"><thead><tr><th>#</th><th>Начало</th><th>Окончание</th><th class="r">Дней</th><th class="r">Загружено</th><th class="r">Выгружено</th><th class="r">Внесено</th><th class="r">Набрано</th><th class="r">Выдано</th><th class="r">Отбраковано</th><th class="r">Захвачено</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="11">Циклов нет</td></tr>'}</tbody></table></div></section>`;
+  }
+
+  const KIND = { agent: 'Агент', service: 'Обслуживание', cash: 'Наличие денег' };
+  const kindLabel = (k) => KIND[k] || k.replace('cassette:', 'Кассета ').replace('device:', 'Устройство: ');
+
+  function renderHistory(d) {
+    const ev = d.events.map((e) => `<tr><td>${dt(e.at)}</td><td>${esc(kindLabel(e.kind))}</td><td>${val(e.old_value)} → ${val(e.new_value)}</td></tr>`).join('');
+    const daily = d.daily.map((r) => `<tr><td>${ruDay(r.day)}</td><td class="r">${money(r.withdrawn)}</td><td class="r">${money(r.min_available)}</td><td class="r">${Number(r.covered_hours).toFixed(1)}</td><td class="r">${Number(r.cashout_hours).toFixed(1)}</td><td class="r">${Number(r.offline_hours).toFixed(1)}</td></tr>`).join('');
+    const rec = d.recommendation;
+    const reasons = rec && Array.isArray(rec.reasons) ? rec.reasons.map((x) => esc(typeof x === 'string' ? x : JSON.stringify(x))).join('; ') : '';
+    return `<div class="cols">
+      <section class="card"><h2>Изменения состояния</h2><p class="hint" style="margin-bottom:8px">По снимкам в нашей базе.</p>
+        <div class="scroll" style="max-height:340px"><table><thead><tr><th>Когда</th><th>Что</th><th>Изменение</th></tr></thead><tbody>${ev || '<tr><td colspan="3">Изменений нет</td></tr>'}</tbody></table></div></section>
+      <section class="card"><h2>Суточные итоги</h2><p class="hint" style="margin-bottom:8px">По снимкам в нашей базе, поэтому дни с малым числом часов неполные.</p>
+        <div class="scroll" style="max-height:340px"><table><thead><tr><th>Дата</th><th class="r">Снятия</th><th class="r">Мин. доступно</th><th class="r">Часов данных</th><th class="r">Без денег, ч</th><th class="r">Офлайн, ч</th></tr></thead><tbody>${daily || '<tr><td colspan="6">Нет данных</td></tr>'}</tbody></table></div></section>
+      <section class="card"><h2>Рекомендация системы</h2>${rec ? dl([
+        ['Срочность', `${esc(rec.score)} из 10`],
+        ['Крайний срок', dt(rec.due_at)],
+        ['Загрузить до', money(rec.load_uzs)],
+        ['Спрос в день', money(rec.demand_per_day && Math.round(rec.demand_per_day))],
+        ['На сколько дней', rec.cycle_days == null ? '—' : Number(rec.cycle_days).toFixed(1)],
+        ['Статус', val(rec.status)],
+        ['Причины', reasons || '—'],
+      ]) : '<p class="hint">Рекомендации нет</p>'}</section>
+    </div>`;
+  }
+
+  function renderRaw(d) {
+    return `<section class="card">
+      <h2>Что пока не собирается</h2>
+      <p class="hint">Транзакции, IP, уровень бумаги, захваченные карты, CPU, память, диск, доступность и история статусов из BTech пока не загружаются в базу.</p>
+      <details style="margin-top:12px"><summary>Все поля последнего снимка BTech</summary><pre id="raw"></pre></details>
+    </section>`;
+  }
+
+  function wire(d) {
+    const raw = document.getElementById('raw');
+    if (raw) raw.textContent = JSON.stringify((d.snapshot || {}).raw_json || {}, null, 2);
+    const byId = new Map(d.encashments.map((c) => [String(c.id), c]));
+    const cycles = document.getElementById('cycles');
+    if (cycles) cycles.addEventListener('click', (e) => {
+      const tr = e.target.closest('tr.cycle');
+      if (!tr) return;
+      const next = tr.nextElementSibling;
+      if (next && next.classList.contains('detail')) { next.remove(); tr.classList.remove('open'); return; }
+      tr.classList.add('open');
+      const row = document.createElement('tr');
+      row.className = 'detail';
+      row.innerHTML = `<td colspan="11">${cycleDetail(byId.get(tr.dataset.id))}</td>`;
+      tr.after(row);
+    });
+    const tip = document.getElementById('tip');
+    const chart = document.getElementById('chart');
+    if (chart) {
+      chart.addEventListener('mousemove', (e) => {
+        const col = e.target.closest('.col');
+        if (!col) { tip.style.display = 'none'; return; }
+        const c = byId.get(col.dataset.id);
+        const n = days(c);
+        const perDay = c.dispensed_uzs != null && n > 0 ? mln(c.dispensed_uzs / n) + ' в день' : '';
+        tip.innerHTML = `<b>${esc(dshort(c.started_at))} — ${c.finished_at ? esc(dshort(c.finished_at)) : 'идёт'}</b> (${n.toFixed(1)} дн.)<br>Загружено: ${money(c.loaded_uzs)}<br>Набрано: ${c.dispensed_uzs == null ? 'нет данных' : money(c.dispensed_uzs)}${perDay ? '<br>' + perDay : ''}`;
+        tip.style.display = 'block';
+        tip.style.left = Math.min(e.clientX + 14, innerWidth - tip.offsetWidth - 8) + 'px';
+        tip.style.top = (e.clientY + 14) + 'px';
+      });
+      chart.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
+    }
+  }
+
+  async function fetchJson(url) {
+    const res = await fetch(url);
+    if (res.status === 401) { location.href = '/dashboard/login.html?next=' + encodeURIComponent(location.pathname + location.search); throw new Error('Нужен вход'); }
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(typeof body.detail === 'string' ? body.detail : 'Ошибка сервера (' + res.status + ')');
+    return body;
+  }
+
+  async function init() {
+    document.getElementById('back').addEventListener('click', (e) => {
+      if (history.length > 1 && document.referrer.startsWith(location.origin)) { e.preventDefault(); history.back(); }
+    });
+    let list = [];
+    try {
+      list = await fetchJson(API + '/card/search');
+      document.getElementById('atm-options').innerHTML = list.map((a) => `<option value="${esc(a.tid)}" label="${esc(a.address || a.place || '')}"></option>`).join('');
+    } catch (e) {
+      // Поиск не главное: страница банкомата может открыться и без него.
+    }
+    document.getElementById('find').addEventListener('change', (e) => {
+      const v = e.target.value.trim();
+      const hit = list.find((a) => String(a.tid) === v || String(a.id) === v);
+      if (hit) location.search = '?id=' + hit.id;
+      else if (v) root.innerHTML = `<div id="error">Банкомат «${esc(v)}» не найден</div>`;
+    });
+    const query = new URLSearchParams(location.search);
+    const key = ['id', 'tid', 'terminal'].find((k) => query.get(k));
+    if (!key) return;
+    try {
+      const d = await fetchJson(`${API}/card?${key}=${encodeURIComponent(query.get(key))}`);
+      document.title = 'Банкомат ' + (d.atm.tid || d.atm.id);
+      root.innerHTML = renderDuplicates(d) + renderHero(d) + renderHistoryCharts(d)
+        + `<div class="cols">${renderInfo(d)}${renderCash(d)}${renderDevices(d)}</div>`
+        + renderHistory(d) + renderChart(d) + renderCycles(d) + renderRaw(d);
+      wire(d);
+      drawHistory(d);
+      let resizeTimer;
+      addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => drawHistory(d), 150); });
+    } catch (e) {
+      root.innerHTML = `<div id="error">${esc(e.message)}</div>`;
+    }
+  }
+  init();
+})();
+</script>
+</body>
+</html>

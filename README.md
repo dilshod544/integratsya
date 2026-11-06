@@ -111,6 +111,8 @@ PostgreSQL. Для работы задайте `AUTH_USERNAME` / `AUTH_PASSWORD`
 - Страница «Менеджер банкоматов»: `/dashboard/atm-monitor.html`
 - Живой баланс и кассеты автоматически появляются на карте и в списке ATM
 - Опрос вручную: `POST /api/atm-monitor/poll`; один опрос без сервера: `python -m atm_monitor`
+- Инкассации из карточек банкоматов собираются автоматически раз в 6 часов; один банкомат вручную: `python -m atm_monitor.encashments <id>`
+- Модуль данных: карточка на главной, `/dashboard/data-console.html` (просмотр всех таблиц, полнота по датам, догрузка) и карточка банкомата `/dashboard/atm-card.html?id=<id>`. Всегда нужен вход администратора, даже при `AUTH_DISABLED=1`
 
 ### Прогноз снятий (XGBoost)
 

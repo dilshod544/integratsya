@@ -64,6 +64,7 @@
     .note { font-size: 12px; color: var(--muted); margin-top: 8px; }
     @media (max-width: 900px) { .grid2 { grid-template-columns: 1fr; } main { padding: 14px 16px 40px; } }
   </style>
+<script src="/dashboard/js/atm-link.js"></script>
 </head>
 <body>
 <header>
@@ -157,7 +158,7 @@
     const atms = d.atms.slice(0, 50);
     document.getElementById('atms').innerHTML = atms.length ? `<table class="list"><thead><tr><th>TID</th><th>Адрес</th><th class="r">Циклов</th>
       <th class="r">Банк держит</th><th class="r">Системе хватило бы</th><th class="r">Освободить</th><th class="r">Выезды банк → система</th><th class="r">Без денег, ч</th><th class="r">Экономия, сум</th></tr></thead><tbody>
-      ${atms.map((a) => `<tr><td><b>${escapeHtml(a.tid)}</b></td><td class="muted">${escapeHtml(a.address || '')}</td><td class="r">${a.cycles}</td>
+      ${atms.map((a) => `<tr><td><b>${atmLink(a.tid, {id: a.atm_id, tid: a.tid})}</b></td><td class="muted">${escapeHtml(a.address || '')}</td><td class="r">${a.cycles}</td>
         <td class="r">${fmtM(a.bank_avg_cash)}</td><td class="r">${fmtM(a.system_avg_cash)}</td><td class="r"><b>${fmtM(a.freed_cash)}</b></td>
         <td class="r">${a.bank_trips} → ${fmtN(a.sys_trips, 1)}</td><td class="r">${fmtN(a.cashout_hours, 1)}</td><td class="r">${money ? fmtM(a.saving) : '—'}</td></tr>`).join('')}
       </tbody></table>` : '<div class="muted" style="padding:20px;text-align:center">Нет завершённых циклов инкассации за период. Нужны минимум две загрузки банкомата в истории BTech.</div>';

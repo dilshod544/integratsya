@@ -5,6 +5,8 @@ import threading
 
 from fastapi import APIRouter
 
+from .config import settings
+from .daily_history import daily_series
 from .db import connect
 from .scheduler import run_once
 
@@ -134,6 +136,95 @@ def atm_daily(atm_id: int, days: int = 90):
             (atm_id, max(1, min(days, 730))),
         ).fetchall()
     return {"atm_id": atm_id, "daily": rows}
+
+
+# ── Карточка банкомата (dashboard/atm-card.html) ─────────────
+
+@router.get("/card/search", summary="Банкоматы для поиска на странице банкомата")
+def card_search():
+    with connect() as conn:
+        return conn.execute("SELECT id, tid, address, place FROM atms ORDER BY tid").fetchall()
+
+
+def atm_ids_by_tid(tid: str, terminal: "str | None" = None) -> list:
+    """TID в BTech не уникален. Первым идёт запись с тем же terminal_id, затем самая свежая."""
+    with connect() as conn:
+        rows = conn.execute(
+            """SELECT id FROM atms WHERE tid = %s
+                ORDER BY (terminal_id IS NOT DISTINCT FROM %s) DESC, last_seen_at DESC NULLS LAST, id DESC""",
+            (tid, terminal),
+        ).fetchall()
+    return [r["id"] for r in rows]
+
+
+def atm_ids_by_terminal(terminal: str) -> list:
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT id FROM atms WHERE terminal_id = %s ORDER BY last_seen_at DESC NULLS LAST, id DESC", (terminal,)
+        ).fetchall()
+    return [r["id"] for r in rows]
+
+
+def atm_card_data(atm_id: int) -> "dict | None":
+    """Всё, что есть в базе по банкомату."""
+    with connect() as conn:
+        atm = conn.execute("SELECT * FROM atms WHERE id = %s", (atm_id,)).fetchone()
+        if not atm:
+            return None
+
+        def rows(query: str) -> list:
+            return conn.execute(query, (atm_id,)).fetchall()
+
+        def one(query: str):
+            return conn.execute(query, (atm_id,)).fetchone()
+
+        snapshot = one("SELECT * FROM atm_snapshots WHERE atm_id = %s ORDER BY polled_at DESC, id DESC LIMIT 1")
+        cassettes = conn.execute(
+            "SELECT * FROM cassette_snapshots WHERE atm_snapshot_id = %s ORDER BY cassette_index", (snapshot["id"],)
+        ).fetchall() if snapshot else []
+        cycles = rows("SELECT * FROM btech_encashments WHERE atm_id = %s ORDER BY started_at DESC")
+        ids = [c["id"] for c in cycles]
+        cycle_cassettes: dict = {}
+        for c in conn.execute(
+            "SELECT * FROM btech_encashment_cassettes WHERE encashment_id = ANY(%s) ORDER BY number", (ids,)
+        ).fetchall():
+            cycle_cassettes.setdefault(c["encashment_id"], []).append(c)
+        cycle_actions: dict = {}
+        for a in conn.execute(
+            "SELECT * FROM btech_encashment_actions WHERE encashment_id = ANY(%s) ORDER BY created_at, id", (ids,)
+        ).fetchall():
+            cycle_actions.setdefault(a["encashment_id"], []).append(a)
+        for c in cycles:
+            c["cassettes"] = cycle_cassettes.get(c["id"], [])
+            c["actions"] = cycle_actions.get(c["id"], [])
+        load_days = {
+            r["day"] for r in conn.execute(
+                "SELECT (started_at AT TIME ZONE %s)::date::text AS day FROM btech_encashments WHERE atm_id = %s",
+                (settings.TIMEZONE, atm_id),
+            ).fetchall()
+        }
+        history = daily_series(
+            rows("SELECT * FROM btech_balance_daily WHERE atm_id = %s AND day >= current_date - 92"),
+            rows("SELECT * FROM btech_turnover_daily WHERE atm_id = %s AND day >= current_date - 92"),
+            load_days,
+        )
+        same_tid = conn.execute(
+            "SELECT id, address, last_seen_at FROM atms WHERE tid = %s AND id <> %s ORDER BY last_seen_at DESC NULLS LAST",
+            (atm["tid"], atm_id),
+        ).fetchall()
+        return {
+            "atm": atm,
+            "same_tid": same_tid,
+            "history": history,
+            "snapshot": snapshot,
+            "cassettes": cassettes,
+            "turnover": one("SELECT * FROM turnover_snapshots WHERE atm_id = %s ORDER BY polled_at DESC, id DESC LIMIT 1"),
+            "sync": one("SELECT * FROM btech_encashment_sync WHERE atm_id = %s"),
+            "encashments": cycles,
+            "events": rows("SELECT at, kind, old_value, new_value FROM atm_state_events WHERE atm_id = %s ORDER BY at DESC, id DESC LIMIT 200"),
+            "daily": rows("SELECT * FROM atm_daily WHERE atm_id = %s ORDER BY day DESC LIMIT 92"),
+            "recommendation": one("SELECT * FROM recommendations WHERE atm_id = %s ORDER BY created_at DESC, id DESC LIMIT 1"),
+        }
 
 
 @router.post("/history/process", summary="Обработать накопленные снимки (события, инкассации, итоги)")

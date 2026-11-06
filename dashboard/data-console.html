@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Модуль данных</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    :root { --bg: #f6f8fb; --surface: #fff; --surface-2: #f8fafc; --border: #e5eaf3; --border-strong: #d5ddec;
+      --text: #111827; --muted: #667085; --primary: #2563eb; --success: #16a34a; --warning: #d97706; --danger: #dc2626;
+      --good-bg: #ecfdf3; --warn-bg: #fffaeb; --bad-bg: #fef3f2; --shadow-sm: 0 1px 2px rgba(16,24,40,.06); }
+    body { font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--text); background: var(--bg); font-size: 13px; }
+    header { background: #fff; border-bottom: 1px solid var(--border); padding: 12px 20px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; position: sticky; top: 0; z-index: 10; }
+    header h1 { font-size: 17px; font-weight: 800; }
+    .spacer { flex: 1; }
+    .status-line { display: flex; gap: 14px; flex-wrap: wrap; color: var(--muted); font-size: 12px; }
+    .status-line b { color: var(--text); font-weight: 700; }
+    main { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 14px; padding: 14px 20px 40px; align-items: start; }
+    @media (max-width: 1100px) { main { grid-template-columns: minmax(0, 1fr); } }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow-sm); padding: 14px; min-width: 0; }
+    .card + .card { margin-top: 14px; }
+    h2 { font-size: 14px; font-weight: 800; margin-bottom: 4px; }
+    h3 { font-size: 13px; font-weight: 800; margin-bottom: 6px; }
+    .hint { color: var(--muted); font-size: 12px; line-height: 1.45; margin-bottom: 10px; }
+    .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+    button, select, input[type=search] { font: inherit; border: 1px solid var(--border-strong); border-radius: 8px; padding: 6px 10px; background: #fff; color: var(--text); }
+    button { cursor: pointer; font-weight: 700; }
+    button:hover:not(:disabled) { border-color: var(--primary); color: var(--primary); }
+    button:disabled { opacity: .5; cursor: default; }
+    button.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+    button.primary:hover:not(:disabled) { color: #fff; opacity: .9; }
+    button.danger { color: var(--danger); border-color: #fda29b; }
+    button.link { border: 0; background: none; padding: 2px 4px; color: var(--primary); }
+    input[type=search] { min-width: 200px; flex: 1; }
+    .scroll { overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
+    table { border-collapse: collapse; width: 100%; font-size: 12px; font-variant-numeric: tabular-nums; }
+    th { position: sticky; top: 0; background: var(--surface-2); text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border-strong); white-space: nowrap; font-weight: 700; z-index: 1; }
+    th .type { display: block; font-weight: 400; color: var(--muted); font-size: 10.5px; }
+    th.sortable { cursor: pointer; }
+    th.sortable:hover { color: var(--primary); }
+    td { padding: 5px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; max-width: 280px; overflow: hidden; text-overflow: ellipsis; }
+    tr.click { cursor: pointer; }
+    tr.click:hover td { background: var(--surface-2); }
+    tr.selected td { background: #eef4ff; }
+    td.null { color: #98a2b3; font-style: italic; }
+    td.r, th.r { text-align: right; }
+    .db-layout { display: grid; grid-template-columns: 270px minmax(0, 1fr); gap: 12px; }
+    @media (max-width: 700px) { .db-layout { grid-template-columns: minmax(0, 1fr); } }
+    #tables { max-height: 72vh; overflow: hidden auto; min-width: 0; }
+    .schema-name { font-size: 11px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; padding: 8px 6px 4px; }
+    .table-btn { display: flex; justify-content: space-between; gap: 8px; width: 100%; border: 0; background: none; padding: 5px 6px; border-radius: 6px; text-align: left; font-weight: 500; }
+    .table-btn span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .table-btn .n { color: var(--muted); font-variant-numeric: tabular-nums; flex-shrink: 0; }
+    .table-btn.active { background: #eef4ff; color: var(--primary); font-weight: 700; }
+    #grid { max-height: 62vh; }
+    .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; margin-bottom: 10px; }
+    .kpi { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
+    .kpi .v { font-size: 19px; font-weight: 800; font-variant-numeric: tabular-nums; }
+    .kpi .l { font-size: 11px; color: var(--muted); }
+    .kpi.bad .v { color: var(--danger); } .kpi.good .v { color: var(--success); } .kpi.warn .v { color: var(--warning); }
+    .badge { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 700; white-space: nowrap; }
+    .badge.ok { background: var(--good-bg); color: #067647; }
+    .badge.warn { background: var(--warn-bg); color: #b54708; }
+    .badge.bad { background: var(--bad-bg); color: #b42318; }
+    .badge.none { background: #f2f4f7; color: #475467; }
+    #calendar-wrap { max-height: 34vh; } #atms-wrap { max-height: 38vh; }
+    .progress { height: 8px; background: #eef2f6; border-radius: 99px; overflow: hidden; margin: 6px 0; }
+    .progress div { height: 100%; background: var(--primary); width: 0; transition: width .3s; }
+    #job { display: none; border: 1px solid #c7d7fe; background: #f5f8ff; border-radius: 8px; padding: 10px; margin-bottom: 10px; }
+    #error { display: none; margin: 14px 20px 0; padding: 10px 12px; border-radius: 8px; background: var(--bad-bg); color: #b42318; font-weight: 600; }
+    dialog { border: 0; border-radius: 12px; padding: 16px; width: min(760px, calc(100vw - 32px)); max-height: 85vh; box-shadow: 0 20px 50px rgba(15,23,42,.3); }
+    dialog::backdrop { background: rgba(15,23,42,.4); }
+    dialog pre { white-space: pre-wrap; word-break: break-word; font-size: 12px; line-height: 1.45; background: var(--surface-2); padding: 10px; border-radius: 8px; max-height: 66vh; overflow: auto; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Модуль данных</h1>
+    <div class="status-line" id="status">Загрузка…</div>
+    <div class="spacer"></div>
+    <button id="poll-now">Опросить BTech сейчас</button>
+    <button id="process-history">Пересчитать историю</button>
+  </header>
+  <div id="error" role="alert"></div>
+  <main>
+    <section class="card">
+      <h2>База данных</h2>
+      <p class="hint">Только чтение. Нажми на строку, чтобы увидеть все значения. Число строк в списке таблиц примерное, над таблицей — точное.</p>
+      <div class="db-layout">
+        <div id="tables"></div>
+        <div style="min-width:0">
+          <div class="row">
+            <b id="table-title">Выбери таблицу</b>
+            <input type="search" id="search" placeholder="Поиск по всем столбцам" disabled>
+          </div>
+          <div class="scroll" id="grid"></div>
+          <div class="row" style="margin:10px 0 0">
+            <button id="prev" disabled>Назад</button>
+            <button id="next" disabled>Вперёд</button>
+            <span id="page-info" class="hint" style="margin:0"></span>
+            <div class="spacer"></div>
+            <select id="limit" aria-label="Строк на странице"><option>50</option><option>100</option><option>200</option></select>
+          </div>
+          <p id="hidden-note" class="hint" style="margin:8px 0 0"></p>
+        </div>
+      </div>
+    </section>
+
+    <div>
+      <section class="card">
+        <h2>Проверка полноты</h2>
+        <p class="hint">Инкассации можно догрузить за любой период. Снимки BTech отдаёт только на текущий момент, поэтому пропущенные опросы прошлых дней не восстановить.</p>
+        <div class="row">
+          <label for="days">Период</label>
+          <select id="days">
+            <option value="30">30 дней</option>
+            <option value="92" selected>3 месяца</option>
+            <option value="180">6 месяцев</option>
+            <option value="365">1 год</option>
+            <option value="730">2 года</option>
+          </select>
+          <button class="primary" id="pull-missing">Догрузить недостающее</button>
+          <button id="pull-all">Обновить все</button>
+        </div>
+        <div id="job">
+          <div class="row" style="margin:0"><b id="job-title"></b><div class="spacer"></div><button class="danger" id="job-stop">Остановить</button></div>
+          <div class="progress"><div id="job-bar"></div></div>
+          <span id="job-text" class="hint"></span>
+        </div>
+        <div class="kpis" id="kpis"></div>
+        <h3>По датам</h3>
+        <div class="row"><label><input type="checkbox" id="only-gaps"> Только даты с пропусками</label></div>
+        <div class="scroll" id="calendar-wrap"></div>
+      </section>
+      <section class="card">
+        <h2>Инкассации по банкоматам</h2>
+        <div class="row" style="margin-top:8px">
+          <select id="atm-filter" aria-label="Фильтр по статусу">
+            <option value="">Все статусы</option>
+            <option value="problem" selected>Требуют внимания</option>
+            <option value="never">Не проверялись</option>
+            <option value="error">Ошибка</option>
+            <option value="shallow">Не на весь период</option>
+            <option value="stale">Давно не обновлялись</option>
+            <option value="ok">Полные</option>
+          </select>
+          <input type="search" id="atm-search" placeholder="ID, TID или адрес">
+        </div>
+        <div class="row" id="day-filter" style="display:none">
+          <span id="day-filter-text"></span>
+          <button class="primary" id="pull-day">Подтянуть эти банкоматы</button>
+          <button id="clear-day">Сбросить</button>
+        </div>
+        <div class="scroll" id="atms-wrap"></div>
+      </section>
+    </div>
+  </main>
+
+  <dialog id="row-dialog">
+    <div class="row" style="margin:0"><b id="row-title"></b><div class="spacer"></div><button id="row-close">Закрыть</button></div>
+    <pre id="row-body"></pre>
+  </dialog>
+
+<script>
+(function () {
+  const API = '/api/data-console';
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const num = (n) => Number(n || 0).toLocaleString('ru-RU');
+  const TZ = 'Asia/Tashkent';
+  const dt = (v) => v ? new Date(v).toLocaleString('ru-RU', { timeZone: TZ, day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
+  const dayOnly = (v) => v ? new Date(v).toLocaleDateString('ru-RU', { timeZone: TZ }) : '—';
+  const ruDay = (d) => d.split('-').reverse().join('.');
+  const size = (b) => b >= 1048576 ? (b / 1048576).toFixed(1) + ' МБ' : Math.ceil(b / 1024) + ' КБ';
+
+  const STATUS = {
+    ok: ['ok', 'Полные'], never: ['bad', 'Не проверялся'], error: ['bad', 'Ошибка'],
+    shallow: ['warn', 'Не на весь период'], stale: ['warn', 'Давно не обновлялся'],
+  };
+  const db = { schema: null, table: null, offset: 0, sort: null, direction: 'desc', q: '', rows: [] };
+  const cov = { data: null, dayIds: null, day: null };
+  let jobWasRunning = false;
+
+  function showError(msg) {
+    const box = $('error');
+    box.textContent = msg || '';
+    box.style.display = msg ? 'block' : 'none';
+  }
+
+  async function api(path, options) {
+    const res = await fetch(path, options);
+    if (res.status === 401) { location.href = '/dashboard/login.html?next=' + encodeURIComponent(location.pathname); throw new Error('Нужен вход'); }
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(typeof body.detail === 'string' ? body.detail : 'Ошибка сервера (' + res.status + ')');
+    return body;
+  }
+  const post = (path, body) => api(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+  const guarded = (fn) => async (...args) => { try { showError(''); return await fn(...args); } catch (e) { showError(e.message); } };
+
+  // ── База ──
+  async function loadTables() {
+    const tables = await api(API + '/tables');
+    let html = '', schema = null;
+    for (const t of tables) {
+      if (t.schema !== schema) { schema = t.schema; html += `<div class="schema-name">${esc(schema)}</div>`; }
+      html += `<button class="table-btn" data-schema="${esc(t.schema)}" data-table="${esc(t.name)}" title="${esc(t.name)}, ${size(t.bytes)}"><span>${esc(t.name)}</span><span class="n">≈${num(t.rows_estimate)}</span></button>`;
+    }
+    $('tables').innerHTML = html;
+  }
+
+  async function loadRows() {
+    if (!db.table) return;
+    const limit = Number($('limit').value);
+    const params = new URLSearchParams({ limit, offset: db.offset, direction: db.direction });
+    if (db.sort) params.set('sort', db.sort);
+    if (db.q) params.set('q', db.q);
+    const data = await api(`${API}/tables/${encodeURIComponent(db.schema)}/${encodeURIComponent(db.table)}?${params}`);
+    db.rows = data.rows;
+    $('table-title').textContent = `${db.schema}.${db.table} · строк: ${num(data.total)}`;
+    const head = data.columns.map((c) => {
+      const arrow = db.sort === c.name ? (db.direction === 'asc' ? ' ↑' : ' ↓') : '';
+      return `<th class="sortable" data-col="${esc(c.name)}">${esc(c.name)}${arrow}<span class="type">${esc(c.type)}</span></th>`;
+    }).join('');
+    const body = data.rows.map((r, i) => '<tr class="click" data-i="' + i + '">' + data.columns.map((c) => {
+      const v = r[c.name];
+      if (v === null || v === undefined) return '<td class="null">null</td>';
+      const text = typeof v === 'object' ? JSON.stringify(v) : String(v);
+      return `<td title="${esc(text.slice(0, 300))}">${esc(text.slice(0, 200))}</td>`;
+    }).join('') + '</tr>').join('');
+    $('grid').innerHTML = `<table><thead><tr>${head}</tr></thead><tbody>${body || `<tr><td colspan="${data.columns.length}" class="null">Нет строк</td></tr>`}</tbody></table>`;
+    $('prev').disabled = db.offset === 0;
+    $('next').disabled = db.offset + limit >= data.total;
+    $('page-info').textContent = data.total ? `${num(db.offset + 1)}–${num(Math.min(db.offset + limit, data.total))} из ${num(data.total)}` : '';
+    $('hidden-note').textContent = data.hidden_columns.length ? 'Скрыто для безопасности: ' + data.hidden_columns.join(', ') : '';
+    $('search').disabled = false;
+  }
+
+  $('tables').addEventListener('click', guarded(async (e) => {
+    const b = e.target.closest('.table-btn');
+    if (!b) return;
+    document.querySelectorAll('.table-btn.active').forEach((x) => x.classList.remove('active'));
+    b.classList.add('active');
+    Object.assign(db, { schema: b.dataset.schema, table: b.dataset.table, offset: 0, sort: null, direction: 'desc', q: '' });
+    $('search').value = '';
+    await loadRows();
+  }));
+  $('grid').addEventListener('click', guarded(async (e) => {
+    const th = e.target.closest('th.sortable');
+    if (th) {
+      if (db.sort === th.dataset.col) db.direction = db.direction === 'asc' ? 'desc' : 'asc';
+      else { db.sort = th.dataset.col; db.direction = 'desc'; }
+      db.offset = 0;
+      return loadRows();
+    }
+    const tr = e.target.closest('tr[data-i]');
+    if (tr) {
+      $('row-title').textContent = `${db.schema}.${db.table}`;
+      $('row-body').textContent = JSON.stringify(db.rows[Number(tr.dataset.i)], null, 2);
+      $('row-dialog').showModal();
+    }
+  }));
+  $('row-close').addEventListener('click', () => $('row-dialog').close());
+  $('prev').addEventListener('click', guarded(() => { db.offset = Math.max(0, db.offset - Number($('limit').value)); return loadRows(); }));
+  $('next').addEventListener('click', guarded(() => { db.offset += Number($('limit').value); return loadRows(); }));
+  $('limit').addEventListener('change', guarded(() => { db.offset = 0; return loadRows(); }));
+  let searchTimer;
+  $('search').addEventListener('input', () => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(guarded(() => { db.q = $('search').value.trim(); db.offset = 0; return loadRows(); }), 350);
+  });
+
+  // ── Полнота ──
+  async function loadCoverage() {
+    cov.data = await api(`${API}/coverage?days=${$('days').value}`);
+    renderCoverage();
+  }
+
+  function renderCoverage() {
+    const d = cov.data;
+    const c = d.atm_status_counts;
+    const need = d.atm_total - (c.ok || 0);
+    $('pull-missing').textContent = need ? `Догрузить недостающее (${num(need)})` : 'Догружать нечего';
+    $('pull-missing').disabled = !need;
+    $('pull-all').textContent = `Обновить все (${num(d.atm_total)})`;
+    const kpi = (v, l, cls) => `<div class="kpi ${cls}"><div class="v">${v}</div><div class="l">${l}</div></div>`;
+    $('kpis').innerHTML =
+      kpi(`${num(c.ok || 0)} / ${num(d.atm_total)}`, 'банкоматов с полными инкассациями', need ? 'warn' : 'good') +
+      kpi(num(d.days_with_encash_gaps), 'дат с непроверенными инкассациями', d.days_with_encash_gaps ? 'bad' : 'good') +
+      kpi(num(d.days_with_poll_gaps), 'дат с пропусками опросов', d.days_with_poll_gaps ? 'warn' : 'good') +
+      kpi(num(c.error || 0), 'банкоматов с ошибкой', c.error ? 'bad' : 'good');
+    renderCalendar();
+    renderAtms();
+  }
+
+  function renderCalendar() {
+    const only = $('only-gaps').checked;
+    const rows = cov.data.calendar.filter((r) => !only || r.encash_unverified || r.polls_status !== 'ok');
+    const pollBadge = { ok: 'ok', partial: 'warn', none: 'bad' };
+    const body = rows.map((r) => `
+      <tr class="click${cov.day === r.day ? ' selected' : ''}" data-day="${r.day}">
+        <td>${ruDay(r.day)}</td>
+        <td><span class="badge ${r.encash_unverified ? 'bad' : 'ok'}">${r.encash_unverified ? 'Не проверено: ' + num(r.encash_unverified) : 'Полные'}</span></td>
+        <td class="r">${num(r.encash_covered)}</td>
+        <td class="r">${num(r.encash_empty)}</td>
+        <td><span class="badge ${pollBadge[r.polls_status]}">${num(r.polls_ok)} из ${num(r.polls_expected)}</span></td>
+        <td class="r">${num(r.polls_failed)}</td>
+        <td class="r">${num(r.balance_atms)}</td>
+        <td class="r">${num(r.snapshot_atms)}</td>
+        <td class="r">${num(r.daily_atms)}</td>
+      </tr>`).join('');
+    $('calendar-wrap').innerHTML = `<table><thead><tr>
+      <th>Дата</th><th>Инкассации</th>
+      <th class="r" title="У банкомата есть цикл на эту дату">С циклом</th>
+      <th class="r" title="Банкомат проверен: в BTech на эту дату цикла нет">Без цикла</th>
+      <th>Опросы</th><th class="r">Сбоев</th>
+      <th class="r" title="Сколько банкоматов имеют историю остатка на эту дату">Остаток по дням</th><th class="r">Банкоматов в снимках</th><th class="r">Суточных итогов</th>
+    </tr></thead><tbody>${body || '<tr><td colspan="9" class="null">Пропусков нет</td></tr>'}</tbody></table>`;
+  }
+
+  function renderAtms() {
+    const filter = $('atm-filter').value;
+    const q = $('atm-search').value.trim().toLowerCase();
+    const dayIds = cov.dayIds ? new Set(cov.dayIds) : null;
+    const rows = cov.data.atms.filter((a) => {
+      if (dayIds) { if (!dayIds.has(a.id)) return false; }
+      else if (filter === 'problem' ? a.status === 'ok' : filter && a.status !== filter) return false;
+      return !q || String(a.id).includes(q) || String(a.tid || '').toLowerCase().includes(q) || String(a.address || '').toLowerCase().includes(q);
+    });
+    const shown = rows.slice(0, 500);
+    const body = shown.map((a) => {
+      const [cls, label] = STATUS[a.status];
+      const source = a.source_cycles == null ? '—' : num(a.source_cycles);
+      return `<tr>
+        <td><span class="badge ${cls}" title="${esc(a.last_error || '')}">${label}</span></td>
+        <td><a href="/dashboard/atm-card.html?id=${a.id}">${esc(a.tid || '—')}</a></td>
+        <td>${a.id}</td>
+        <td title="${esc(a.address || '')}">${esc(a.address || '—')}</td>
+        <td class="r">${num(a.cycles)}</td>
+        <td class="r">${source}</td>
+        <td>${dayOnly(a.first_start)}</td>
+        <td>${dayOnly(a.last_start)}</td>
+        <td class="r" title="Конец цикла не совпадает с началом следующего">${a.chain_gaps ? `<span class="badge warn">${a.chain_gaps}</span>` : '0'}</td>
+        <td>${dt(a.last_success_at)}</td>
+        <td><button class="link" data-pull="${a.id}">Подтянуть</button></td>
+      </tr>`;
+    }).join('');
+    const more = rows.length > shown.length ? `<tr><td colspan="11" class="null">Показаны первые ${shown.length} из ${num(rows.length)}. Уточни поиск.</td></tr>` : '';
+    $('atms-wrap').innerHTML = `<table><thead><tr>
+      <th>Статус</th><th>TID</th><th>ID</th><th>Адрес</th><th class="r">Циклов за период</th><th class="r">Всего в BTech</th>
+      <th>Первый цикл</th><th>Последний цикл</th><th class="r">Разрывы</th><th>Проверен</th><th></th>
+    </tr></thead><tbody>${(body + more) || '<tr><td colspan="11" class="null">Нет банкоматов</td></tr>'}</tbody></table>`;
+  }
+
+  $('calendar-wrap').addEventListener('click', guarded(async (e) => {
+    const tr = e.target.closest('tr[data-day]');
+    if (!tr) return;
+    const res = await api(`${API}/coverage/day?day=${tr.dataset.day}`);
+    cov.day = tr.dataset.day;
+    cov.dayIds = res.atm_ids;
+    $('day-filter').style.display = 'flex';
+    $('day-filter-text').textContent = res.atm_ids.length
+      ? `${ruDay(cov.day)}: не проверено банкоматов — ${num(res.atm_ids.length)}`
+      : `${ruDay(cov.day)}: все банкоматы проверены`;
+    $('pull-day').disabled = !res.atm_ids.length;
+    renderCalendar(); renderAtms();
+  }));
+  function clearDay() { cov.day = null; cov.dayIds = null; $('day-filter').style.display = 'none'; }
+  $('clear-day').addEventListener('click', () => { clearDay(); renderCalendar(); renderAtms(); });
+  $('only-gaps').addEventListener('change', renderCalendar);
+  $('atm-filter').addEventListener('change', renderAtms);
+  $('atm-search').addEventListener('input', renderAtms);
+  $('days').addEventListener('change', guarded(() => { clearDay(); return loadCoverage(); }));
+
+  // ── Сбор ──
+  async function startPull(body, count) {
+    // ~1 секунда на банкомат: пауза и сам запрос
+    const minutes = Math.ceil(count / 60);
+    if (count > 5 && !confirm(`Запросить инкассации у ${num(count)} банкоматов на monitoring.btech.uz? Примерно ${minutes} мин. Остановить можно в любой момент.`)) return;
+    const res = await post(API + '/pull', { days: Number($('days').value), ...body });
+    if (res.started) await refreshStatus();
+  }
+  $('pull-missing').addEventListener('click', guarded(() => {
+    const c = cov.data.atm_status_counts;
+    return startPull({ scope: 'missing' }, cov.data.atm_total - (c.ok || 0));
+  }));
+  $('pull-all').addEventListener('click', guarded(() => startPull({ scope: 'all' }, cov.data.atm_total)));
+  $('pull-day').addEventListener('click', guarded(() => startPull({ scope: 'atms', atm_ids: cov.dayIds }, cov.dayIds.length)));
+  $('atms-wrap').addEventListener('click', guarded((e) => {
+    const b = e.target.closest('[data-pull]');
+    if (b) return startPull({ scope: 'atms', atm_ids: [Number(b.dataset.pull)] }, 1);
+  }));
+  $('job-stop').addEventListener('click', guarded(async () => { await post(API + '/pull/stop'); $('job-stop').disabled = true; $('job-stop').textContent = 'Останавливаю…'; }));
+  $('poll-now').addEventListener('click', guarded(async () => {
+    await post('/api/atm-monitor/poll');
+    $('poll-now').textContent = 'Опрос запущен';
+    setTimeout(() => { $('poll-now').textContent = 'Опросить BTech сейчас'; }, 4000);
+  }));
+  $('process-history').addEventListener('click', guarded(async () => {
+    $('process-history').disabled = true;
+    try {
+      const r = await post('/api/atm-monitor/history/process');
+      $('process-history').textContent = `Событий: ${num(r.events)}, инкассаций: ${num(r.incassations)}`;
+      await loadCoverage();
+    } finally {
+      $('process-history').disabled = false;
+      setTimeout(() => { $('process-history').textContent = 'Пересчитать историю'; }, 6000);
+    }
+  }));
+
+  const RESULT = { finished: 'Сбор завершён', stopped: 'Сбор остановлен', aborted: 'Сбор прерван: 5 ошибок подряд, проверь доступ к BTech', failed: 'Сбор завершился ошибкой' };
+
+  async function refreshStatus() {
+    const s = await api(API + '/status');
+    const collector = !s.credentials_set ? 'нет логина в .env' : !s.collector_enabled ? 'выключен (ATM_COLLECTOR=0)' : s.collector_running ? `работает, опрос раз в ${s.poll_interval_minutes} мин` : 'не запущен';
+    $('status').innerHTML =
+      `<span>Сборщик: <b>${esc(collector)}</b></span>` +
+      `<span>Последний опрос: <b>${dt(s.last_successful_poll)}</b></span>` +
+      `<span>Инкассации: <b>авто раз в ${s.encashment_sync_hours} ч</b>, полный обход: <b>${dt(s.last_full_encashment_sync)}</b></span>`;
+    const j = s.job || {};
+    const box = $('job');
+    if (j.total) {
+      box.style.display = 'block';
+      $('job-title').textContent = j.running ? (j.source === 'auto' ? 'Идёт автоматический сбор' : 'Идёт сбор') : (RESULT[j.result] || 'Сбор завершён');
+      $('job-bar').style.width = Math.round(100 * j.done / j.total) + '%';
+      $('job-text').textContent = `Банкоматов: ${num(j.done)} из ${num(j.total)} · циклов сохранено: ${num(j.encashments)} · ошибок: ${num(j.errors)}` + (j.error ? ' · ' + j.error : '');
+      $('job-stop').style.display = j.running ? '' : 'none';
+      if (j.running) { $('job-stop').disabled = false; $('job-stop').textContent = 'Остановить'; }
+    }
+    $('pull-missing').disabled = !!j.running || (cov.data && cov.data.atm_total === (cov.data.atm_status_counts.ok || 0));
+    $('pull-all').disabled = !!j.running;
+    if (jobWasRunning && !j.running) { await loadCoverage(); await loadTables(); }
+    jobWasRunning = !!j.running;
+    clearTimeout(refreshStatus.t);
+    refreshStatus.t = setTimeout(guarded(refreshStatus), j.running ? 2000 : 30000);
+  }
+
+  guarded(async () => { await Promise.all([loadTables(), loadCoverage()]); await refreshStatus(); })();
+})();
+</script>
+</body>
+</html>

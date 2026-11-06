@@ -34,3 +34,12 @@ def pg_db(tmp_path, monkeypatch):
     yield
     db.close_pool()
     atm_monitor_db.close_pool()
+
+
+@pytest.fixture(autouse=True)
+def no_real_btech_reports(monkeypatch):
+    """Тесты не должны обращаться к настоящему BTech, даже если в .env есть логин."""
+    from atm_monitor import encashments
+
+    monkeypatch.setattr(encashments, "fetch_balance_history", lambda *a, **k: [], raising=True)
+    monkeypatch.setattr(encashments, "fetch_turnover_history", lambda *a, **k: [], raising=True)

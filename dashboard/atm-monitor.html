@@ -165,6 +165,7 @@
     border-top: 1px solid var(--border);
   }
 </style>
+<script src="/dashboard/js/atm-link.js"></script>
 </head>
 <body>
 
@@ -280,7 +281,7 @@ function renderRows(rows) {
   }
   tbody.innerHTML = rows.map(a => `
     <tr>
-      <td><a class="id-link" href="#">${a.tid ?? a.id}</a></td>
+      <td><a class="id-link" href="${atmHref({id: a.id})}">${a.tid ?? a.id}</a></td>
       <td>${a.serial ?? "—"}</td>
       <td>${renderCassettes(a.cassettes)}</td>
       <td>${fmtMoney(a.cdm_total_uzs)}</td>

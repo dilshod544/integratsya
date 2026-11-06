@@ -33,6 +33,7 @@ PAGE_DEFINITIONS: List[Dict[str, Any]] = [
         "label": "Карта ATM и инкассация",
         "html": [
             "/dashboard/map.html",
+            "/dashboard/atm-card.html",
             "/dashboard/incassation.html",
             "/dashboard/incassation-plan.html",
             "/dashboard/import-vash.html",

@@ -76,6 +76,7 @@ from pydantic import BaseModel
 from starlette.middleware.sessions import SessionMiddleware
 
 import atm_monitor.api as atm_monitor_api
+import atm_monitor.data_console as data_console
 import atm_monitor.db as atm_monitor_db
 import atm_monitor.forecast as atm_forecast
 import atm_monitor.history as atm_history
@@ -287,6 +288,28 @@ async def health():
     }
 
 
+@app.get("/api/atm-monitor/card", summary="Страница банкомата: всё по id BTech, TID или terminal_id реестра")
+def atm_monitor_card(id: Optional[int] = None, tid: Optional[str] = None, terminal: Optional[str] = None):
+    atm_id = id
+    registry = None
+    if atm_id is None and tid:
+        atm_id = next(iter(atm_monitor_api.atm_ids_by_tid(tid)), None)
+    if atm_id is None and terminal:
+        # Как на карте: реестр сопоставляется с BTech по terminal_id или по координатам.
+        registry = get_atm(terminal)
+        live_tid = registry.get("live_tid") if registry else None
+        ids = atm_monitor_api.atm_ids_by_tid(live_tid, terminal) if live_tid else atm_monitor_api.atm_ids_by_terminal(terminal)
+        atm_id = next(iter(ids), None)
+    card = atm_monitor_api.atm_card_data(atm_id) if atm_id is not None else None
+    if card:
+        return card
+    ref = id or tid or terminal or "?"
+    if registry:
+        place = registry.get("address") or registry.get("branch") or ""
+        raise HTTPException(404, f"Банкомат {ref} есть в реестре ({place}), но BTech по нему данных не отдаёт.")
+    raise HTTPException(404, f"Банкомат {ref} не найден.")
+
+
 @app.get("/api/atm-monitor/status", summary="Статус сборщика atm_monitor (последний опрос BTech)")
 async def atm_monitor_status():
     return atm_live.collector_status()
@@ -328,6 +351,20 @@ def require_admin(request: Request) -> Dict[str, Any]:
     return user
 
 
+def require_data_console(request: Request) -> Dict[str, Any]:
+    """Вход администратора нужен всегда, даже при AUTH_DISABLED=1: модуль показывает всю базу."""
+    data_console.check_request(request)
+    user = _current_user(request)
+    if not user:
+        raise HTTPException(401, "Не авторизован")
+    if not user["is_admin"]:
+        raise HTTPException(403, "Требуются права администратора")
+    return user
+
+
+app.include_router(data_console.router, dependencies=[Depends(require_data_console)])
+
+
 def _no_cache(path: str, response):
     """Страницы/скрипты дашборда браузер должен перепроверять каждый раз,
     иначе после обновления кода показывается старая закэшированная версия."""
@@ -361,7 +398,7 @@ async def auth_gate(request: Request, call_next):
             return JSONResponse({"detail": "Не авторизован"}, status_code=401)
         return RedirectResponse(url=f"/dashboard/login.html?next={path}", status_code=303)
 
-    if path.startswith("/admin"):
+    if path.startswith("/admin") or path == "/dashboard/data-console.html":
         if not user["is_admin"]:
             if is_api:
                 return JSONResponse({"detail": "Доступ запрещён"}, status_code=403)

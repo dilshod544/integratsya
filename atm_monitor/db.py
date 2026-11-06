@@ -186,6 +186,82 @@ CREATE TABLE IF NOT EXISTS atm_monitor.history_state (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Инкассации как их отдаёт BTech (atm_monitor/encashments.py): цикл от загрузки до
+-- следующей загрузки. В отличие от atm_incassations, это не вывод из снимков, а данные источника.
+-- Суммы NULL — BTech их не отдал (не ноль): у открытого цикла ещё нет выгрузки.
+CREATE TABLE IF NOT EXISTS atm_monitor.btech_encashments (
+    id BIGINT PRIMARY KEY,
+    atm_id BIGINT NOT NULL REFERENCES atm_monitor.atms(id),
+    started_at TIMESTAMPTZ NOT NULL,
+    finished_at TIMESTAMPTZ,                -- NULL — цикл ещё идёт
+    loaded_uzs DOUBLE PRECISION,            -- «Загружено»
+    unloaded_uzs DOUBLE PRECISION,          -- «Выгружено»
+    left_uzs DOUBLE PRECISION,              -- остаток в кассетах
+    dispensed_uzs DOUBLE PRECISION,         -- «Набрано»
+    presented_uzs DOUBLE PRECISION,         -- «Выдано»
+    rejected_uzs DOUBLE PRECISION,          -- «Отбраковано»
+    accepted_uzs DOUBLE PRECISION,          -- «Внесено»
+    retracted_total DOUBLE PRECISION,       -- «Захвачено»
+    raw_json JSONB NOT NULL,                -- весь объект: разбивка по номиналам, другие валюты
+    synced_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ix_btech_enc_atm_started ON atm_monitor.btech_encashments(atm_id, started_at);
+
+CREATE TABLE IF NOT EXISTS atm_monitor.btech_encashment_cassettes (
+    encashment_id BIGINT NOT NULL REFERENCES atm_monitor.btech_encashments(id) ON DELETE CASCADE,
+    number INTEGER NOT NULL,
+    unit_id TEXT, cassette_type TEXT, status TEXT, currency TEXT,
+    nominal BIGINT,
+    count INTEGER, loaded INTEGER,
+    dispensed_count INTEGER, presented_count INTEGER, rejected_count INTEGER, retracted_count INTEGER,
+    PRIMARY KEY (encashment_id, number)
+);
+
+-- Действия инкассатора: снятие/установка кассет и т.п.
+CREATE TABLE IF NOT EXISTS atm_monitor.btech_encashment_actions (
+    id BIGINT PRIMARY KEY,
+    encashment_id BIGINT NOT NULL REFERENCES atm_monitor.btech_encashments(id) ON DELETE CASCADE,
+    atm_id BIGINT NOT NULL REFERENCES atm_monitor.atms(id),
+    created_at TIMESTAMPTZ NOT NULL,
+    evtno BIGINT,
+    data TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_btech_enc_actions_enc ON atm_monitor.btech_encashment_actions(encashment_id);
+
+-- Когда и насколько глубоко проверен каждый банкомат. Без этого банкомат, у которого
+-- за дату просто нет цикла, не отличить от банкомата, который ещё не проверяли.
+CREATE TABLE IF NOT EXISTS atm_monitor.btech_encashment_sync (
+    atm_id BIGINT PRIMARY KEY REFERENCES atm_monitor.atms(id),
+    last_attempt_at TIMESTAMPTZ,
+    last_success_at TIMESTAMPTZ,
+    synced_since TIMESTAMPTZ,               -- циклы, закончившиеся после этого момента, загружены
+    source_cycles INTEGER,                  -- сколько циклов всего отдал BTech
+    last_error TEXT
+);
+
+-- История по дням из отчётов BTech (atm_monitor/daily_history.py).
+ALTER TABLE atm_monitor.btech_encashment_sync ADD COLUMN IF NOT EXISTS balance_since TIMESTAMPTZ;
+
+CREATE TABLE IF NOT EXISTS atm_monitor.btech_balance_daily (
+    atm_id BIGINT NOT NULL REFERENCES atm_monitor.atms(id),
+    day DATE NOT NULL,
+    cassette_index INTEGER NOT NULL,
+    unit_id TEXT, cassette_type TEXT, currency TEXT,
+    nominal BIGINT, count INTEGER,               -- купюр на конец дня
+    PRIMARY KEY (atm_id, day, cassette_index)
+);
+CREATE INDEX IF NOT EXISTS ix_btech_balance_day ON atm_monitor.btech_balance_daily(day);
+
+CREATE TABLE IF NOT EXISTS atm_monitor.btech_turnover_daily (
+    atm_id BIGINT NOT NULL REFERENCES atm_monitor.atms(id),
+    day DATE NOT NULL,
+    currency TEXT NOT NULL, nominal BIGINT NOT NULL,
+    dispensed_count INTEGER NOT NULL DEFAULT 0,  -- «Набрано», купюр
+    presented_count INTEGER NOT NULL DEFAULT 0,  -- «Выдано», купюр
+    cash_in_count INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (atm_id, day, currency, nominal)
+);
+
 CREATE TABLE IF NOT EXISTS atm_monitor.atm_forecasts (
     run_id BIGINT NOT NULL REFERENCES atm_monitor.forecast_runs(id) ON DELETE CASCADE,
     atm_id BIGINT NOT NULL REFERENCES atm_monitor.atms(id),

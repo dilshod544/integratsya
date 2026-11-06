@@ -88,6 +88,7 @@
     .scale span.sq { width: 16px; height: 16px; border-radius: 5px; display: inline-flex; align-items: center; justify-content: center; color: #fff; font-weight: 800; font-size: 10px; }
     @media (max-width: 900px) { .trips { grid-template-columns: 1fr; } #map { height: 380px; position: static; } main { padding: 14px 16px 40px; } }
   </style>
+<script src="/dashboard/js/atm-link.js"></script>
 </head>
 <body>
 <header>
@@ -191,7 +192,7 @@
         const blocked = DATA.blocked.includes(it.id);
         return `<tr class="row${openRow === it.id ? ' open' : ''}" data-id="${it.id}">
           <td><div class="score s${it.score}">${it.score}</div></td>
-          <td><div class="tid">${escapeHtml(it.tid)} ${it.needs_technician ? '<span class="chip tech">техник</span>' : ''}</div>
+          <td><div class="tid">${atmLink(it.tid, {id: it.atm_id, tid: it.tid})} ${it.needs_technician ? '<span class="chip tech">техник</span>' : ''}</div>
               <div class="addr">${escapeHtml(it.address || '')}</div>
               <div class="addr">${escapeHtml([it.region, it.branch].filter(Boolean).join(' · '))}</div></td>
           <td class="num"><div class="big">${fmtM(it.available_uzs)}</div><div class="muted">из ${fmtM(it.capacity_uzs)}</div><div class="bar ${cls}"><span style="width:${pct}%"></span></div></td>
@@ -230,7 +231,7 @@
       <div class="meta">${t.branch_cash_uzs == null ? 'Остаток кассы филиала не загружен'
         : t.branch_cash_short ? `<span class="warn-txt">В кассе филиала ${fmtM(t.branch_cash_uzs)} — меньше, чем нужно довезти</span>`
         : `В кассе филиала ${fmtM(t.branch_cash_uzs)} — хватает`}</div>
-      <ol class="stops">${t.stops.map((s) => `<li><b>${escapeHtml(s.tid)}</b> · срочность ${s.score} · довезти ${fmtM(s.amount_to_bring)} <span class="muted">${escapeHtml(s.address || '')}</span></li>`).join('')}</ol>
+      <ol class="stops">${t.stops.map((s) => `<li><b>${atmLink(s.tid, {id: s.atm_id, tid: s.tid})}</b> · срочность ${s.score} · довезти ${fmtM(s.amount_to_bring)} <span class="muted">${escapeHtml(s.address || '')}</span></li>`).join('')}</ol>
     </div>`).join('');
     drawTrip(DATA.trips.indexOf(trips[0]));
   }

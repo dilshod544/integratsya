@@ -261,7 +261,7 @@ function onRegionChange() {
     item.innerHTML = `
       <input type="checkbox" id="modal-atm-${atm.id}" value="${atm.id}" ${isChecked ? 'checked' : ''} onchange="updateModalAtmCount()">
       <div class="modal-atm-details">
-        <span class="modal-atm-name">${atm.name} (${atm.bank})</span>
+        <span class="modal-atm-name">${atmLink(atm.name, {terminal: atm.id})} (${atm.bank})</span>
         <span class="modal-atm-address">${atm.address || 'Адрес не указан'}</span>
       </div>
     `;
@@ -2132,7 +2132,7 @@ function renderList() {
     card.innerHTML = `
       <div class="atm-card-top">
         <div>
-          <div class="atm-card-name">${atm.name}</div>
+          <div class="atm-card-name">${atmLink(atm.name, {terminal: atm.id})}</div>
           <div class="atm-card-bank">${atm.bank}</div>
         </div>
         <div class="status-dot dot-${st.status}"></div>
@@ -2231,7 +2231,7 @@ function selectAtm(id) {
     : '—';
 
   const popupHtml = (cassettes, source) => `
-    <div class="popup-title">${atm.name}</div>
+    <div class="popup-title">${atmLink(atm.name, {terminal: atm.id})}</div>
     <div class="popup-row">Адрес: <span>${atm.address}</span></div>
     <hr style="border-color:#e5eaf3;margin:8px 0">
 
@@ -2420,7 +2420,7 @@ function renderRouteSidebar(carRoutes, totalStops, totalDistKm, totalTimeMin) {
           return `
             <div class="rs-stop" onclick="selectAtm('${atm.id}')" style="cursor:pointer">
               <div class="rs-stop-num" style="background:${color}">${si+1}</div>
-              <div class="rs-stop-name">${atm.name}<br><span style="color:#667085">${atm.bank}</span></div>
+              <div class="rs-stop-name">${atmLink(atm.name, {terminal: atm.id})}<br><span style="color:#667085">${atm.bank}</span></div>
               <div class="rs-stop-bal ${balCls}">${balStr}<br><span style="font-weight:500;color:#667085">${pct}%</span></div>
             </div>`;
         }).join('')}
@@ -2590,7 +2590,7 @@ function renderRegionalRoutes(data) {
           iconSize: [28, 28], iconAnchor: [14, 14]
         })
       }).addTo(map).bindPopup(`
-        <div class="popup-title">${si + 1}. ${stop.name || stop.terminal_id}</div>
+        <div class="popup-title">${si + 1}. ${atmLink(stop.name || stop.terminal_id, {terminal: stop.terminal_id || stop.atm_id})}</div>
         <div class="popup-row">Вилоят: <span>${car.region || '—'}</span></div>
         <div class="popup-row">Филиал: <span>${dep.name || dep.local_code || '—'}</span></div>
         <div class="popup-row">Адрес: <span>${stop.address || '—'}</span></div>
@@ -2663,7 +2663,7 @@ function renderRegionalRoutes(data) {
       return `
         <div class="rs-stop" onclick="typeof selectAtm==='function' && selectAtm('${s.atm_id || s.terminal_id || ''}')" style="cursor:pointer">
           <div class="rs-stop-num" style="background:${color}">${si + 1}</div>
-          <div class="rs-stop-name">${s.name || s.terminal_id}<br>
+          <div class="rs-stop-name">${atmLink(s.name || s.terminal_id, {terminal: s.terminal_id || s.atm_id})}<br>
             <span style="color:#667085;font-size:10px">${s.bank || s.address || ''}</span>
             <span style="display:block;color:#667085;font-size:10px;margin-top:2px">остаток ${balStr} (${pct}%)</span>
           </div>

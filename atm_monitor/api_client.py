@@ -15,9 +15,46 @@ def _headers() -> dict:
     }
 
 
+def _get_items(url: str, params: dict) -> list:
+    """GET списка. При 401 один раз принудительно обновляет токен и повторяет запрос."""
+    resp = requests.get(url, params=params, headers=_headers(), timeout=settings.REQUEST_TIMEOUT)
+
+    if resp.status_code == 401:
+        logger.warning("Получили 401, принудительно обновляем токен и повторяем запрос")
+        token_manager.force_refresh()
+        resp = requests.get(url, params=params, headers=_headers(), timeout=settings.REQUEST_TIMEOUT)
+
+    resp.raise_for_status()
+    data = resp.json()
+
+    # API может отдавать либо голый массив, либо {"items": [...], "total": N}
+    return data.get("items", []) if isinstance(data, dict) else data
+
+
+def fetch_encashments(atm_id: int) -> list:
+    """Все циклы инкассации банкомата (вкладка «Инкассации»).
+    Без limit=-1 BTech отдаёт только первые 10 циклов."""
+    url = settings.API_BASE_URL.rstrip("/") + settings.ATM_ENCASHMENT_PATH.format(atm_id=atm_id)
+    return _get_items(url, {"brief": "true", "raw": "true", "limit": -1, "lang": settings.QUERY_PARAMS["lang"]})
+
+
+def _fetch_report(atm_id: int, name: str, start: str, end: str, **extra) -> list:
+    url = settings.API_BASE_URL.rstrip("/") + settings.ATM_REPORT_PATH.format(atm_id=atm_id) + "/" + name
+    return _get_items(url, {"dateRange": f"{start},{end}", "lang": settings.QUERY_PARAMS["lang"], **extra})
+
+
+def fetch_balance_history(atm_id: int, start: str, end: str) -> list:
+    """Остаток каждой кассеты на конец дня."""
+    return _fetch_report(atm_id, "balanceHistory", start, end)
+
+
+def fetch_turnover_history(atm_id: int, start: str, end: str) -> list:
+    """Выдачи по дням и номиналам."""
+    return _fetch_report(atm_id, "turnoverHistory", start, end, dateTrunc="daily")
+
+
 def fetch_all_atms() -> list:
-    """Тянет все банкоматы постранично (offset/limit), пока не кончатся записи.
-    При 401 один раз принудительно обновляет токен и повторяет запрос."""
+    """Тянет все банкоматы постранично (offset/limit), пока не кончатся записи."""
 
     url = settings.API_BASE_URL.rstrip("/") + settings.ATM_LIST_PATH
     items: list = []
@@ -28,22 +65,7 @@ def fetch_all_atms() -> list:
         params["offset"] = offset
         params["limit"] = settings.PAGE_LIMIT
 
-        resp = requests.get(
-            url, params=params, headers=_headers(), timeout=settings.REQUEST_TIMEOUT
-        )
-
-        if resp.status_code == 401:
-            logger.warning("Получили 401, принудительно обновляем токен и повторяем запрос")
-            token_manager.force_refresh()
-            resp = requests.get(
-                url, params=params, headers=_headers(), timeout=settings.REQUEST_TIMEOUT
-            )
-
-        resp.raise_for_status()
-        data = resp.json()
-
-        # API может отдавать либо голый массив, либо {"items": [...], "total": N}
-        batch = data.get("items", []) if isinstance(data, dict) else data
+        batch = _get_items(url, params)
         if not batch:
             break
 

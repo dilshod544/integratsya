@@ -14,6 +14,7 @@ import time
 from .api_client import fetch_all_atms
 from .config import settings
 from .db import connect, init_db
+from .encashments import start_sync_if_due
 from .history import safe_process_history
 from .ingest import ingest
 
@@ -60,6 +61,7 @@ def run_once() -> bool:
         logger.info("Готово, poll_run_id=%s", poll_run_id)
         safe_process_history()          # события, инкассации, суточные итоги
         _after_poll()                   # рекомендации инкассаций по свежим данным
+        start_sync_if_due()             # инкассации из карточек банкоматов
         return True
     except Exception as e:  # noqa: BLE001
         logger.error("Опрос завершился с ошибкой (%s), следующая попытка по расписанию", e)

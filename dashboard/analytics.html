@@ -367,6 +367,7 @@
       .kpi-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
   </style>
+<script src="/dashboard/js/atm-link.js"></script>
 </head>
 <body>
   <header>
@@ -1120,7 +1121,7 @@
     }
 
     function atmCell(a) {
-      return `<div class="strong">${esc(a.tid)}</div>
+      return `<div class="strong">${atmLink(a.tid, {id: a.atm_id, tid: a.tid})}</div>
         <div class="sub">${esc(a.address || a.place || '—')}</div>
         <div class="sub">${esc(a.region ? [a.region, a.branch].filter(Boolean).join(' · ') : NO_REGION)}</div>`;
     }
@@ -1376,7 +1377,7 @@
       document.getElementById('fc-count').textContent = `${rows.length} ATM`;
       document.getElementById('fc-body').innerHTML = rows.slice((fcPage - 1) * PAGE_SIZE, fcPage * PAGE_SIZE).map(a => `
         <tr>
-          <td><div class="strong">${esc(a.tid)}</div><div class="sub">${esc(a.address || '—')}</div>
+          <td><div class="strong">${atmLink(a.tid, {id: a.atm_id, tid: a.tid})}</div><div class="sub">${esc(a.address || '—')}</div>
             <div class="sub">${esc([a.region, a.branch].filter(Boolean).join(' · '))}</div></td>
           <td class="num">${money(a.balance)}</td>
           <td class="num">${money(a.withdrawal_24h)}</td>
@@ -1429,7 +1430,7 @@
       }
       renderWithdrawals();
       document.getElementById('wd-top').innerHTML = wdData.top_atms.map(a => `
-        <tr><td><div class="strong">${esc(a.tid)}</div><div class="sub">${esc([a.region, a.branch].filter(Boolean).join(' · ') || 'не сопоставлен')}</div></td>
+        <tr><td><div class="strong">${atmLink(a.tid, {id: a.atm_id, tid: a.tid})}</div><div class="sub">${esc([a.region, a.branch].filter(Boolean).join(' · ') || 'не сопоставлен')}</div></td>
           <td class="num strong">${money(a.withdrawal)}</td><td class="num">${money(a.avg_per_hour ?? a.avg_per_day)}</td><td class="num">${a.refills}</td></tr>`).join('')
         || '<tr><td colspan="4" class="empty">Нет данных</td></tr>';
       icons();
@@ -1488,7 +1489,7 @@
       if (title) title.textContent = `По банкоматам · ${rows.length}`;
       body.innerHTML = rows.map(a => `
         <tr>
-          <td><div class="strong">${esc(a.tid || '—')}</div><div class="sub">${esc([a.region, a.branch, a.address].filter(Boolean).join(' · ') || 'не сопоставлен')}</div></td>
+          <td><div class="strong">${atmLink(a.tid || '—', {id: a.atm_id, tid: a.tid})}</div><div class="sub">${esc([a.region, a.branch, a.address].filter(Boolean).join(' · ') || 'не сопоставлен')}</div></td>
           <td class="num strong">${money(a.withdrawal)}</td>
           <td class="num">${money(a.avg_per_hour ?? a.avg_per_day)}</td>
           <td class="num">${a.refills}</td>
@@ -1869,7 +1870,7 @@
       amAtm = efData.atms.find(a => a.atm_id === id) || { atm_id: id, tid: id };
       amData = null; amRange = 0;
       const a = amAtm, N = efData.norm_days;
-      document.getElementById('am-title').textContent = a.tid;
+      document.getElementById('am-title').innerHTML = atmLink(a.tid, {id: a.atm_id, tid: a.tid});
       document.getElementById('am-sub').textContent = [a.region, a.branch, a.address].filter(Boolean).join(' · ') || 'не сопоставлен с реестром';
       document.getElementById('am-kpis').innerHTML = [
         { label: 'Остаток', value: money(a.balance), icon: 'wallet', hint: a.polled_at ? dt(a.polled_at) : '' },
@@ -1972,7 +1973,7 @@
         const cover = a.status === 'no_demand' ? 'снятий нет' : a.cover_days === null ? '—'
           : a.cover_days > N ? `${days1(a.cover_days)} <span class="sub">(в ${(a.cover_days / N).toFixed(1).replace('.', ',')}× больше нормы)</span>` : days1(a.cover_days);
         return `<tr class="clickable ${String(a.atm_id) === sel ? 'selected' : ''}" onclick="selectEfAtm(${a.atm_id})" title="Показать остаток на графике">
-          <td><div class="strong">${esc(a.tid || '—')}</div><div class="sub">${esc([a.region, a.branch, a.address].filter(Boolean).join(' · ') || 'не сопоставлен')}</div></td>
+          <td><div class="strong">${atmLink(a.tid || '—', {id: a.atm_id, tid: a.tid})}</div><div class="sub">${esc([a.region, a.branch, a.address].filter(Boolean).join(' · ') || 'не сопоставлен')}</div></td>
           <td class="num strong">${money(a.balance)}</td>
           <td class="num">${money(a.avg_per_hour)}</td>
           <td class="num">${money(a.avg_per_day)}</td>

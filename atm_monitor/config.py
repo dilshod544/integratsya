@@ -55,6 +55,17 @@ class Settings:
     LOW_CASH_PCT = float(os.getenv("LOW_CASH_PCT", "0.20"))
     DEFAULT_CAPACITY = int(os.getenv("DEFAULT_CAPACITY", "400000000"))
 
+    # --- Инкассации из карточки банкомата (atm_monitor/encashments.py) ---
+    # Путь с {atm_id}. Пустое значение выключает сбор инкассаций.
+    ATM_ENCASHMENT_PATH = os.getenv("ATM_ENCASHMENT_PATH", "/api/base/atm/{atm_id}/encashment")
+    ATM_REPORT_PATH = os.getenv("ATM_REPORT_PATH", "/api/report/atm/{atm_id}")
+    # Обновление истории по дням: последние дни могут уточняться задним числом.
+    DAILY_HISTORY_REFRESH_DAYS = int(os.getenv("DAILY_HISTORY_REFRESH_DAYS", "7"))
+    ENCASHMENT_HISTORY_DAYS = int(os.getenv("ENCASHMENT_HISTORY_DAYS", "92"))
+    ENCASHMENT_SYNC_HOURS = int(os.getenv("ENCASHMENT_SYNC_HOURS", "6"))
+    # Запросов столько же, сколько банкоматов, поэтому между ними пауза.
+    ENCASHMENT_REQUEST_PAUSE_SEC = float(os.getenv("ENCASHMENT_REQUEST_PAUSE_SEC", "0.3"))
+
     # --- Query params (как в примере пользователя; agentConnectionStatus="all",
     # чтобы получать в т.ч. офлайн-банкоматы, а не только online) ---
     QUERY_PARAMS = {
