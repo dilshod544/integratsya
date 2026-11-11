@@ -92,6 +92,30 @@ def test_network_status_summary(pg_db):
     assert data["cash_by_nominal"] == [{"nominal": 200000, "amount": 4 * 100 * 200000}]
 
 
+def test_export_atm_status_xlsx(pg_db):
+    from io import BytesIO
+
+    from openpyxl import load_workbook
+
+    _seed()
+    atm_analytics.invalidate_cache()
+    ids = [a["atm_id"] for a in atm_analytics.network_status()["atms"]]
+    raw = atm_analytics.export_atm_status_xlsx(
+        ids, region="Сурхондарё вилояти", filter_label="Все банкоматы", search=None
+    )
+    assert raw[:2] == b"PK"
+    wb = load_workbook(BytesIO(raw))
+    assert wb.sheetnames[0] == "Банкоматы"
+    assert wb["Банкоматы"].max_row == 1 + len(ids)
+    assert wb["Банкоматы"]["A1"].value == "TID"
+    assert wb["Сводка"]["B5"].value == "Сурхондарё вилояти"
+    try:
+        atm_analytics.export_atm_status_xlsx([])
+        assert False, "empty export must fail"
+    except ValueError:
+        pass
+
+
 def test_forecast_and_withdrawals_endpoints(pg_db):
     _seed()
     atm_analytics.invalidate_cache()

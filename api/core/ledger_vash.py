@@ -1012,3 +1012,135 @@ def vash_operations_analytics(
         "filter_day": oper_day,
         "import": current,
     }
+
+
+_BAND_LABEL = {
+    "high": "много",
+    "mid": "средне",
+    "low": "мало",
+    "none": "нет",
+}
+
+
+def export_vash_operations_xlsx(
+    points: List[Dict[str, Any]],
+    *,
+    import_label: Optional[str] = None,
+    period: Optional[str] = None,
+    band_label: Optional[str] = None,
+    search: Optional[str] = None,
+) -> bytes:
+    """XLSX по текущей выборке пунктов ВАШ (как на экране аналитики)."""
+    from io import BytesIO
+
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+    from openpyxl.utils import get_column_letter
+
+    if not points:
+        raise ValueError("Нет пунктов для выгрузки")
+    if len(points) > 10000:
+        raise ValueError("Слишком много пунктов для одной выгрузки")
+
+    wb = openpyxl.Workbook()
+    thin = Border(
+        left=Side(style="thin", color="D0D7DE"),
+        right=Side(style="thin", color="D0D7DE"),
+        top=Side(style="thin", color="D0D7DE"),
+        bottom=Side(style="thin", color="D0D7DE"),
+    )
+    head_fill = PatternFill("solid", fgColor="E8EEF7")
+    head_font = Font(bold=True, color="1E293B")
+    label_font = Font(bold=True, color="334155")
+
+    def autosize(ws, max_width: int = 48) -> None:
+        for idx, col in enumerate(ws.columns, start=1):
+            width = 0
+            for cell in col:
+                if cell.value is None:
+                    continue
+                width = max(width, min(max_width, len(str(cell.value)) + 2))
+            ws.column_dimensions[get_column_letter(idx)].width = max(10, width)
+
+    meta = wb.active
+    meta.title = "Сводка"
+    ops_total = sum(int(p.get("ops") or 0) for p in points)
+    band_counts = {k: sum(1 for p in points if p.get("band") == k) for k in ("high", "mid", "low", "none")}
+    meta_rows = [
+        ("Отчёт", "Пункты обмена ВАШ"),
+        ("Сформирован", datetime.now().strftime("%d.%m.%Y %H:%M")),
+        ("Импорт", import_label or "—"),
+        ("Период", period or "весь импорт"),
+        ("Фильтр активности", band_label or "Все"),
+        ("Поиск", search or "—"),
+        ("Пунктов в файле", len(points)),
+        ("Операций в выборке", ops_total),
+        ("Много операций", band_counts["high"]),
+        ("Средне", band_counts["mid"]),
+        ("Мало операций", band_counts["low"]),
+        ("Нет операций", band_counts["none"]),
+        ("На карте", sum(1 for p in points if p.get("on_map"))),
+        ("Без координат", sum(1 for p in points if not p.get("on_map"))),
+    ]
+    meta.append(["Параметр", "Значение"])
+    for cell in meta[1]:
+        cell.fill = head_fill
+        cell.font = head_font
+        cell.border = thin
+    for label, value in meta_rows:
+        meta.append([label, value])
+        meta.cell(meta.max_row, 1).font = label_font
+        for col in (1, 2):
+            meta.cell(meta.max_row, col).border = thin
+        if isinstance(value, int):
+            meta.cell(meta.max_row, 2).number_format = "#,##0"
+    autosize(meta)
+
+    ws = wb.create_sheet("Пункты", 0)
+    headers = [
+        "Пункт ВАШ", "Адрес", "Филиал (код)", "Филиал (название)",
+        "Операций", "Активность", "Счета CI", "Счета CO",
+        "Первая операция", "Последняя операция",
+        "На карте", "Широта", "Долгота",
+    ]
+    ws.append(headers)
+    for cell in ws[1]:
+        cell.fill = head_fill
+        cell.font = head_font
+        cell.border = thin
+        cell.alignment = Alignment(wrap_text=True, vertical="center")
+    ws.freeze_panes = "B2"
+    ws.auto_filter.ref = f"A1:{ws.cell(1, len(headers)).coordinate}"
+
+    for p in points:
+        ws.append([
+            p.get("obmen_punkt") or p.get("vash_number") or "",
+            p.get("address") or "",
+            p.get("branch") or "",
+            p.get("bxm_name") or "",
+            int(p.get("ops") or 0),
+            _BAND_LABEL.get(p.get("band"), p.get("band") or ""),
+            int(p.get("ci_accounts") or 0),
+            int(p.get("co_accounts") or 0),
+            p.get("first_date") or "",
+            p.get("last_date") or "",
+            "да" if p.get("on_map") else "нет",
+            p.get("lat"),
+            p.get("lon"),
+        ])
+        r = ws.max_row
+        for col in range(1, len(headers) + 1):
+            cell = ws.cell(r, col)
+            cell.border = thin
+            cell.alignment = Alignment(vertical="top", wrap_text=col in (1, 2))
+        for col in (5, 7, 8):
+            ws.cell(r, col).number_format = "#,##0"
+        for col in (12, 13):
+            if ws.cell(r, col).value is not None:
+                ws.cell(r, col).number_format = "0.000000"
+
+    autosize(ws)
+    ws.row_dimensions[1].height = 30
+
+    buf = BytesIO()
+    wb.save(buf)
+    return buf.getvalue()

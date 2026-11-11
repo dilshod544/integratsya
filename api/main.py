@@ -70,7 +70,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # корень п�
 import uvicorn
 from fastapi import Body, Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.middleware.sessions import SessionMiddleware
@@ -144,6 +144,7 @@ from core.ledger_vash import (
     replace_vash_operations,
     vash_import_periods,
     vash_operations_analytics,
+    export_vash_operations_xlsx,
     ledger_cash_overview,
 )
 from core.vash import (
@@ -1083,6 +1084,51 @@ async def get_vash_operations_analytics(
         raise HTTPException(status_code=400, detail=str(e))
 
 
+class VashExportPoint(BaseModel):
+    obmen_punkt: Optional[str] = None
+    vash_number: Optional[str] = None
+    address: Optional[str] = None
+    branch: Optional[str] = None
+    bxm_name: Optional[str] = None
+    ops: int = 0
+    band: Optional[str] = None
+    ci_accounts: int = 0
+    co_accounts: int = 0
+    first_date: Optional[str] = None
+    last_date: Optional[str] = None
+    on_map: bool = False
+    lat: Optional[float] = None
+    lon: Optional[float] = None
+
+
+class VashExportRequest(BaseModel):
+    points: List[VashExportPoint]
+    import_label: Optional[str] = None
+    period: Optional[str] = None
+    band_label: Optional[str] = None
+    search: Optional[str] = None
+
+
+@app.post("/api/vash/operations/export", summary="Excel: выбранные пункты ВАШ из аналитики")
+def export_vash_operations(payload: VashExportRequest):
+    try:
+        content = export_vash_operations_xlsx(
+            [p.model_dump() for p in payload.points],
+            import_label=payload.import_label,
+            period=payload.period,
+            band_label=payload.band_label,
+            search=payload.search,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    stamp = datetime.now().strftime("%Y-%m-%d_%H%M")
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="VASH_points_{stamp}.xlsx"'},
+    )
+
+
 @app.post("/api/vash/operations/import", summary="Импорт операций ВАШ: ci_acc, co_acc, obmen_punkt, branch, date")
 async def import_vash_operations(file: UploadFile = File(...)):
     if not file.filename or not file.filename.lower().endswith((".xlsx", ".xlsm")):
@@ -1591,6 +1637,33 @@ def put_economics(payload: EconomicsUpdate, user: Dict[str, Any] = Depends(requi
 @app.get("/api/analytics/atm-status", summary="Состояние сети: работают, заняты, офлайн, не заряжены, неисправности")
 def analytics_atm_status():
     return atm_analytics.network_status()
+
+
+class AtmStatusExportRequest(BaseModel):
+    atm_ids: List[int]
+    region: Optional[str] = None
+    filter_label: Optional[str] = None
+    search: Optional[str] = None
+
+
+@app.post("/api/analytics/atm-status/export", summary="Excel: выбранные банкоматы из аналитики состояния сети")
+def analytics_atm_status_export(payload: AtmStatusExportRequest):
+    try:
+        content = atm_analytics.export_atm_status_xlsx(
+            payload.atm_ids,
+            region=payload.region,
+            filter_label=payload.filter_label,
+            search=payload.search,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    stamp = datetime.now().strftime("%Y-%m-%d_%H%M")
+    filename = f"ATM_status_{stamp}.xlsx"
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @app.get("/api/analytics/forecast", summary="Прогноз снятий наличных (XGBoost) и сроки cash-out")

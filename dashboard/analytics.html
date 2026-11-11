@@ -436,6 +436,9 @@
           <div class="toolbar">
             <input id="atm-search" type="search" placeholder="Поиск: TID, адрес, филиал..." oninput="atmPage = 1; renderAtmTable()" />
             <select id="atm-region" onchange="atmPage = 1; renderAtmTable(); renderRegions()"><option value="">Все регионы</option></select>
+            <button type="button" class="btn" id="atm-export-btn" onclick="exportAtmExcel()" title="Скачать текущую выборку в Excel">
+              <i data-lucide="file-spreadsheet" class="icon-inline"></i> Excel
+            </button>
             <span class="pager-info" id="atm-count"></span>
           </div>
           <div class="table-wrap">
@@ -571,6 +574,9 @@
           <button class="btn vash-band" data-band="mid" onclick="setVashBand('mid')">Средне</button>
           <button class="btn vash-band low" data-band="low" onclick="setVashBand('low')">Мало операций</button>
           <button class="btn vash-band none" data-band="none" onclick="setVashBand('none')">Нет операций</button>
+          <button type="button" class="btn" id="vash-export-btn" onclick="exportVashExcel()" title="Скачать текущую выборку в Excel">
+            <i data-lucide="file-spreadsheet" class="icon-inline"></i> Excel
+          </button>
           <a class="btn primary" id="vash-map-btn" href="/dashboard/map.html?vash_band=all">Показать все на карте</a>
         </div>
         <div class="table-wrap" style="max-height:640px;overflow:auto">
@@ -1248,6 +1254,61 @@
       el.innerHTML = html + `<span class="pager-info">${from}–${to} из ${total}</span>`;
     }
 
+    function currentAtmExportRows() {
+      if (!statusData) return [];
+      const kind = activeFilter.includes(':') ? activeFilter.slice(0, activeFilter.indexOf(':')) : activeFilter;
+      const d = DETAIL[kind] || DETAIL.all;
+      return filteredAtms().sort(d.sort);
+    }
+
+    async function exportAtmExcel() {
+      const rows = currentAtmExportRows();
+      const btn = document.getElementById('atm-export-btn');
+      if (!rows.length) {
+        alert('Нечего выгружать: в текущей выборке нет банкоматов.');
+        return;
+      }
+      btn.disabled = true;
+      const old = btn.innerHTML;
+      btn.innerHTML = '<i data-lucide="loader-circle" class="icon-inline"></i> Excel…';
+      icons();
+      try {
+        const r = await fetch(API + '/api/analytics/atm-status/export', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            atm_ids: rows.map(a => a.atm_id),
+            region: regionFilter || null,
+            filter_label: activeFilter === 'all' ? 'Все банкоматы' : filterFor(activeFilter).label,
+            search: document.getElementById('atm-search').value.trim() || null,
+          }),
+        });
+        if (!r.ok) {
+          let detail = `HTTP ${r.status}`;
+          try { detail = (await r.json()).detail || detail; } catch (_) {}
+          throw new Error(detail);
+        }
+        const blob = await r.blob();
+        const cd = r.headers.get('Content-Disposition') || '';
+        const m = /filename="([^"]+)"/.exec(cd);
+        const name = m ? m[1] : 'ATM_status.xlsx';
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = name;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      } catch (e) {
+        alert('Не удалось выгрузить Excel: ' + (e.message || e));
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = old;
+        icons();
+      }
+    }
+
     function renderAtmTable() {
       if (!statusData) return;
       const kind = activeFilter.includes(':') ? activeFilter.slice(0, activeFilter.indexOf(':')) : activeFilter;
@@ -1268,6 +1329,7 @@
       const pages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
       atmPage = Math.min(atmPage, pages);
       document.getElementById('atm-count').textContent = `показано ${rows.length} из ${statusData.atms.length}`;
+      document.getElementById('atm-export-btn').disabled = !rows.length;
       document.getElementById('atm-body').innerHTML = rows.slice((atmPage - 1) * PAGE_SIZE, atmPage * PAGE_SIZE).map(a =>
         `<tr>${cols.map(c => `<td class="${c.num ? 'num' : ''}">${c.td(a)}</td>`).join('')}</tr>`).join('')
         || `<tr><td colspan="${cols.length}" class="empty">${statusData.atms.length ? 'Ничего не найдено' : 'Данных BTech ещё нет: сборщик не запущен или первый опрос не завершён.'}</td></tr>`;
@@ -1738,17 +1800,76 @@
       if (vashOps) paintVashKpis();
       renderVashPoints();
     }
-    function renderVashPoints() {
-      if (!vashOps) return;
+    function filteredVashPoints() {
+      if (!vashOps) return [];
       const q = (document.getElementById('vash-q').value || '').trim().toLowerCase();
-      const bandName = { high: 'много', mid: 'средне', low: 'мало', none: 'нет' };
-      const bandClass = { high: 'success', mid: 'warning', low: 'danger', none: 'slate' };
-      const rows = (vashOps.points || []).filter(p => {
+      return (vashOps.points || []).filter(p => {
         if (vashBand && p.band !== vashBand) return false;
         if (!q) return true;
         return [p.obmen_punkt, p.branch, p.bxm_name, p.address].join(' ').toLowerCase().includes(q);
       });
+    }
+
+    async function exportVashExcel() {
+      const rows = filteredVashPoints();
+      const btn = document.getElementById('vash-export-btn');
+      if (!rows.length) {
+        alert('Нечего выгружать: в текущей выборке нет пунктов.');
+        return;
+      }
+      const bandLabel = { high: 'Много операций', mid: 'Средне', low: 'Мало операций', none: 'Нет операций' };
+      const importSel = document.getElementById('vash-import');
+      const importLabel = importSel && importSel.selectedIndex >= 0 ? importSel.options[importSel.selectedIndex].text : null;
+      const period = vashOps.filter_day || vashOps.filter_month || (vashOps.from && vashOps.to ? `${vashOps.from} — ${vashOps.to}` : null);
+      btn.disabled = true;
+      const old = btn.innerHTML;
+      btn.innerHTML = '<i data-lucide="loader-circle" class="icon-inline"></i> Excel…';
+      icons();
+      try {
+        const r = await fetch(API + '/api/vash/operations/export', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            points: rows,
+            import_label: importLabel,
+            period,
+            band_label: bandLabel[vashBand] || 'Все',
+            search: document.getElementById('vash-q').value.trim() || null,
+          }),
+        });
+        if (!r.ok) {
+          let detail = `HTTP ${r.status}`;
+          try { detail = (await r.json()).detail || detail; } catch (_) {}
+          throw new Error(detail);
+        }
+        const blob = await r.blob();
+        const cd = r.headers.get('Content-Disposition') || '';
+        const m = /filename="([^"]+)"/.exec(cd);
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = m ? m[1] : 'VASH_points.xlsx';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      } catch (e) {
+        alert('Не удалось выгрузить Excel: ' + (e.message || e));
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = old;
+        icons();
+      }
+    }
+
+    function renderVashPoints() {
+      if (!vashOps) return;
+      const bandName = { high: 'много', mid: 'средне', low: 'мало', none: 'нет' };
+      const bandClass = { high: 'success', mid: 'warning', low: 'danger', none: 'slate' };
+      const rows = filteredVashPoints();
       const max = Math.max(1, ...rows.map(p => p.ops));
+      const exportBtn = document.getElementById('vash-export-btn');
+      if (exportBtn) exportBtn.disabled = !rows.length;
       document.getElementById('vash-points').innerHTML = rows.map(p => `
         <tr>
           <td><div class="strong">ВАШ ${esc(p.obmen_punkt)}</div><div class="sub">${esc(p.address || (p.on_map ? '' : 'нет в списке точек на карте'))}</div></td>
@@ -1785,11 +1906,14 @@
     function paintVashKpis() {
       const d = vashOps;
       const vashPeriodHint = d.filter_day ? d.filter_day : (d.filter_month ? d.filter_month : (d.from && d.to ? `${d.from} — ${d.to}` : ''));
-      document.getElementById('vash-kpis').innerHTML = d && d.operations ? [
+      const hasData = d && ((d.operations || 0) > 0 || (d.points || []).length > 0);
+      document.getElementById('vash-kpis').innerHTML = hasData ? [
         { label: 'Операций', value: num(d.operations), icon: 'arrow-left-right', hint: vashPeriodHint },
-        { label: 'Пунктов', value: num(d.point_count), icon: 'map-pin' },
+        { label: 'Пунктов', value: num(d.point_count), icon: 'map-pin', hint: d.none ? `+ ${num(d.none)} без операций` : '' },
         { label: 'Много операций', value: num(d.high), icon: 'trending-up', tone: 'success', hint: 'показать эти зоны', action: "setVashBand('high')", active: vashBand === 'high' },
+        { label: 'Средне', value: num(d.mid), icon: 'minus', tone: 'warning', hint: 'показать эти зоны', action: "setVashBand('mid')", active: vashBand === 'mid' },
         { label: 'Мало операций', value: num(d.low), icon: 'trending-down', tone: 'danger', hint: 'показать эти зоны', action: "setVashBand('low')", active: vashBand === 'low' },
+        { label: 'Нет операций', value: num(d.none), icon: 'circle-off', tone: 'slate', hint: 'в списке точек, без операций', action: "setVashBand('none')", active: vashBand === 'none' },
       ].map(statBox).join('') : '<div class="empty">Операции ВАШ ещё не загружены.</div>';
       icons();
     }

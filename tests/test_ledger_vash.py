@@ -142,6 +142,21 @@ def test_vash_operations_rank_and_match_zone(pg_db, tmp_path):
     assert quiet["on_map"] is False
     assert quiet["band"] == "low"
 
+    from io import BytesIO
+
+    from openpyxl import load_workbook
+
+    from api.core.ledger_vash import export_vash_operations_xlsx
+
+    raw = export_vash_operations_xlsx(
+        data["points"], import_label="тест", period="весь импорт", band_label="Все"
+    )
+    assert raw[:2] == b"PK"
+    wb = load_workbook(BytesIO(raw))
+    assert wb.sheetnames[0] == "Пункты"
+    assert wb["Пункты"].max_row == 1 + len(data["points"])
+    assert wb["Пункты"]["A1"].value == "Пункт ВАШ"
+
 
 def test_vash_n_prefix_matches_zone_coordinates(pg_db, tmp_path):
     with connect() as conn:

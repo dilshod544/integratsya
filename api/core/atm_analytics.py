@@ -698,3 +698,245 @@ def _atm_history(atm_id: int) -> Dict[str, Any]:
 
 def atm_history(atm_id: int) -> Dict[str, Any]:
     return _cached(f"atm-history:{atm_id}", lambda: _atm_history(atm_id))
+
+
+# ── Excel export (analytics «Состояние сети») ─────────────────
+
+_OP_LABEL = {
+    "working": "Работает",
+    "busy": "Занят клиентом",
+    "out_of_service": "Не работает",
+    "offline": "Офлайн",
+    "no_data": "Нет свежих данных",
+}
+_CASH_LABEL = {
+    "empty": "Не заряжен",
+    "critical": "Критично мало",
+    "warning": "Мало",
+    "ok": "Норма",
+    "unknown": "Нет данных",
+    "anomaly": "Ошибка данных BTech",
+}
+_DEVICE_STATUS_RU = {
+    "HWERROR": "аппаратная ошибка",
+    "POWEROFF": "выключен",
+    "OFFLINE": "нет связи с устройством",
+    "FRAUDATTEMPT": "попытка мошенничества",
+    "USERERROR": "ошибка клиента",
+    "NODEVICE": "отсутствует",
+    "NOTREADY": "не готов",
+}
+_CASS_STATUS_RU = {
+    "OK": "норма",
+    "LOW": "мало купюр",
+    "EMPTY": "пусто",
+    "MISSING": "кассета не установлена",
+    "INOP": "кассета неисправна",
+    "NOREF": "состояние не определено",
+}
+
+
+def _dev_status_ru(status: Optional[str]) -> str:
+    if not status:
+        return "ошибка"
+    return _DEVICE_STATUS_RU.get(status, status.lower())
+
+
+def _problems_text(atm: Dict[str, Any]) -> str:
+    """Тот же смысл, что колонка «Что не так» на странице аналитики — плоский текст для Excel."""
+    lines: List[str] = []
+    op = atm.get("operational")
+    if op == "offline":
+        lines.append("Нет связи")
+    elif op == "no_data":
+        lines.append("Нет свежих данных")
+    elif op == "out_of_service":
+        reason = (atm.get("out_of_service_reason") or "").lower()
+        lines.append(f"Не работает: {reason}" if reason else "Не работает")
+    cash = atm.get("cash")
+    if cash == "empty":
+        lines.append("Наличные закончились")
+    elif cash == "critical":
+        lines.append("Критично мало наличных")
+    elif cash == "warning":
+        lines.append("Мало наличных")
+    elif cash == "anomaly":
+        lines.append("BTech передаёт неверный остаток")
+    for f in atm.get("faults") or []:
+        lines.append(f"{f.get('label') or f.get('device')} — {_dev_status_ru(f.get('status'))}")
+    if atm.get("idle"):
+        lines.append("Нет снятий больше суток")
+    return "; ".join(lines) if lines else "всё в порядке"
+
+
+def _cassettes_text(atm: Dict[str, Any]) -> str:
+    parts = []
+    for c in atm.get("cassettes") or []:
+        st = _CASS_STATUS_RU.get(c.get("status") or "", c.get("status") or "—")
+        nom = c.get("nominal")
+        cnt = c.get("count")
+        parts.append(f"{nom} × {cnt if cnt is not None else '—'} ({st})")
+    return "; ".join(parts)
+
+
+def _faults_text(atm: Dict[str, Any]) -> str:
+    faults = atm.get("faults") or []
+    if not faults:
+        return ""
+    return "; ".join(f"{f.get('label') or f.get('device')} — {_dev_status_ru(f.get('status'))}" for f in faults)
+
+
+def _parse_iso(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).replace(tzinfo=None)
+    except ValueError:
+        return None
+
+
+def _autosize(ws, max_width: int = 48) -> None:
+    from openpyxl.utils import get_column_letter
+
+    for idx, col in enumerate(ws.columns, start=1):
+        width = 0
+        for cell in col:
+            if cell.value is None:
+                continue
+            width = max(width, min(max_width, len(str(cell.value)) + 2))
+        ws.column_dimensions[get_column_letter(idx)].width = max(10, width)
+
+
+def export_atm_status_xlsx(
+    atm_ids: List[int],
+    *,
+    region: Optional[str] = None,
+    filter_label: Optional[str] = None,
+    search: Optional[str] = None,
+) -> bytes:
+    """XLSX по выбранным ATM (порядок как на экране). Числа — числами, для фильтров Excel."""
+    from io import BytesIO
+
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+
+    if not atm_ids:
+        raise ValueError("Нет банкоматов для выгрузки")
+    if len(atm_ids) > 5000:
+        raise ValueError("Слишком много банкоматов для одной выгрузки")
+
+    status = network_status()
+    by_id = {int(a["atm_id"]): a for a in status["atms"]}
+    rows = [by_id[i] for i in atm_ids if i in by_id]
+    if not rows:
+        raise ValueError("Выбранные банкоматы не найдены в текущем опросе")
+
+    wb = Workbook()
+    meta = wb.active
+    meta.title = "Сводка"
+    thin = Border(
+        left=Side(style="thin", color="D0D7DE"),
+        right=Side(style="thin", color="D0D7DE"),
+        top=Side(style="thin", color="D0D7DE"),
+        bottom=Side(style="thin", color="D0D7DE"),
+    )
+    head_fill = PatternFill("solid", fgColor="E8EEF7")
+    head_font = Font(bold=True, color="1E293B")
+    label_font = Font(bold=True, color="334155")
+
+    poll_at = _parse_iso(status.get("latest_poll_at"))
+    cash_total = sum((a.get("balance") or 0) for a in rows if a.get("cash") != "anomaly")
+    meta_rows = [
+        ("Отчёт", "Состояние сети банкоматов"),
+        ("Сформирован", datetime.now().strftime("%d.%m.%Y %H:%M")),
+        ("Последний опрос BTech", poll_at.strftime("%d.%m.%Y %H:%M") if poll_at else "—"),
+        ("Регион", region or "Все регионы"),
+        ("Фильтр", filter_label or "Все банкоматы"),
+        ("Поиск", search or "—"),
+        ("Банкоматов в файле", len(rows)),
+        ("Из них работают", sum(1 for a in rows if a.get("operational") == "working")),
+        ("Заняты клиентом", sum(1 for a in rows if a.get("operational") == "busy")),
+        ("Не работают", sum(1 for a in rows if a.get("operational") == "out_of_service")),
+        ("Офлайн / нет данных", sum(1 for a in rows if a.get("operational") in ("offline", "no_data"))),
+        ("Не заряжены", sum(1 for a in rows if a.get("cash") == "empty")),
+        ("Мало наличных", sum(1 for a in rows if a.get("cash") in ("critical", "warning"))),
+        ("С неисправностями", sum(1 for a in rows if a.get("faults"))),
+        ("Сумма наличных UZS", cash_total),
+    ]
+    meta.append(["Параметр", "Значение"])
+    for cell in meta[1]:
+        cell.fill = head_fill
+        cell.font = head_font
+        cell.border = thin
+    for label, value in meta_rows:
+        meta.append([label, value])
+        meta.cell(meta.max_row, 1).font = label_font
+        for col in (1, 2):
+            meta.cell(meta.max_row, col).border = thin
+        if label == "Сумма наличных UZS":
+            meta.cell(meta.max_row, 2).number_format = "#,##0"
+    _autosize(meta)
+
+    ws = wb.create_sheet("Банкоматы", 0)
+    headers = [
+        "TID", "Регион", "Филиал", "Адрес", "Место", "Модель", "Серийный номер",
+        "Состояние", "Выдаёт наличные", "Что не так",
+        "Наличные UZS", "% ёмкости", "Статус наличных", "Доступно UZS", "Ёмкость UZS",
+        "Кассеты", "Неисправности",
+        "Последний раз на связи", "Последнее снятие", "Опрос",
+        "Снимают за сутки (прогноз)", "Мало наличных к", "Опустеет к", "Рекомендуемая загрузка UZS",
+    ]
+    ws.append(headers)
+    for cell in ws[1]:
+        cell.fill = head_fill
+        cell.font = head_font
+        cell.border = thin
+        cell.alignment = Alignment(wrap_text=True, vertical="center")
+    ws.freeze_panes = "B2"
+    ws.auto_filter.ref = f"A1:{ws.cell(1, len(headers)).coordinate}"
+
+    for a in rows:
+        fc = a.get("forecast") or {}
+        ws.append([
+            a.get("tid"),
+            a.get("region") or "Не сопоставлен с реестром",
+            a.get("branch") or "",
+            a.get("address") or "",
+            a.get("place") or "",
+            a.get("model") or "",
+            a.get("serial") or "",
+            _OP_LABEL.get(a.get("operational"), a.get("operational") or ""),
+            "да" if a.get("can_dispense") else "нет",
+            _problems_text(a),
+            a.get("balance"),
+            a.get("balance_pct"),
+            _CASH_LABEL.get(a.get("cash"), a.get("cash") or ""),
+            a.get("available"),
+            a.get("capacity"),
+            _cassettes_text(a),
+            _faults_text(a),
+            _parse_iso(a.get("agent_last_online")),
+            _parse_iso(a.get("last_cash_out")),
+            _parse_iso(a.get("polled_at")),
+            fc.get("withdrawal_24h"),
+            _parse_iso(fc.get("low_cash_at")),
+            _parse_iso(fc.get("cashout_at")),
+            fc.get("refill_uzs"),
+        ])
+        r = ws.max_row
+        for col in range(1, len(headers) + 1):
+            cell = ws.cell(r, col)
+            cell.border = thin
+            cell.alignment = Alignment(vertical="top", wrap_text=col in (4, 10, 16, 17))
+        for col in (11, 13, 14, 15, 21, 24):
+            ws.cell(r, col).number_format = "#,##0"
+        ws.cell(r, 12).number_format = "0.0"
+        for col in (18, 19, 20, 22, 23):
+            ws.cell(r, col).number_format = "DD.MM.YYYY HH:MM"
+
+    _autosize(ws)
+    ws.row_dimensions[1].height = 30
+
+    buf = BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
