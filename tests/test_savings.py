@@ -61,3 +61,28 @@ def test_summary_backtest_on_real_cycles(pg_db):
     assert p["freed_cash"] > 300e6
     assert p["saving"] > 0 and out["money_available"]
     assert out["realized"]["cycles"] == 0
+
+
+def test_cassette_removal_is_not_demand(pg_db):
+    # Перед каждой загрузкой бригада снимает кассеты: остаток падает в ноль на час.
+    # Это не снятия клиентов и не простой без денег — спрос остаётся 24 млн/сутки.
+    now = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+    start = now - timedelta(days=40)
+    with connect() as conn:
+        conn.execute("INSERT INTO atms (id, tid) VALUES (1, 'T1')")
+        bal, t = 900e6, start
+        while t <= now:
+            if (t - start).days % 10 == 0 and t > start + timedelta(hours=12):
+                if t.hour == 9:
+                    bal = 0.0                     # кассеты сняты
+                elif t.hour == 10:
+                    bal = 900e6                   # загружены новые
+            seed_snapshot(conn, 1, t, bal, [("OK", None, 100_000)])
+            bal = max(0.0, bal - 1e6)
+            t += timedelta(hours=1)
+    history.process_history()
+    valid = [c for c in savings.compute_cycles(60) if c["valid"]]
+    assert len(valid) >= 2
+    for c in valid:
+        assert abs(c["demand_per_day"] - 24e6) < 2e6
+        assert c["cashout_hours"] == 0

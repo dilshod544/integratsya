@@ -30,9 +30,9 @@ SETTINGS: List[Dict[str, Any]] = [
     {"key": "default_cycle_days", "label": "Цикл загрузки без стоимостей", "unit": "дней", "default": 7.0,
      "hint": "На сколько дней грузить, пока не заданы стоимость денег и стоимость выезда "
              "(с ними цикл считается оптимальным по формуле).", "min": 1, "max": 60},
-    {"key": "min_cycle_days", "label": "Минимальный цикл", "unit": "дней", "default": 2.0,
+    {"key": "min_cycle_days", "label": "Минимальный цикл", "unit": "дней", "default": 7.0,
      "hint": "Чаще этого не ездить к одному банкомату.", "min": 0.5, "max": 30},
-    {"key": "max_cycle_days", "label": "Максимальный цикл", "unit": "дней", "default": 21.0,
+    {"key": "max_cycle_days", "label": "Максимальный цикл", "unit": "дней", "default": 20.0,
      "hint": "Реже этого не ездить (износ купюр, ревизии).", "min": 1, "max": 90},
 ]
 _BY_KEY = {s["key"]: s for s in SETTINGS}

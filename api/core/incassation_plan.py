@@ -166,7 +166,7 @@ def build_recommendation(
 
     t, source = cycle_days(
         demand_per_day, econ.get("trip_cost_uzs"), econ.get("cost_of_funds_pct"),
-        econ.get("default_cycle_days") or 7.0, econ.get("min_cycle_days") or 1.0, econ.get("max_cycle_days") or 30.0,
+        econ.get("default_cycle_days") or 7.0, econ.get("min_cycle_days") or 7.0, econ.get("max_cycle_days") or 20.0,
     )
     want = demand_per_day * t + safety
     load = min(capacity, want)

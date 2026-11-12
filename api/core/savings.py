@@ -106,11 +106,16 @@ def evaluate_cycle(
 _CYCLES_SQL = """
 WITH inc AS (
     SELECT i.*, LEAD(i.at) OVER (PARTITION BY i.atm_id ORDER BY i.at, i.id) AS next_at,
-           LEAD(i.available_before) OVER (PARTITION BY i.atm_id ORDER BY i.at, i.id) AS left_at_end
+           LEAD(i.available_before) OVER (PARTITION BY i.atm_id ORDER BY i.at, i.id) AS left_at_end,
+           LEAD(i.before_snapshot_id) OVER (PARTITION BY i.atm_id ORDER BY i.at, i.id) AS next_before_id
       FROM atm_incassations i
      WHERE i.atm_id = ANY(%(atms)s) OR %(all)s
 ), cyc AS (
-    SELECT * FROM inc WHERE next_at IS NOT NULL AND next_at >= %(since)s
+    -- Опросы цикла — до снимка «до» следующей загрузки: снятие кассет бригадой
+    -- (остаток падает в ноль) — не снятия клиентов и не простой без денег.
+    SELECT inc.*, COALESCE(b.polled_at, inc.next_at) AS cut_at
+      FROM inc LEFT JOIN atm_snapshots b ON b.id = inc.next_before_id
+     WHERE inc.next_at IS NOT NULL AND inc.next_at >= %(since)s
 ), s AS (
     SELECT atm_id, polled_at,
            COALESCE(cdm_available_uzs, cdm_total_uzs) AS avail, cdm_total_uzs AS bal,
@@ -137,7 +142,7 @@ SELECT c.id, c.atm_id, c.at, c.next_at, c.available_after, c.balance_after, c.le
                 FILTER (WHERE EXTRACT(EPOCH FROM s.polled_at - s.prev_at) / 3600 <= %(gap)s
                           AND s.prev_online AND s.prev_avail <= 0), 0) AS cashout_hours
   FROM cyc c
-  LEFT JOIN s ON s.atm_id = c.atm_id AND s.polled_at > c.at AND s.polled_at <= c.next_at AND s.prev_at >= c.at
+  LEFT JOIN s ON s.atm_id = c.atm_id AND s.polled_at > c.at AND s.polled_at <= c.cut_at AND s.prev_at >= c.at
  GROUP BY c.id, c.atm_id, c.at, c.next_at, c.available_after, c.balance_after, c.left_at_end,
           c.recommendation_id, c.followed_plan
  ORDER BY c.at
@@ -191,8 +196,8 @@ def compute_cycles(days: int = 90, atm_id: Optional[int] = None) -> List[Dict[st
                 load, method = None, "backtest"
                 if w_prev:
                     t, _ = optimal_cycle(w_prev, econ.get("trip_cost_uzs"), econ.get("cost_of_funds_pct"),
-                                         econ.get("default_cycle_days") or 7, econ.get("min_cycle_days") or 1,
-                                         econ.get("max_cycle_days") or 30)
+                                         econ.get("default_cycle_days") or 7, econ.get("min_cycle_days") or 7,
+                                         econ.get("max_cycle_days") or 20)
                     load = w_prev * t + safety_days * w_prev
                     if caps.get(int(r["atm_id"])):
                         load = min(load, caps[int(r["atm_id"])])
