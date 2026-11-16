@@ -7,43 +7,65 @@
   <title>Карточка банкомата</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    :root { --bg: #f6f8fb; --surface: #fff; --surface-2: #f8fafc; --border: #e5eaf3; --border-strong: #d5ddec;
-      --text: #111827; --muted: #667085; --primary: #2563eb; --grid: #eef2f6;
+    :root { --bg: #eef2f7; --surface: #fff; --surface-2: #f7f9fc; --border: #e2e8f0; --border-strong: #cbd5e1;
+      --text: #0f172a; --muted: #64748b; --primary: #1d4ed8; --grid: #e8eef5;
       --good-bg: #ecfdf3; --good: #067647; --warn-bg: #fffaeb; --warn: #b54708; --bad-bg: #fef3f2; --bad: #b42318; }
-    body { font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--text); background: var(--bg); font-size: 13px; }
+    body { font-family: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--text); background: var(--bg); font-size: 13px; line-height: 1.45; }
     header { background: #fff; border-bottom: 1px solid var(--border); padding: 12px 20px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; position: sticky; top: 0; z-index: 10; }
-    header h1 { font-size: 17px; font-weight: 800; }
+    header h1 { font-size: 17px; font-weight: 800; letter-spacing: -.01em; }
     header a { color: var(--primary); text-decoration: none; font-weight: 700; }
     .spacer { flex: 1; }
-    input[type=search] { font: inherit; border: 1px solid var(--border-strong); border-radius: 8px; padding: 6px 10px; width: min(340px, 100%); }
-    main { padding: 14px 20px 40px; max-width: 1500px; margin: 0 auto; display: grid; gap: 14px; }
-    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px; min-width: 0; box-shadow: 0 1px 2px rgba(16,24,40,.06); }
-    h2 { font-size: 14px; font-weight: 800; margin-bottom: 10px; }
-    h3 { font-size: 12.5px; font-weight: 800; margin: 12px 0 6px; }
-    .hint { color: var(--muted); font-size: 12px; line-height: 1.45; }
-    .cols { display: grid; gap: 14px; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; }
-    @media (max-width: 1100px) { .cols { grid-template-columns: minmax(0, 1fr); } }
+    input[type=search] { font: inherit; border: 1px solid var(--border-strong); border-radius: 10px; padding: 8px 12px; width: min(340px, 100%); background: var(--surface-2); }
+    main { padding: 16px 20px 48px; max-width: 1280px; margin: 0 auto; display: grid; gap: 16px; }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 16px 18px; min-width: 0; box-shadow: 0 1px 2px rgba(15,23,42,.04); }
+    h2 { font-size: 13px; font-weight: 800; margin-bottom: 12px; letter-spacing: .02em; text-transform: uppercase; color: #334155; }
+    h3 { font-size: 12px; font-weight: 800; margin: 14px 0 8px; color: #475569; text-transform: uppercase; letter-spacing: .03em; }
+    .hint { color: var(--muted); font-size: 12px; line-height: 1.5; }
+    .overview { display: grid; gap: 16px; grid-template-columns: minmax(0, 1.15fr) minmax(0, .85fr); align-items: start; }
+    .stack { display: grid; gap: 16px; }
+    .cols { display: grid; gap: 16px; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+    @media (max-width: 980px) { .overview, .cols { grid-template-columns: minmax(0, 1fr); } }
     .title-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-    .title-row .tid { font-size: 22px; font-weight: 850; }
-    .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin-top: 12px; }
-    .kpi { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
-    .kpi .v { font-size: 19px; font-weight: 800; font-variant-numeric: tabular-nums; }
-    .kpi .l { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
-    dl { display: grid; grid-template-columns: minmax(110px, auto) minmax(0, 1fr); gap: 5px 12px; }
+    .title-row .tid { font-size: 26px; font-weight: 800; letter-spacing: -.02em; }
+    .meta { color: var(--muted); font-size: 13px; }
+    .status-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+    .status-row .hint { margin-right: 2px; }
+    .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-top: 14px; }
+    .kpi { background: var(--surface-2); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; }
+    .kpi .v { font-size: 20px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+    .kpi .l { font-size: 11.5px; color: var(--muted); margin-top: 4px; }
+    .loc-grid { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr) minmax(220px, 280px); align-items: stretch; }
+    @media (max-width: 720px) { .loc-grid { grid-template-columns: 1fr; } }
+    .loc-addr { font-size: 18px; font-weight: 750; line-height: 1.35; margin-bottom: 6px; }
+    .loc-place { color: var(--muted); margin-bottom: 10px; }
+    .loc-coords { font-variant-numeric: tabular-nums; font-weight: 700; margin-bottom: 8px; }
+    .loc-src { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: #eff6ff; color: #1d4ed8; margin-bottom: 10px; }
+    .loc-src.registry { background: var(--warn-bg); color: var(--warn); }
+    .loc-links a { color: var(--primary); font-weight: 700; text-decoration: none; margin-right: 12px; }
+    .map-frame { width: 100%; height: 180px; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: var(--surface-2); }
+    .map-frame iframe { width: 100%; height: 100%; border: 0; }
+    .map-empty { height: 100%; display: grid; place-items: center; color: var(--muted); padding: 12px; text-align: center; }
+    .field-groups { display: grid; gap: 14px; }
+    .field-group { background: var(--surface-2); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; }
+    .field-group h3 { margin: 0 0 8px; }
+    dl { display: grid; grid-template-columns: minmax(108px, 36%) minmax(0, 1fr); gap: 7px 12px; }
     dt { color: var(--muted); }
-    dd { font-weight: 600; overflow-wrap: anywhere; }
-    .badge { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; white-space: nowrap; background: #f2f4f7; color: #475467; }
+    dd { font-weight: 650; overflow-wrap: anywhere; }
+    .device-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    .device-item { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 10px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; }
+    .device-item span:first-child { color: var(--muted); font-size: 12px; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; white-space: nowrap; background: #f1f5f9; color: #475569; }
     .badge.ok { background: var(--good-bg); color: var(--good); }
     .badge.warn { background: var(--warn-bg); color: var(--warn); }
     .badge.bad { background: var(--bad-bg); color: var(--bad); }
-    .cassette { margin-bottom: 9px; }
-    .cassette .top { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 3px; }
-    .meter { height: 6px; background: var(--grid); border-radius: 99px; overflow: hidden; }
+    .cassette { margin-bottom: 11px; }
+    .cassette .top { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+    .meter { height: 7px; background: var(--grid); border-radius: 99px; overflow: hidden; }
     .meter div { height: 100%; background: var(--primary); border-radius: 99px; }
-    .scroll { overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
+    .scroll { overflow: auto; border: 1px solid var(--border); border-radius: 10px; }
     table { border-collapse: collapse; width: 100%; font-size: 12px; font-variant-numeric: tabular-nums; }
-    th { background: var(--surface-2); text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border-strong); white-space: nowrap; font-weight: 700; position: sticky; top: 0; }
-    td { padding: 5px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+    th { background: var(--surface-2); text-align: left; padding: 7px 9px; border-bottom: 1px solid var(--border-strong); white-space: nowrap; font-weight: 700; position: sticky; top: 0; }
+    td { padding: 6px 9px; border-bottom: 1px solid var(--border); white-space: nowrap; }
     td.wrap { white-space: normal; min-width: 200px; }
     .r { text-align: right; }
     tr.cycle { cursor: pointer; }
@@ -55,7 +77,7 @@
     #chart { position: relative; display: flex; align-items: flex-end; gap: 2px; height: 190px; border-bottom: 1px solid var(--border-strong); padding-top: 18px;
       background-image: linear-gradient(var(--grid) 1px, transparent 1px); background-size: 100% 25%; }
     .col { flex: 1; min-width: 0; height: 100%; display: flex; align-items: flex-end; justify-content: center; position: relative; }
-    .col:hover { background: rgba(37,99,235,.06); }
+    .col:hover { background: rgba(29,78,216,.06); }
     .bar { width: min(100%, 38px); background: var(--primary); border-radius: 4px 4px 0 0; }
     .bar.open { opacity: .5; }
     .bar.none { height: 2px; background: var(--border-strong); border-radius: 0; }
@@ -66,7 +88,7 @@
     .line-chart svg { display: block; width: 100%; }
     .line-chart text { font-size: 11px; fill: var(--muted); font-variant-numeric: tabular-nums; }
     .line-chart text.direct { fill: var(--text); font-weight: 700; }
-    #tip { position: fixed; display: none; pointer-events: none; z-index: 30; background: #111827; color: #fff; padding: 7px 10px; border-radius: 8px; font-size: 12px; line-height: 1.5; font-variant-numeric: tabular-nums; }
+    #tip { position: fixed; display: none; pointer-events: none; z-index: 30; background: #0f172a; color: #fff; padding: 7px 10px; border-radius: 8px; font-size: 12px; line-height: 1.5; font-variant-numeric: tabular-nums; }
     details summary { cursor: pointer; font-weight: 800; }
     pre { white-space: pre-wrap; word-break: break-word; font-size: 12px; line-height: 1.45; background: var(--surface-2); padding: 10px; border-radius: 8px; max-height: 60vh; overflow: auto; margin-top: 8px; }
     #error { padding: 14px; background: var(--bad-bg); color: var(--bad); border-radius: 8px; font-weight: 600; }
@@ -124,18 +146,20 @@
       ? `≈ ${Math.floor(d.turnover.forecast_hours / 24)} д ${Math.floor(d.turnover.forecast_hours % 24)} ч` : '—';
     const avail = s.cdm_available_uzs;
     const availNote = avail != null && left != null && avail < left ? 'часть денег в неисправных кассетах' : 'можно выдать прямо сейчас';
+    const where = [a.place, a.address].filter((x) => x && String(x).trim()).join(' · ') || 'Адрес не задан в BTech';
     return `<section class="card">
       <div class="title-row">
         <span class="tid">${val(a.tid)}</span>
-        <span class="hint">ID ${a.id} · ${val(a.place)} · ${val(a.address)}</span>
+        <span class="meta">ID ${a.id}</span>
       </div>
-      <div class="title-row" style="margin-top:8px">
+      <p class="meta" style="margin-top:4px">${esc(where)}</p>
+      <div class="status-row">
         <span class="hint">Агент</span>${badge(s.agent_status)}
         <span class="hint">Платформа</span>${badge(s.platform_status)}
         <span class="hint">Приложение</span>${badge(s.app_status)}
         <span class="hint">Хост</span>${badge(s.app_conn_status)}
         <span class="hint">Обслуживание</span>${badge(s.service_status)}
-        <span class="hint">Данные на ${dt(s.polled_at)}</span>
+        <span class="hint">· данные на ${dt(s.polled_at)}</span>
       </div>
       <div class="kpis">
         <div class="kpi"><div class="v">${left == null ? '—' : mln(left)}</div><div class="l">Остаток в кассетах ${pct ? '· ' + pct : ''}</div></div>
@@ -147,30 +171,69 @@
     </section>`;
   }
 
+  function renderLocation(d) {
+    const a = d.atm;
+    const lat = a.latitude, lon = a.longitude;
+    const hasGps = lat != null && lon != null && !(Number(lat) === 0 && Number(lon) === 0);
+    const src = a.location_source === 'registry' ? 'реестр банка (BTech GPS пустой)' : 'BTech';
+    const srcClass = a.location_source === 'registry' ? 'loc-src registry' : 'loc-src';
+    const addr = a.address || a.place || 'Адрес не задан';
+    const regNote = a.registry_address && a.registry_address !== a.address
+      ? `<p class="hint" style="margin-top:8px">В реестре: ${esc(a.registry_address)}</p>` : '';
+    const map = hasGps
+      ? `<div class="map-frame"><iframe title="Карта" loading="lazy" referrerpolicy="no-referrer-when-downgrade"
+          src="https://www.openstreetmap.org/export/embed.html?bbox=${Number(lon)-0.012}%2C${Number(lat)-0.008}%2C${Number(lon)+0.012}%2C${Number(lat)+0.008}&layer=mapnik&marker=${Number(lat)}%2C${Number(lon)}"></iframe></div>`
+      : `<div class="map-frame"><div class="map-empty">Координат нет — точка на карте не ставится</div></div>`;
+    const links = hasGps
+      ? `<div class="loc-links">
+          <a href="https://www.openstreetmap.org/?mlat=${Number(lat)}&mlon=${Number(lon)}#map=16/${Number(lat)}/${Number(lon)}" target="_blank" rel="noopener">OpenStreetMap</a>
+          <a href="https://yandex.ru/maps/?pt=${Number(lon)},${Number(lat)}&z=16&l=map" target="_blank" rel="noopener">Яндекс.Карты</a>
+        </div>` : '';
+    return `<section class="card">
+      <h2>Расположение</h2>
+      <div class="loc-grid">
+        <div>
+          <div class="${srcClass}">Источник: ${esc(src)}</div>
+          <div class="loc-addr">${esc(addr)}</div>
+          ${a.place && a.address ? `<div class="loc-place">${esc(a.place)}</div>` : ''}
+          <div class="loc-coords">${hasGps ? `${Number(lat).toFixed(6)}, ${Number(lon).toFixed(6)}` : '—'}</div>
+          ${links}${regNote}
+        </div>
+        ${map}
+      </div>
+    </section>`;
+  }
+
   function renderInfo(d) {
     const a = d.atm, raw = (d.snapshot || {}).raw_json || {};
     const agent = raw.agentVersion || {}, card = raw.card || {}, extra = card.extraAttrs || {};
-    const gps = a.latitude != null ? `${a.latitude}, ${a.longitude}` : '—';
     const app = get(raw, 'inventory', 'appInfo') || {};
     const appPairs = Object.entries(app).filter(([, v]) => v !== null && typeof v !== 'object').map(([k, v]) => [k, val(v)]);
-    return `<section class="card"><h2>Паспорт</h2>${dl([
-      ['Модель', `${val(a.vendor_name)} ${val(a.model_name)}`],
-      ['Тип / вариант', `${val(a.type_name)} / ${val(a.variant_name)}`],
-      ['Серийный номер', val(a.serial)],
-      ['Статус в BTech', val(a.status)],
-      ['Terminal ID', val(a.terminal_id)],
-      ['Merchant ID', val(a.merchant_id)],
-      ['MFO', val(a.mfo)],
-      ['Филиал', val(a.branch_number)],
-      ['Хост', val(a.host_provider || extra.hostProvider)],
-      ['Координаты', esc(gps)],
-      ['Макс. выдача', num(a.max_cashout) + ' купюр'],
-      ['Версия агента', val(agent.agentVersion)],
-      ['Модуль', `${val(agent.module)} ${val(agent.version)}`],
-      ['HW UID', val(a.hw_uid)],
-      ['Создан в BTech', dt(a.api_created_at)],
-      ['Впервые в нашей базе', dt(a.first_seen_at)],
-    ])}${appPairs.length ? '<h3>Приложение</h3>' + dl(appPairs) : ''}</section>`;
+    const group = (title, pairs) => `<div class="field-group"><h3>${esc(title)}</h3>${dl(pairs)}</div>`;
+    return `<section class="card"><h2>Паспорт</h2><div class="field-groups">
+      ${group('Идентификация', [
+        ['Модель', `${val(a.vendor_name)} ${val(a.model_name)}`],
+        ['Тип / вариант', `${val(a.type_name)} / ${val(a.variant_name)}`],
+        ['Серийный номер', val(a.serial)],
+        ['Статус в BTech', val(a.status)],
+        ['HW UID', val(a.hw_uid)],
+      ])}
+      ${group('Сеть и филиал', [
+        ['Terminal ID', val(a.terminal_id)],
+        ['Merchant ID', val(a.merchant_id)],
+        ['MFO', val(a.mfo)],
+        ['Филиал', val(a.branch_number)],
+        ['Хост', val(a.host_provider || extra.hostProvider)],
+        ['Макс. выдача', num(a.max_cashout) + ' купюр'],
+      ])}
+      ${group('Агент', [
+        ['Версия агента', val(agent.agentVersion)],
+        ['Модуль', `${val(agent.module)} ${val(agent.version)}`],
+        ['Создан в BTech', dt(a.api_created_at)],
+        ['Впервые у нас', dt(a.first_seen_at)],
+      ])}
+      ${appPairs.length ? group('Приложение', appPairs) : ''}
+    </div></section>`;
   }
 
   function renderCash(d) {
@@ -193,18 +256,21 @@
     const raw = s.raw_json || {};
     const last = raw.lastTransactionTimestamp || {};
     const lastAction = d.encashments[0] && d.encashments[0].started_at;
-    return `<section class="card"><h2>Устройства</h2>${dl([
-      ['Выдача', badge(s.dispenser_status)], ['Приём', badge(s.acceptor_status)], ['EPP клавиатура', badge(s.epp_status)],
-      ['Считыватель карт', badge(s.card_reader_status)], ['Бесконтактный', badge(s.contactless_status)],
-      ['Чековый принтер', badge(s.printer_status)], ['Журнальный принтер', badge(s.jprinter_status)], ['Сканер штрихкода', badge(s.barcode_reader_status)],
-      ['VDM', badge(s.vdm_status)], ['Супервизор', badge(s.sup_switch_status)],
-    ])}<h3>Активность</h3>${dl([
-      ['Последняя инкассация', dt(lastAction)],
-      ['Последняя транзакция', dt(last.last || s.last_transaction_last)],
-      ['Последняя выдача', dt(last.cashOut || s.last_transaction_cash_out)],
-      ['Последний приём', dt(last.cashIn || s.last_transaction_cash_in)],
-      ['Агент был онлайн', dt(s.agent_last_online)],
-    ])}</section>`;
+    const devices = [
+      ['Выдача', s.dispenser_status], ['Приём', s.acceptor_status], ['EPP', s.epp_status],
+      ['Картридер', s.card_reader_status], ['Бесконтакт', s.contactless_status],
+      ['Чек', s.printer_status], ['Журнал', s.jprinter_status], ['Сканер', s.barcode_reader_status],
+      ['VDM', s.vdm_status], ['Супервизор', s.sup_switch_status],
+    ].map(([name, st]) => `<div class="device-item"><span>${esc(name)}</span>${badge(st)}</div>`).join('');
+    return `<section class="card"><h2>Устройства</h2>
+      <div class="device-grid">${devices}</div>
+      <h3>Активность</h3>${dl([
+        ['Последняя инкассация', dt(lastAction)],
+        ['Последняя транзакция', dt(last.last || s.last_transaction_last)],
+        ['Последняя выдача', dt(last.cashOut || s.last_transaction_cash_out)],
+        ['Последний приём', dt(last.cashIn || s.last_transaction_cash_in)],
+        ['Агент был онлайн', dt(s.agent_last_online)],
+      ])}</section>`;
   }
 
   function days(c) {
@@ -212,17 +278,40 @@
     return (end - new Date(c.started_at)) / 86400000;
   }
 
-  function renderHistoryCharts(d) {
+  function chartSeries(d) {
     const h = d.history || [];
+    if (h.length >= 2) return { rows: h, source: 'btech' };
+    // Если BTech balance/turnover ещё не подтянуты — рисуем по atm_daily (снимки).
+    const daily = [...(d.daily || [])]
+      .filter((r) => r && r.day != null && String(r.day).trim() !== '' && String(r.day) !== 'null')
+      .map((r) => ({
+        day: String(r.day).slice(0, 10),
+        balance: r.avg_balance,
+        withdrawn: r.withdrawn,
+        load: false,
+        notes: {},
+      }))
+      .filter((r) => /^\d{4}-\d{2}-\d{2}/.test(r.day))
+      .sort((a, b) => a.day.localeCompare(b.day));
+    if (daily.length >= 2) return { rows: daily, source: 'snapshots' };
+    return { rows: [], source: null };
+  }
+
+  function renderHistoryCharts(d) {
+    const series = chartSeries(d);
+    const h = series.rows;
     if (h.length < 2) {
       return `<section class="card"><h2>Остаток по дням</h2><p class="hint">История остатка этого банкомата ещё не загружена. Её можно подтянуть в модуле данных.</p></section>`;
     }
     const estimated = h.filter((r) => r.withdrawn_estimated).length;
     const note = estimated ? ` Дней с оценкой выдач по падению остатка: ${estimated}, BTech не отдал по ним данные.` : '';
+    const srcHint = series.source === 'snapshots'
+      ? 'По снимкам в нашей базе (полная история BTech ещё не загружена).'
+      : 'На конец дня, по данным BTech. Спады — снятия, резкий рост — загрузка. Точка — день инкассации.';
     const rows = [...h].reverse().map((r) => `<tr><td>${ruDay(r.day)}${r.load ? ' <span class="badge ok">инкассация</span>' : ''}</td><td class="r">${money(r.balance)}</td><td class="r">${money(r.withdrawn)}${r.withdrawn_estimated ? ' (оценка)' : ''}</td></tr>`).join('');
     return `<section class="card">
       <h2>Остаток в банкомате по дням</h2>
-      <p class="hint" style="margin-bottom:8px">На конец дня, по данным BTech. Спады — снятия, резкий рост — загрузка. Точка — день инкассации.</p>
+      <p class="hint" style="margin-bottom:8px">${srcHint}</p>
       <div class="line-chart" id="chart-balance"></div>
       <h2 style="margin-top:14px">Снятия по дням</h2>
       <p class="hint" style="margin-bottom:8px">Сколько банкомат выдал клиентам за день.${note}</p>
@@ -293,8 +382,9 @@
     const balance = document.getElementById('chart-balance');
     const withdrawn = document.getElementById('chart-withdrawn');
     if (!balance) return;
-    drawLine(balance, d.history, 'balance', { title: 'Остаток по дням', dots: true });
-    drawLine(withdrawn, d.history, 'withdrawn', { title: 'Снятия по дням' });
+    const rows = chartSeries(d).rows;
+    drawLine(balance, rows, 'balance', { title: 'Остаток по дням', dots: true });
+    drawLine(withdrawn, rows, 'withdrawn', { title: 'Снятия по дням' });
   }
 
   function renderChart(d) {
@@ -366,16 +456,16 @@
         <div class="scroll" style="max-height:340px"><table><thead><tr><th>Когда</th><th>Что</th><th>Изменение</th></tr></thead><tbody>${ev || '<tr><td colspan="3">Изменений нет</td></tr>'}</tbody></table></div></section>
       <section class="card"><h2>Суточные итоги</h2><p class="hint" style="margin-bottom:8px">По снимкам в нашей базе, поэтому дни с малым числом часов неполные.</p>
         <div class="scroll" style="max-height:340px"><table><thead><tr><th>Дата</th><th class="r">Снятия</th><th class="r">Мин. доступно</th><th class="r">Часов данных</th><th class="r">Без денег, ч</th><th class="r">Офлайн, ч</th></tr></thead><tbody>${daily || '<tr><td colspan="6">Нет данных</td></tr>'}</tbody></table></div></section>
-      <section class="card"><h2>Рекомендация системы</h2>${rec ? dl([
-        ['Срочность', `${esc(rec.score)} из 10`],
-        ['Крайний срок', dt(rec.due_at)],
-        ['Загрузить до', money(rec.load_uzs)],
-        ['Спрос в день', money(rec.demand_per_day && Math.round(rec.demand_per_day))],
-        ['На сколько дней', rec.cycle_days == null ? '—' : Number(rec.cycle_days).toFixed(1)],
-        ['Статус', val(rec.status)],
-        ['Причины', reasons || '—'],
-      ]) : '<p class="hint">Рекомендации нет</p>'}</section>
-    </div>`;
+    </div>
+    <section class="card"><h2>Рекомендация системы</h2>${rec ? dl([
+      ['Срочность', `${esc(rec.score)} из 10`],
+      ['Крайний срок', dt(rec.due_at)],
+      ['Загрузить до', money(rec.load_uzs)],
+      ['Спрос в день', money(rec.demand_per_day && Math.round(rec.demand_per_day))],
+      ['На сколько дней', rec.cycle_days == null ? '—' : Number(rec.cycle_days).toFixed(1)],
+      ['Статус', val(rec.status)],
+      ['Причины', reasons || '—'],
+    ]) : '<p class="hint">Рекомендации нет</p>'}</section>`;
   }
 
   function renderRaw(d) {
@@ -451,8 +541,12 @@
     try {
       const d = await fetchJson(`${API}/card?${key}=${encodeURIComponent(query.get(key))}`);
       document.title = 'Банкомат ' + (d.atm.tid || d.atm.id);
-      root.innerHTML = renderDuplicates(d) + renderHero(d) + renderHistoryCharts(d)
-        + `<div class="cols">${renderInfo(d)}${renderCash(d)}${renderDevices(d)}</div>`
+      root.innerHTML = renderDuplicates(d) + renderHero(d)
+        + renderHistoryCharts(d)
+        + `<div class="overview">
+            <div class="stack">${renderLocation(d)}${renderInfo(d)}</div>
+            <div class="stack">${renderCash(d)}${renderDevices(d)}</div>
+          </div>`
         + renderHistory(d) + renderChart(d) + renderCycles(d) + renderRaw(d);
       wire(d);
       drawHistory(d);

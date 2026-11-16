@@ -30,11 +30,32 @@ _CACHE_TTL_SEC = 60
 _states_cache: Dict[str, Any] = {"at": 0.0, "data": {}}
 _cassettes_cache: Dict[str, Any] = {"at": 0.0, "data": {}}
 
+# Узбекистан и ближайшие границы — BTech иногда отдаёт 0,0 или мусор вместо GPS.
+_UZ_LAT = (37.0, 46.0)
+_UZ_LON = (55.0, 74.0)
+
 # id последнего снимка банкомата `a` (коррелированный подзапрос вместо LATERAL)
 _LAST_SNAPSHOT_ID = (
     "SELECT s.id FROM atm_snapshots s WHERE s.atm_id = a.id "
     "ORDER BY s.polled_at DESC, s.id DESC LIMIT 1"
 )
+
+
+def _valid_gps(lat: Any, lon: Any) -> Optional[tuple]:
+    """None / 0,0 / вне региона — невалидно (не ставим точку на карту)."""
+    try:
+        if lat is None or lon is None:
+            return None
+        la, lo = float(lat), float(lon)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(la) or not math.isfinite(lo):
+        return None
+    if la == 0.0 and lo == 0.0:
+        return None
+    if not (_UZ_LAT[0] <= la <= _UZ_LAT[1] and _UZ_LON[0] <= lo <= _UZ_LON[1]):
+        return None
+    return la, lo
 
 
 def _query(sql: str, params: tuple = ()) -> List[Dict[str, Any]]:
@@ -61,6 +82,8 @@ def latest_states_by_tid(force: bool = False) -> Dict[str, Dict[str, Any]]:
             a.tid AS tid,
             a.terminal_id AS btech_terminal_id,
             a.serial AS serial,
+            a.address AS address,
+            a.place AS place,
             a.latitude AS latitude,
             a.longitude AS longitude,
             a.id AS atm_id,
@@ -98,9 +121,12 @@ def latest_states_by_tid(force: bool = False) -> Dict[str, Dict[str, Any]]:
     data = {}
     for r in rows:
         tid = str(r["tid"])
+        gps = _valid_gps(r.get("latitude"), r.get("longitude"))
         data[tid] = {
-            "lat": float(r["latitude"]) if r.get("latitude") is not None else None,
-            "lon": float(r["longitude"]) if r.get("longitude") is not None else None,
+            "lat": gps[0] if gps else None,
+            "lon": gps[1] if gps else None,
+            "address": (str(r["address"]).strip() if r.get("address") else None) or None,
+            "place": (str(r["place"]).strip() if r.get("place") else None) or None,
             "balance": float(r["balance"]) if r.get("balance") is not None else None,
             "available": float(r["available"]) if r.get("available") is not None else None,
             "capacity": capacities.get(int(r["atm_id"])) if r.get("atm_id") is not None else None,
@@ -150,6 +176,20 @@ def _fill_live(
     # Реальная ёмкость (максимум загрузки по BTech) — вместо значения по умолчанию из реестра.
     if live.get("capacity") and (not row.get("capacity") or row.get("capacity") == DEFAULT_CAPACITY):
         row["capacity"] = live["capacity"]
+    # Локация с BTech, но только если GPS валидный (не 0,0). Иначе оставляем реестр.
+    live_gps = _valid_gps(live.get("lat"), live.get("lon"))
+    if live_gps:
+        row["registry_lat"] = row.get("lat")
+        row["registry_lon"] = row.get("lon")
+        row["lat"], row["lon"] = live_gps
+        row["location_source"] = "btech"
+    else:
+        row["location_source"] = "registry" if _valid_gps(row.get("lat"), row.get("lon")) else None
+    if live.get("address"):
+        row["registry_address"] = row.get("address")
+        row["address"] = live["address"]
+    if live.get("place"):
+        row["place"] = live["place"]
     row["agent_status"] = live.get("agent_status")
     row["forecast_hours"] = live.get("forecast_hours")
     row["balance_polled_at"] = live.get("polled_at")

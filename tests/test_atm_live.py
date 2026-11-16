@@ -53,3 +53,53 @@ def test_cassette_nominal_accepts_value_list_and_values():
     assert _cassette_nominal({"nominal": 200000}) == 200000
     assert _cassette_nominal({"values": [10000]}) == 10000
     assert _cassette_nominal({"values": None, "value": 2000}) == 2000
+
+
+def test_btech_location_overrides_registry_coords_and_address():
+    """Карта должна показывать место с BTech, даже если в Excel другой адрес."""
+    rows = [
+        {"terminal_id": "T1", "lat": 41.0, "lon": 69.0, "address": "Старый адрес из Excel"},
+    ]
+    live = {
+        "T1": {
+            "lat": 41.3, "lon": 69.5, "address": "Новый адрес BTech", "place": "ТЦ",
+            "balance": 1, "btech_terminal_id": None, "serial": None,
+        },
+    }
+    match_live_to_rows(rows, live, {})
+    assert rows[0]["live"] is True
+    assert rows[0]["lat"] == 41.3 and rows[0]["lon"] == 69.5
+    assert rows[0]["location_source"] == "btech"
+    assert rows[0]["registry_lat"] == 41.0 and rows[0]["registry_lon"] == 69.0
+    assert rows[0]["address"] == "Новый адрес BTech"
+    assert rows[0]["registry_address"] == "Старый адрес из Excel"
+    assert rows[0]["place"] == "ТЦ"
+
+
+def test_invalid_btech_gps_keeps_registry_coords():
+    """BTech 0,0 не должен сдвигать точку в океан — остаётся реестр."""
+    rows = [
+        {"terminal_id": "T2", "lat": 41.31, "lon": 69.28, "address": "Excel адрес"},
+    ]
+    live = {
+        "T2": {
+            "lat": 0.0, "lon": 0.0, "address": "BTech адрес", "place": None,
+            "balance": 1, "btech_terminal_id": None, "serial": None,
+        },
+    }
+    match_live_to_rows(rows, live, {})
+    assert rows[0]["live"] is True
+    assert rows[0]["lat"] == 41.31 and rows[0]["lon"] == 69.28
+    assert rows[0]["location_source"] == "registry"
+    assert rows[0]["address"] == "BTech адрес"
+    assert rows[0]["registry_address"] == "Excel адрес"
+
+
+def test_valid_gps_rejects_junk():
+    from api.core.atm_live import _valid_gps
+
+    assert _valid_gps(0, 0) is None
+    assert _valid_gps("nan", "nan") is None
+    assert _valid_gps(41.3, 69.2) == (41.3, 69.2)
+    assert _valid_gps("41.3", "69.2") == (41.3, 69.2)
+    assert _valid_gps(50.0, 69.0) is None

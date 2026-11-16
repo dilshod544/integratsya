@@ -1,6 +1,7 @@
 """API страницы «Менеджер банкоматов» (dashboard/atm-monitor.html): текущее
 состояние каждого банкомата из БД сборщика (последний снимок) + ручной запуск опроса.
 Подключается в api/main.py как router."""
+import logging
 import threading
 
 from fastapi import APIRouter
@@ -10,6 +11,7 @@ from .daily_history import daily_series
 from .db import connect
 from .scheduler import run_once
 
+log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/atm-monitor", tags=["atm-monitor"])
 
 
@@ -171,6 +173,7 @@ def atm_card_data(atm_id: int) -> "dict | None":
         atm = conn.execute("SELECT * FROM atms WHERE id = %s", (atm_id,)).fetchone()
         if not atm:
             return None
+        atm = dict(atm)
 
         def rows(query: str) -> list:
             return conn.execute(query, (atm_id,)).fetchall()
@@ -179,6 +182,72 @@ def atm_card_data(atm_id: int) -> "dict | None":
             return conn.execute(query, (atm_id,)).fetchone()
 
         snapshot = one("SELECT * FROM atm_snapshots WHERE atm_id = %s ORDER BY polled_at DESC, id DESC LIMIT 1")
+        # Локация — отдельно: сбой парсинга/реестра не должен ронять всю карточку.
+        try:
+            from api.core.atm_live import _valid_gps
+            import json as _json
+            raw = (snapshot or {}).get("raw_json") or {}
+            if isinstance(raw, str):
+                try:
+                    raw = _json.loads(raw)
+                except (TypeError, ValueError, _json.JSONDecodeError):
+                    raw = {}
+            if not isinstance(raw, dict):
+                raw = {}
+            card = raw.get("card") if isinstance(raw.get("card"), dict) else {}
+            gps = card.get("gpsCoords") if isinstance(card.get("gpsCoords"), dict) else {}
+            fresh = _valid_gps(gps.get("latitude"), gps.get("longitude")) or _valid_gps(
+                atm.get("latitude"), atm.get("longitude")
+            )
+            if fresh:
+                atm["latitude"], atm["longitude"] = fresh
+                atm["location_source"] = "btech"
+            else:
+                atm["latitude"] = atm["longitude"] = None
+                atm["location_source"] = None
+            if card.get("address"):
+                atm["address"] = card.get("address")
+            if card.get("place"):
+                atm["place"] = card.get("place")
+            # Адрес/GPS из Excel-реестра — сверка и fallback при пустом/битом BTech GPS.
+            reg = None
+            for key in (atm.get("terminal_id"), atm.get("tid"), atm.get("serial")):
+                key = str(key or "").strip()
+                if not key:
+                    continue
+                reg = conn.execute(
+                    """
+                    SELECT address, lat, lon FROM public.atms
+                    WHERE TRIM(terminal_id::text) = %s
+                       OR TRIM(COALESCE(atm_number::text, '')) = %s
+                       OR TRIM(COALESCE(serial::text, '')) = %s
+                    LIMIT 1
+                    """,
+                    (key, key, key),
+                ).fetchone()
+                if reg:
+                    break
+            if reg:
+                atm["registry_address"] = reg.get("address")
+                atm["registry_lat"] = reg.get("lat")
+                atm["registry_lon"] = reg.get("lon")
+                if not atm.get("latitude"):
+                    reg_gps = _valid_gps(reg.get("lat"), reg.get("lon"))
+                    if reg_gps:
+                        atm["latitude"], atm["longitude"] = reg_gps
+                        atm["location_source"] = "registry"
+        except Exception:
+            log.exception("atm card location enrich failed for atm_id=%s", atm_id)
+            try:
+                from api.core.atm_live import _valid_gps
+                kept = _valid_gps(atm.get("latitude"), atm.get("longitude"))
+            except Exception:
+                kept = None
+            if kept:
+                atm["latitude"], atm["longitude"] = kept
+            else:
+                atm["latitude"] = atm["longitude"] = None
+                atm["location_source"] = None
         cassettes = conn.execute(
             "SELECT * FROM cassette_snapshots WHERE atm_snapshot_id = %s ORDER BY cassette_index", (snapshot["id"],)
         ).fetchall() if snapshot else []
