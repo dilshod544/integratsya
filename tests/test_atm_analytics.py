@@ -180,3 +180,13 @@ def test_atm_history_full(pg_db):
     assert h["from"] and h["points"] and h["daily"]
     assert all(d["withdrawal"] >= 0 for d in h["daily"])
     assert atm_analytics.atm_history(-1)["points"] == []
+
+
+def test_period_demand_extrapolates_short_history():
+    # 60 ч наблюдений, 2 млн/ч: за 30 дней это ~1,44 млрд, а не 120 млн «сняли за период».
+    demand = atm_analytics.estimate_period_demand(2_000_000, 60, 30)
+    assert demand == 2_000_000 * 24 * 30
+    assert demand > atm_analytics.CAP_UZS
+    # Меньше суток наблюдений — спрос не оцениваем.
+    assert atm_analytics.estimate_period_demand(2_000_000, 10, 30) is None
+    assert atm_analytics.estimate_period_demand(None, 100, 30) is None

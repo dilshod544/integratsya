@@ -1987,6 +1987,7 @@
       high_demand: { label: 'Спрос > 400 млн', cls: 'warning' },
       cap_ok:      { label: 'До 400 млн', cls: 'success' },
       currency:    { label: 'Валютный USD', cls: 'purple' },
+      no_data:     { label: 'Спрос не оценён', cls: 'slate' },
     };
     const days1 = v => v === null || v === undefined ? '—' : (v < 10 ? v.toFixed(1).replace('.', ',') : Math.round(v).toLocaleString('ru-RU')) + ' дн';
     const efCap = () => (efData && efData.cap_uzs) || 400_000_000;
@@ -2207,8 +2208,8 @@
       document.getElementById('ef-norm-th').textContent = focusCap ? `Цель ${capM} млн` : `Норма ${N} дн`;
       document.getElementById('ef-withdraw-th').textContent = `Изъять до ${capM} млн`;
       const rules = {
-        over_cap: `<b>Сегмент UZS:</b> остаток <b>&gt; ${capM} млн</b>, спрос за ${d.days} дн <b>≤ ${capM} млн</b>, без USD-кассет. Цель — снизить до ${capM} млн. Excel: было → цель → изъять.`,
-        high_demand: `<b>Высокий спрос:</b> за ${d.days} дн сняли <b>больше ${capM} млн</b>. Их не мешаем с «низким спросом» — отдельный список.`,
+        over_cap: `<b>Сегмент UZS:</b> остаток <b>&gt; ${capM} млн</b>, ожидаемый спрос за ${d.days} дн <b>≤ ${capM} млн</b> (среднее в час × ${d.days * 24} ч), без USD-кассет. Где данных меньше суток — спрос не оценивается. Цель — снизить до ${capM} млн. Excel: было → цель → изъять.`,
+        high_demand: `<b>Высокий спрос:</b> ожидаемые снятия за ${d.days} дн (по среднему в час) <b>больше ${capM} млн</b>. Их не мешаем с «низким спросом» — отдельный список.`,
         cap_ok: `<b>Норма потолка:</b> UZS-остаток <b>≤ ${capM} млн</b>, без валютных. Уже в целевом диапазоне по потолку.`,
         currency: `<b>Валютные:</b> есть USD-кассета. UZS-остаток и USD считаются отдельно; клик «USD · изъять» — только те, где UZS &gt; ${capM} млн.`,
         currency_over: `<b>Валютные + свыше ${capM} млн:</b> USD-ATM с UZS-остатком выше потолка и невысоким спросом. Изъятие считается по UZS до ${capM} млн; доллары в колонке сегмента.`,
@@ -2407,7 +2408,7 @@
           : a.segment === 'high_demand' ? 'var(--warning)'
           : a.segment === 'currency' ? 'var(--purple)' : 'var(--success)';
         const cover = a.status === 'no_demand' ? 'снятий нет' : a.cover_days === null
-          ? `<span class="sub">спрос за период: ${money(a.period_demand || a.withdrawn || 0)}</span>`
+          ? `<span class="sub">спрос за период: ${a.period_demand != null ? money(a.period_demand) : '—'}</span>`
           : a.cover_days > N ? `${days1(a.cover_days)} <span class="sub">(в ${(a.cover_days / N).toFixed(1).replace('.', ',')}× больше нормы)</span>` : days1(a.cover_days);
         const withdrawable = a.over_cap || 0;
         const badges = [
@@ -2419,7 +2420,7 @@
         return `<tr class="clickable ${String(a.atm_id) === sel ? 'selected' : ''}" onclick="selectEfAtm(${a.atm_id})" title="Показать остаток на графике">
           <td><div class="strong">${atmLink(a.tid || '—', {id: a.atm_id, tid: a.tid})} ${badges}</div><div class="sub">${esc([a.region, a.branch, a.address].filter(Boolean).join(' · ') || 'не сопоставлен')}</div></td>
           <td class="num strong">${money(a.balance)}</td>
-          <td class="num">${money(a.period_demand != null ? a.period_demand : a.withdrawn)}</td>
+          <td class="num" title="Прогноз на период по среднему в час · фактически за ${a.covered_hours} ч: ${money(a.period_demand_observed ?? a.withdrawn)}">${a.period_demand != null ? money(a.period_demand) : '—'}</td>
           <td class="num">${money(a.avg_per_day)}</td>
           <td><div class="cover"><span>${cover}</span><div class="track"><div class="fill" style="width:${Math.max(2, pct)}%;background:${color}"></div></div></div></td>
           <td class="num">${money(a.cap_uzs || cap)}</td>

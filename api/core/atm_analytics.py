@@ -493,6 +493,16 @@ MIN_COVERED_HOURS = 24   # меньше часов наблюдений — сп
 CAP_UZS = 400_000_000
 
 
+def estimate_period_demand(avg_per_hour: Optional[float], covered_hours: float, days: int) -> Optional[float]:
+    """Ожидаемые снятия за `days` дней по среднему в час.
+
+    None — наблюдений меньше MIN_COVERED_HOURS, спрос не оцениваем (иначе пара
+    часов данных выглядела бы как «низкий спрос за месяц»)."""
+    if avg_per_hour is None or covered_hours < MIN_COVERED_HOURS:
+        return None
+    return float(avg_per_hour) * 24.0 * days
+
+
 def assess_stock(balance: float, avg_per_hour: Optional[float], covered_hours: float, norm_days: int) -> Dict[str, Any]:
     """Хватит ли остатка и сколько в нём лишнего относительно нормы norm_days дней спроса.
 
@@ -602,9 +612,12 @@ def _atm_efficiency(days: int, norm_days: int) -> Dict[str, Any]:
         # Потолок 400 млн UZS: сколько можно изъять, чтобы осталось ровно CAP.
         over_cap = max(0.0, balance - CAP_UZS)
         over_cap = float(int(over_cap // 1_000_000) * 1_000_000)
-        period_demand = withdrawn
-        low_demand = period_demand <= CAP_UZS
-        high_demand = period_demand > CAP_UZS
+        # Спрос за весь период — по среднему в час, а не по сумме наблюдённых часов:
+        # если данных меньше `days` дней, сумма снятий занижена и ATM ложно
+        # попадал бы в «низкий спрос».
+        period_demand = estimate_period_demand(avg_hour, covered, days)
+        low_demand = period_demand is not None and period_demand <= CAP_UZS
+        high_demand = period_demand is not None and period_demand > CAP_UZS
         has_usd = str(r["tid"]) in usd_by_tid
         usd_balance = usd_by_tid.get(str(r["tid"]), 0.0) if has_usd else 0.0
         # Сегменты результата (взаимно читаемые, валютные отдельно):
@@ -635,11 +648,13 @@ def _atm_efficiency(days: int, norm_days: int) -> Dict[str, Any]:
             "has_usd": has_usd,
             "usd_balance": usd_balance,
             "over_cap_candidate": over_cap_candidate,
+            "period_demand_observed": withdrawn,
             "segment": (
                 "currency" if has_usd
                 else "high_demand" if high_demand
                 else "over_cap" if over_cap_candidate
-                else "cap_ok"
+                else "cap_ok" if balance <= CAP_UZS or low_demand
+                else "no_data"
             ),
         })
     # Сначала — где больше всего лишних денег, затем — кому денег не хватит раньше всех.
@@ -681,6 +696,7 @@ def _atm_efficiency(days: int, norm_days: int) -> Dict[str, Any]:
             "over_cap_balance": sum(a["balance"] for a in over_cap_rows),
             "high_demand": len(high_rows),
             "high_demand_total": sum(a["period_demand"] for a in high_rows),
+            "no_data_demand": len(seg("no_data")),
             "cap_ok": len(ok_rows),
             "cap_ok_balance": sum(a["balance"] for a in ok_rows),
             "currency": len(cur_rows),
@@ -1062,6 +1078,7 @@ def export_atm_efficiency_xlsx(
         ("high_demand", "2. Спрос выше 400", "Спрос > 400 млн за период"),
         ("cap_ok", "3. До 400 млн", "До 400 млн · норма потолка (UZS)"),
         ("currency", "4. Валютные USD", "Валютные ATM (USD)"),
+        ("no_data", "5. Мало данных", "Свыше 400 млн · спрос не оценён (мало данных)"),
     ]
     by_seg: Dict[str, List[Dict[str, Any]]] = {k: [] for k, _, _ in seg_sheets}
     for a in rows:
@@ -1102,7 +1119,7 @@ def export_atm_efficiency_xlsx(
     headers = [
         "TID", "Регион", "Филиал", "Адрес",
         "Было (остаток UZS)", "Цель UZS", "Можно изъять до цели",
-        "Спрос за период UZS", "Спрос в день UZS", "Хватит на, дн",
+        "Спрос за период (прогноз) UZS", "Спрос в день UZS", "Хватит на, дн",
         "USD кассета", "USD остаток", "Статус запаса", "Опрос",
     ]
 
@@ -1129,7 +1146,7 @@ def export_atm_efficiency_xlsx(
                 a.get("balance"),
                 a.get("cap_uzs") or cap,
                 a.get("over_cap") or 0,
-                a.get("period_demand") if a.get("period_demand") is not None else a.get("withdrawn"),
+                a.get("period_demand"),
                 a.get("avg_per_day"),
                 a.get("cover_days"),
                 "да" if a.get("has_usd") else "нет",
