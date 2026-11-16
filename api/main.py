@@ -1684,6 +1684,67 @@ def analytics_atm_efficiency(
     return atm_analytics.atm_efficiency(days, norm_days)
 
 
+class AtmEfficiencyExportRequest(BaseModel):
+    atm_ids: List[int]
+    days: int = 30
+    norm_days: int = atm_analytics.NORM_DAYS
+    filter_label: Optional[str] = None
+
+
+@app.post("/api/analytics/atm-efficiency/export", summary="Excel: выборка аналитики ATM (в т.ч. свыше 400 млн)")
+def analytics_atm_efficiency_export(payload: AtmEfficiencyExportRequest):
+    try:
+        content = atm_analytics.export_atm_efficiency_xlsx(
+            payload.atm_ids,
+            days=payload.days,
+            norm_days=payload.norm_days,
+            filter_label=payload.filter_label,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    stamp = datetime.now().strftime("%Y-%m-%d_%H%M")
+    filename = f"ATM_efficiency_{stamp}.xlsx"
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/api/analytics/atm-efficiency/results", summary="Result history: прогресс снижения до 400 млн")
+def analytics_atm_efficiency_results(
+    days: int = Query(30, ge=7, le=180),
+    norm_days: int = Query(atm_analytics.NORM_DAYS, ge=1, le=120),
+    sync: bool = Query(True),
+):
+    return atm_analytics.efficiency_result_history(days, norm_days, sync=sync)
+
+
+@app.post("/api/analytics/atm-efficiency/results/sync", summary="Зафиксировать/обновить базу Result history")
+def analytics_atm_efficiency_results_sync(
+    days: int = Query(30, ge=7, le=180),
+    norm_days: int = Query(atm_analytics.NORM_DAYS, ge=1, le=120),
+):
+    return atm_analytics.sync_efficiency_results(days, norm_days)
+
+
+@app.get("/api/analytics/atm-efficiency/results/export", summary="Excel: Result history и экономия")
+def analytics_atm_efficiency_results_export(
+    days: int = Query(30, ge=7, le=180),
+    norm_days: int = Query(atm_analytics.NORM_DAYS, ge=1, le=120),
+):
+    try:
+        content = atm_analytics.export_efficiency_result_xlsx(days, norm_days)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    stamp = datetime.now().strftime("%Y-%m-%d_%H%M")
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="ATM_result_history_{stamp}.xlsx"'},
+    )
+
+
 @app.get("/api/analytics/balance-history", summary="История остатка банкомата (или суммы по сети) по часам")
 def analytics_balance_history(atm_id: Optional[int] = None, days: int = Query(30, ge=1, le=180)):
     return atm_analytics.balance_history(atm_id, days)

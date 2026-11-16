@@ -45,6 +45,15 @@ function appIcon(name, extra = '') {
 // KPI status filter from top cards: null = no filter, 'critical'|'warning'|'ok'
 let kpiStatusFilter = null;
 let kpiActive = null; // 'all'|'critical'|'warning'|'ok'|'branches'|'vash'
+// Кнопка $ на карте: только ATM с USD-кассетами из BTech.
+let currencyOnlyFilter = false;
+
+function atmHasUsd(atm) {
+  if (!atm) return false;
+  if (atm.hasUsd) return true;
+  const cass = atm.cassettes || (atmState[atm.id] && atmState[atm.id].cassettes) || [];
+  return cass.some(c => String(c.currency || '').toUpperCase() === 'USD');
+}
 
 function getFilteredATMs() {
   return ATM_META.filter(atm => {
@@ -58,6 +67,9 @@ function getFilteredATMs() {
       const st = atmState[atm.id]?.status || atm.status || 'ok';
       if (st !== kpiStatusFilter) return false;
     }
+
+    // 2b. Только валютные (USD) ATM
+    if (currencyOnlyFilter && !atmHasUsd(atm)) return false;
 
     // 3. Filter by search input query if typed
     if (currentSearchQuery) {
@@ -158,25 +170,30 @@ function updateMarkersHighlight(filtered) {
     return;
   }
 
-  const isFiltering = currentSearchQuery !== "" || selectedAtmIdsFromModal !== null || kpiStatusFilter !== null;
+  const isFiltering = currentSearchQuery !== "" || selectedAtmIdsFromModal !== null || kpiStatusFilter !== null || currencyOnlyFilter;
   const filteredSet = new Set(filtered.map(a => a.id));
   
   Object.entries(markers).forEach(([id, marker]) => {
     const st = atmState[id] || { status: 'ok' };
+    const meta = ATM_META.find(a => String(a.id) === String(id));
     const isMatched = filteredSet.has(id);
+    const hasUsd = atmHasUsd(meta);
     
     if (isFiltering) {
       if (isMatched) {
-        setAtmMarkerIcon(marker, st.status, true);
+        setAtmMarkerIcon(marker, st.status, true, hasUsd);
         marker.setOpacity(1.0);
         if (!map.hasLayer(marker)) marker.addTo(map);
+      } else if (currencyOnlyFilter) {
+        // Режим $: чужие ATM полностью скрываем
+        if (map.hasLayer(marker)) map.removeLayer(marker);
       } else {
-        setAtmMarkerIcon(marker, st.status, false);
+        setAtmMarkerIcon(marker, st.status, false, hasUsd);
         marker.setOpacity(0.25);
         if (!map.hasLayer(marker)) marker.addTo(map);
       }
     } else {
-      setAtmMarkerIcon(marker, st.status, false);
+      setAtmMarkerIcon(marker, st.status, false, hasUsd);
       marker.setOpacity(1.0);
       if (!map.hasLayer(marker)) marker.addTo(map);
     }
@@ -534,18 +551,21 @@ async function initMapLayers() {
 }
 initMapLayers();
 
-function makeIcon(status, isHighlighted = false) {
+function makeIcon(status, isHighlighted = false, hasUsd = false) {
   const colors = { ok:'#22c55e', warning:'#f59e0b', critical:'#ef4444' };
-  const c = colors[status] || '#94a3b8';
-  // Inline SVG — избегаем lucide.createIcons() здесь, чтобы смена иконки не мигала
-  const glyph = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></svg>`;
+  // Валютные ATM — бирюзовый акцент, чтобы отличались от обычных.
+  const c = hasUsd ? '#0d9488' : (colors[status] || '#94a3b8');
+  const cardGlyph = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></svg>`;
+  const dollarGlyph = `<span style="font:800 13px/1 Inter,system-ui,sans-serif;color:#fff">$</span>`;
+  const glyph = hasUsd ? dollarGlyph : cardGlyph;
+  const ring = hasUsd ? (isHighlighted ? '#facc15' : '#99f6e4') : (isHighlighted ? '#facc15' : '#fff');
 
   if (isHighlighted) {
     return L.divIcon({
       className: 'atm-marker-icon',
       html: `<div class="marker-highlighted" style="
         width:34px;height:34px;border-radius:50%;
-        background:${c};border:3.5px solid #facc15;
+        background:${c};border:3.5px solid ${ring};
         box-shadow:0 0 15px #facc15, 0 0 6px ${c};
         display:flex;align-items:center;justify-content:center;
         color:#fff;
@@ -559,7 +579,7 @@ function makeIcon(status, isHighlighted = false) {
     className: 'atm-marker-icon',
     html: `<div style="
       width:28px;height:28px;border-radius:50%;
-      background:${c};border:3px solid #fff;
+      background:${c};border:3px solid ${ring};
       box-shadow:0 0 12px ${c}99;
       display:flex;align-items:center;justify-content:center;
       color:#fff;
@@ -568,12 +588,12 @@ function makeIcon(status, isHighlighted = false) {
   });
 }
 
-function setAtmMarkerIcon(marker, status, isHighlighted = false) {
+function setAtmMarkerIcon(marker, status, isHighlighted = false, hasUsd = false) {
   if (!marker) return;
-  const key = `${status}|${isHighlighted ? 1 : 0}`;
+  const key = `${status}|${isHighlighted ? 1 : 0}|${hasUsd ? 1 : 0}`;
   if (marker._atmIconKey === key) return;
   marker._atmIconKey = key;
-  marker.setIcon(makeIcon(status, isHighlighted));
+  marker.setIcon(makeIcon(status, isHighlighted, hasUsd));
 }
 
 let atmsVisible = true;
@@ -594,9 +614,10 @@ function initMarkers(fit = true) {
     const lon = parseFloat(atm.lon);
     if (!isNaN(lat) && !isNaN(lon) && lat !== 0 && lon !== 0) {
       const st = atmState[atm.id]?.status || 'ok';
-      const m = L.marker([lat, lon], { icon: makeIcon(st) })
+      const hasUsd = atmHasUsd(atm);
+      const m = L.marker([lat, lon], { icon: makeIcon(st, false, hasUsd) })
         .on('click', () => selectAtm(atm.id));
-      m._atmIconKey = `${st}|0`;
+      m._atmIconKey = `${st}|0|${hasUsd ? 1 : 0}`;
       if (atmsVisible) m.addTo(map);
       markers[atm.id] = m;
       points.push([lat, lon]);
@@ -607,6 +628,8 @@ function initMarkers(fit = true) {
     map.fitBounds(L.latLngBounds(points), { padding: [50, 50] });
   }
   syncAtmsToggleBtn();
+  syncCurrencyToggleBtn();
+  if (currencyOnlyFilter) updateMarkersHighlight(getFilteredATMs());
 }
 
 function syncAtmsToggleBtn() {
@@ -623,8 +646,43 @@ function syncAtmsToggleBtn() {
   }
 }
 
+function syncCurrencyToggleBtn() {
+  const btn = document.getElementById('currency-toggle-btn');
+  if (!btn) return;
+  if (currencyOnlyFilter) {
+    btn.style.background = '#0d9488';
+    btn.style.color = '#fff';
+    btn.style.borderColor = '#0d9488';
+  } else {
+    btn.style.background = '';
+    btn.style.color = '';
+    btn.style.borderColor = '';
+  }
+}
+
+function toggleCurrencyFilter() {
+  currencyOnlyFilter = !currencyOnlyFilter;
+  if (currencyOnlyFilter && !atmsVisible) toggleAtmsLayer();
+  syncCurrencyToggleBtn();
+  const filtered = getFilteredATMs();
+  renderList();
+  updateMarkersHighlight(filtered);
+  const countEl = document.getElementById('list-count');
+  if (countEl) {
+    countEl.textContent = currencyOnlyFilter
+      ? `${filtered.length} валютных ATM (USD)`
+      : `${filtered.length} ATM`;
+  }
+  if (currencyOnlyFilter) zoomToFiltered(filtered);
+  hydrateIcons();
+}
+
 function toggleAtmsLayer() {
   atmsVisible = !atmsVisible;
+  if (!atmsVisible && currencyOnlyFilter) {
+    currencyOnlyFilter = false;
+    syncCurrencyToggleBtn();
+  }
   Object.values(markers).forEach((marker) => {
     if (atmsVisible) {
       if (!map.hasLayer(marker)) marker.addTo(map);
@@ -1905,10 +1963,12 @@ async function loadAtmsFromDb() {
           // Реальные кассеты (список, не словарь по номиналу — у части моделей
           // бывает несколько кассет одного номинала, терять их нельзя).
           cassettes:       Array.isArray(a.cassettes) && a.cassettes.length ? a.cassettes : null,
+          hasUsd:          !!a.has_usd || (Array.isArray(a.cassettes) && a.cassettes.some(c => String(c.currency || '').toUpperCase() === 'USD')),
+          usdBalance:      a.usd_balance != null ? Number(a.usd_balance) : null,
         };
       });
       applyDemoBalances(ATM_META);
-      console.log(`Loaded ${ATM_META.length} ATMs from DB (${ATM_META.filter(a => a.live).length} с живыми данными atm_monitor)`);
+      console.log(`Loaded ${ATM_META.length} ATMs from DB (${ATM_META.filter(a => a.live).length} с живыми данными atm_monitor, ${ATM_META.filter(a => a.hasUsd).length} с USD)`);
       return true;
     }
   } catch (err) {
@@ -1949,28 +2009,50 @@ const CASSETTE_STATUS_COLOR = {
   INOP: '#94a3b8', // кассета не в работе — не про уровень наличных, про исправность
 };
 
+function cassetteCurrency(c) {
+  return String((c && c.currency) || 'UZS').trim().toUpperCase() || 'UZS';
+}
+
+function formatCassetteDenom(c) {
+  const cur = cassetteCurrency(c);
+  const n = Number(c.nominal != null ? c.nominal : c.denomination);
+  if (!Number.isFinite(n)) return '—';
+  if (cur === 'USD') return `$${n.toLocaleString('en-US')}`;
+  if (n >= 1000) return `${(n / 1000).toFixed(0)}к сум`;
+  return `${n.toLocaleString('ru-RU')} сум`;
+}
+
+function formatCassetteMoney(c) {
+  const cur = cassetteCurrency(c);
+  const bal = c.balance;
+  if (bal == null || !Number.isFinite(Number(bal))) return '—';
+  if (cur === 'USD') return `$${Number(bal).toLocaleString('en-US')}`;
+  return `${(Number(bal) / 1e6).toFixed(1)} млн`;
+}
+
 // Плитки кассет для карточки списка. Реальные кассеты — список (не словарь по
 // номиналу): у части моделей встречается несколько кассет одного номинала
-// (например, две по 200 000 — их нельзя схлопывать в одну).
+// (например, две по 200 000 — их нельзя схлопывать в одну). USD показываем отдельно.
 function cassetteTilesHtml(cassettes, source) {
   if (source === 'live') {
     return (cassettes || []).map(c => {
       const color = CASSETTE_STATUS_COLOR[c.status] || '#94a3b8';
-      const denomTxt = c.nominal >= 1000 ? (c.nominal / 1000).toFixed(0) + 'к' : (c.nominal ?? '—');
-      return `<div style="background:#f8fafc;border:1px solid #e5eaf3;border-radius:10px;padding:5px 7px">
+      const isUsd = cassetteCurrency(c) === 'USD';
+      const border = isUsd ? '#99f6e4' : '#e5eaf3';
+      const bg = isUsd ? '#f0fdfa' : '#f8fafc';
+      return `<div style="background:${bg};border:1px solid ${border};border-radius:10px;padding:5px 7px">
         <div style="display:flex;justify-content:space-between;font-size:9px;color:#667085;margin-bottom:4px;font-weight:700">
-          <span>${denomTxt} сум</span><span style="color:${color}">${c.status || '—'}</span>
+          <span style="${isUsd ? 'color:#0f766e' : ''}">${formatCassetteDenom(c)}</span><span style="color:${color}">${c.status || '—'}</span>
         </div>
-        <div style="font-size:9px;color:#667085">${c.balance != null ? (c.balance/1e6).toFixed(1) + ' млн' : '—'} · ${c.count ?? '—'} шт</div>
+        <div style="font-size:9px;color:#667085">${formatCassetteMoney(c)} · ${c.count ?? '—'} шт</div>
       </div>`;
     }).join('');
   }
   return (cassettes || []).map(c => {
     const fillColor = c.fill_pct > 60 ? '#22c55e' : c.fill_pct > 25 ? '#f59e0b' : '#ef4444';
-    const denom = c.denomination >= 1000 ? (c.denomination/1000).toFixed(0)+'к' : c.denomination;
     return `<div style="background:#f8fafc;border:1px solid #e5eaf3;border-radius:10px;padding:5px 7px">
       <div style="display:flex;justify-content:space-between;font-size:9px;color:#667085;margin-bottom:4px;font-weight:700">
-        <span>${denom} сум</span><span style="color:${fillColor}">${c.fill_pct}%</span>
+        <span>${formatCassetteDenom(c)}</span><span style="color:${fillColor}">${c.fill_pct}%</span>
       </div>
       <div style="height:5px;background:#e5eaf3;border-radius:999px;overflow:hidden">
         <div style="height:4px;background:${fillColor};border-radius:2px;width:${Math.min(c.fill_pct,100)}%"></div>
@@ -2201,20 +2283,21 @@ function selectAtm(id) {
       // бывает несколько кассет одного номинала, их нельзя схлопывать в одну.
       // "% заполнения" не показываем — реальной ёмкости кассеты BTech не отдаёт,
       // вместо этого настоящий статус самой площадки (OK/LOW/EMPTY/INOP/...).
+      // USD показываем как $ номинал / $ сумма, отдельно от сумовых.
       rows = (cassettes || []).map(c => {
         const color = CASSETTE_STATUS_COLOR[c.status] || '#94a3b8';
-        return `<div style="display:flex;align-items:center;justify-content:space-between;gap:5px;margin-bottom:3px;font-size:10px">
-          <span style="color:#667085">${c.nominal ? Number(c.nominal).toLocaleString('ru-RU') : '—'} сум</span>
-          <span style="color:#475569">${c.count ?? '—'} шт · ${c.balance != null ? (c.balance/1e6).toFixed(1) + ' млн' : '—'}</span>
+        const isUsd = cassetteCurrency(c) === 'USD';
+        return `<div style="display:flex;align-items:center;justify-content:space-between;gap:5px;margin-bottom:3px;font-size:10px${isUsd ? ';background:#f0fdfa;border-radius:6px;padding:3px 5px' : ''}">
+          <span style="color:${isUsd ? '#0f766e' : '#667085'};font-weight:${isUsd ? 800 : 400}">${formatCassetteDenom(c)}</span>
+          <span style="color:#475569">${c.count ?? '—'} шт · ${formatCassetteMoney(c)}</span>
           <span style="color:${color};font-weight:700">${c.status || '—'}</span>
         </div>`;
       }).join('');
     } else {
       rows = (cassettes || []).map(c => {
         const fillColor = c.fill_pct > 60 ? '#22c55e' : c.fill_pct > 25 ? '#f59e0b' : '#ef4444';
-        const denom = c.denomination >= 1000 ? (c.denomination / 1000).toFixed(0) + 'к' : c.denomination;
         return `<div style="display:flex;align-items:center;gap:5px;margin-bottom:3px;font-size:10px">
-          <span style="color:#667085;width:40px">${denom} сум</span>
+          <span style="color:#667085;width:52px">${formatCassetteDenom(c)}</span>
           <div style="flex:1;height:6px;background:#e5eaf3;border-radius:999px;overflow:hidden">
             <div style="height:6px;background:${fillColor};border-radius:3px;width:${Math.min(c.fill_pct || 0, 100)}%"></div>
           </div>
@@ -2230,12 +2313,17 @@ function selectAtm(id) {
     ? `~${stPop.forecastHours < 24 ? Math.round(stPop.forecastHours) + ' ч' : Math.round(stPop.forecastHours / 24) + ' д'}`
     : '—';
 
+  const usdLine = atmHasUsd(atm)
+    ? `<div class="popup-row">Валюта: <span style="color:#0f766e;font-weight:800">USD${atm.usdBalance ? ' · $' + Number(atm.usdBalance).toLocaleString('en-US') : ''}</span></div>`
+    : '';
+
   const popupHtml = (cassettes, source) => `
-    <div class="popup-title">${atmLink(atm.name, {terminal: atm.id})}</div>
+    <div class="popup-title">${atmLink(atm.name, {terminal: atm.id})}${atmHasUsd(atm) ? ' <span style="color:#0f766e;font-weight:800">$</span>' : ''}</div>
     <div class="popup-row">Адрес: <span>${atm.address}</span></div>
     <hr style="border-color:#e5eaf3;margin:8px 0">
 
     <div class="popup-row">Остаток: <span>${((stPop.balance||0)/1_000_000).toFixed(1)} млн сум (${pct}%)</span></div>
+    ${usdLine}
     <div class="popup-row">Статус: <span style="color:${
       stPop.status==='ok'?'#16a34a':stPop.status==='warning'?'#d97706':'#dc2626'
     }">${stPop.status==='ok'?'Норма':stPop.status==='warning'?'Предупреждение':'Критично'}</span></div>

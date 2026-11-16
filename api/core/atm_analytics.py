@@ -15,6 +15,7 @@ atm_live.match_live_to_rows); пороги заполненности — те �
 """
 from __future__ import annotations
 
+import logging
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
@@ -26,6 +27,8 @@ from atm_monitor.db import connect
 
 from .config import DEFAULT_CAPACITY
 from .db import _compute_status, list_atms
+
+log = logging.getLogger(__name__)
 
 MAX_REAL_NOMINAL = 200_000        # крупнейшая купюра UZS
 STALE_AFTER = timedelta(hours=3)   # снимок старше последнего опроса на столько — «нет данных»
@@ -485,6 +488,10 @@ NORM_DAYS = 30
 LOW_COVER_DAYS = 3
 MIN_COVERED_HOURS = 24   # меньше часов наблюдений — спрос не оцениваем
 
+# Потолок остатка для «результата»: ATM с низким спросом и остатком выше этого
+# уровня — кандидаты на изъятие до CAP (история «было X → стало 400 млн»).
+CAP_UZS = 400_000_000
+
 
 def assess_stock(balance: float, avg_per_hour: Optional[float], covered_hours: float, norm_days: int) -> Dict[str, Any]:
     """Хватит ли остатка и сколько в нём лишнего относительно нормы norm_days дней спроса.
@@ -565,6 +572,21 @@ def _atm_efficiency(days: int, norm_days: int) -> Dict[str, Any]:
             s = series.droplevel("atm_id").reindex(days_axis)
             spark[int(atm_id)] = [None if pd.isna(v) else float(v) for v in s]
     registry = _registry_by_tid()
+    # Валютные ATM (USD-кассеты) — отдельный сегмент, не смешиваем с «свыше 400 млн» UZS.
+    usd_by_tid: Dict[str, float] = {}
+    try:
+        from .atm_live import all_latest_cassettes
+
+        for tid, cass in all_latest_cassettes().items():
+            usd = [
+                c for c in cass
+                if str(c.get("currency") or "").strip().upper() == "USD"
+            ]
+            if usd:
+                usd_by_tid[str(tid)] = float(sum((c.get("balance") or 0) for c in usd))
+    except Exception:
+        log.exception("efficiency: USD cassettes unavailable")
+
     atms = []
     for r in latest:
         balance = r["balance"]
@@ -573,8 +595,24 @@ def _atm_efficiency(days: int, norm_days: int) -> Dict[str, Any]:
         balance = float(balance)
         stats = per_atm.loc[r["id"]] if r["id"] in per_atm.index else None
         covered = float(stats["covered"]) if stats is not None else 0.0
-        avg_hour = float(stats["withdrawn"]) / covered if covered else None
+        withdrawn = float(stats["withdrawn"]) if stats is not None else 0.0
+        avg_hour = withdrawn / covered if covered else None
         reg = registry.get(str(r["tid"])) or {}
+        stock = assess_stock(balance, avg_hour, covered, norm_days)
+        # Потолок 400 млн UZS: сколько можно изъять, чтобы осталось ровно CAP.
+        over_cap = max(0.0, balance - CAP_UZS)
+        over_cap = float(int(over_cap // 1_000_000) * 1_000_000)
+        period_demand = withdrawn
+        low_demand = period_demand <= CAP_UZS
+        high_demand = period_demand > CAP_UZS
+        has_usd = str(r["tid"]) in usd_by_tid
+        usd_balance = usd_by_tid.get(str(r["tid"]), 0.0) if has_usd else 0.0
+        # Сегменты результата (взаимно читаемые, валютные отдельно):
+        # over_cap — UZS-only, остаток > 400 млн, спрос за период ≤ 400 млн
+        # high_demand — спрос за период > 400 млн
+        # cap_ok — UZS-only, остаток ≤ 400 млн (в потолке)
+        # currency — есть USD-кассета
+        over_cap_candidate = (not has_usd) and over_cap > 0 and low_demand
         atms.append({
             "atm_id": int(r["id"]),
             "tid": r["tid"],
@@ -583,24 +621,51 @@ def _atm_efficiency(days: int, norm_days: int) -> Dict[str, Any]:
             "branch": reg.get("branch"),
             "balance": balance,
             "polled_at": _iso(r["polled_at"]),
-            "withdrawn": float(stats["withdrawn"]) if stats is not None else 0.0,
+            "withdrawn": withdrawn,
             "covered_hours": round(covered, 1),
             "refills": int(stats["refills"]) if stats is not None else 0,
             "avg_per_hour": avg_hour,
             "daily_withdrawals": spark.get(int(r["id"]), []),
-            **assess_stock(balance, avg_hour, covered, norm_days),
+            **stock,
+            "cap_uzs": CAP_UZS,
+            "over_cap": over_cap,
+            "period_demand": period_demand,
+            "low_demand": low_demand,
+            "high_demand": high_demand,
+            "has_usd": has_usd,
+            "usd_balance": usd_balance,
+            "over_cap_candidate": over_cap_candidate,
+            "segment": (
+                "currency" if has_usd
+                else "high_demand" if high_demand
+                else "over_cap" if over_cap_candidate
+                else "cap_ok"
+            ),
         })
     # Сначала — где больше всего лишних денег, затем — кому денег не хватит раньше всех.
-    atms.sort(key=lambda a: (-a["excess"], a["cover_days"] if a["cover_days"] is not None else float("inf")))
+    atms.sort(key=lambda a: (
+        -a["over_cap"],
+        -a["excess"],
+        a["cover_days"] if a["cover_days"] is not None else float("inf"),
+    ))
 
     def count(status: str) -> int:
         return sum(1 for a in atms if a["status"] == status)
 
+    def seg(name: str) -> List[Dict[str, Any]]:
+        return [a for a in atms if a["segment"] == name]
+
+    over_cap_rows = seg("over_cap")
+    high_rows = seg("high_demand")
+    ok_rows = seg("cap_ok")
+    cur_rows = seg("currency")
+    cur_over = [a for a in cur_rows if a["over_cap"] > 0 and a["low_demand"]]
     covered_total = sum(a["covered_hours"] for a in atms)
     return {
         "days": days,
         "norm_days": norm_days,
         "low_cover_days": LOW_COVER_DAYS,
+        "cap_uzs": CAP_UZS,
         "data_until": end.isoformat() if end else None,
         "summary": {
             "atms": len(atms),
@@ -610,6 +675,18 @@ def _atm_efficiency(days: int, norm_days: int) -> Dict[str, Any]:
             "low": count("low"),
             "ok": count("ok"),
             "no_data": count("no_data"),
+            # Разделённые сегменты для отчёта «результат»
+            "over_cap": len(over_cap_rows),
+            "over_cap_total": sum(a["over_cap"] for a in over_cap_rows),
+            "over_cap_balance": sum(a["balance"] for a in over_cap_rows),
+            "high_demand": len(high_rows),
+            "high_demand_total": sum(a["period_demand"] for a in high_rows),
+            "cap_ok": len(ok_rows),
+            "cap_ok_balance": sum(a["balance"] for a in ok_rows),
+            "currency": len(cur_rows),
+            "currency_over_cap": len(cur_over),
+            "currency_over_cap_total": sum(a["over_cap"] for a in cur_over),
+            "currency_usd_total": sum(a["usd_balance"] for a in cur_rows),
             # средний спрос одного банкомата в час — по всем часам наблюдений сети
             "avg_per_hour_atm": sum(a["withdrawn"] for a in atms) / covered_total if covered_total else None,
             "avg_per_hour_network": sum(a["avg_per_hour"] or 0 for a in atms),
@@ -936,6 +1013,538 @@ def export_atm_status_xlsx(
 
     _autosize(ws)
     ws.row_dimensions[1].height = 30
+
+    buf = BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def export_atm_efficiency_xlsx(
+    atm_ids: List[int],
+    *,
+    days: int = 30,
+    norm_days: int = NORM_DAYS,
+    filter_label: Optional[str] = None,
+) -> bytes:
+    """Excel по выборке «Аналитика ATM»: каждый сегмент — отдельный лист."""
+    from io import BytesIO
+
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+    from openpyxl.utils import get_column_letter
+
+    if not atm_ids:
+        raise ValueError("Нет банкоматов для выгрузки")
+    if len(atm_ids) > 5000:
+        raise ValueError("Слишком много банкоматов для одной выгрузки")
+
+    data = atm_efficiency(days, norm_days)
+    by_id = {int(a["atm_id"]): a for a in data["atms"]}
+    rows = [by_id[i] for i in atm_ids if i in by_id]
+    if not rows:
+        raise ValueError("Выбранные банкоматы не найдены в аналитике")
+
+    wb = Workbook()
+    thin = Border(
+        left=Side(style="thin", color="D0D7DE"),
+        right=Side(style="thin", color="D0D7DE"),
+        top=Side(style="thin", color="D0D7DE"),
+        bottom=Side(style="thin", color="D0D7DE"),
+    )
+    head_fill = PatternFill("solid", fgColor="E8EEF7")
+    head_font = Font(bold=True, color="1E293B")
+    label_font = Font(bold=True, color="334155")
+    cap = float(data.get("cap_uzs") or CAP_UZS)
+
+    # Порядок листов: сегменты отдельно, без смешивания в одной таблице.
+    seg_sheets = [
+        ("over_cap", "1. Свыше 400 млн", "Свыше 400 млн · низкий спрос (UZS)"),
+        ("high_demand", "2. Спрос выше 400", "Спрос > 400 млн за период"),
+        ("cap_ok", "3. До 400 млн", "До 400 млн · норма потолка (UZS)"),
+        ("currency", "4. Валютные USD", "Валютные ATM (USD)"),
+    ]
+    by_seg: Dict[str, List[Dict[str, Any]]] = {k: [] for k, _, _ in seg_sheets}
+    for a in rows:
+        by_seg.setdefault(a.get("segment") or "cap_ok", []).append(a)
+
+    meta = wb.active
+    meta.title = "0. Сводка"
+    meta.append(["Параметр", "Значение"])
+    for cell in meta[1]:
+        cell.fill = head_fill
+        cell.font = head_font
+        cell.border = thin
+    meta_rows = [
+        ("Отчёт", "Аналитика ATM · сегменты разделены по листам"),
+        ("Сформирован", datetime.now().strftime("%d.%m.%Y %H:%M")),
+        ("Период спроса, дней", data.get("days")),
+        ("Норма запаса, дней", data.get("norm_days")),
+        ("Потолок остатка UZS", cap),
+        ("Фильтр UI", filter_label or "Текущая выборка"),
+        ("Всего банкоматов в файле", len(rows)),
+    ]
+    for key, sheet_title, title in seg_sheets:
+        part = by_seg.get(key) or []
+        meta_rows.append((f"{title} · шт", len(part)))
+        meta_rows.append((f"{title} · было UZS", sum(a.get("balance") or 0 for a in part)))
+        meta_rows.append((f"{title} · изъять до {int(cap/1e6)} млн", sum(a.get("over_cap") or 0 for a in part)))
+        if key == "currency":
+            meta_rows.append((f"{title} · USD остаток", sum(a.get("usd_balance") or 0 for a in part)))
+    for label, value in meta_rows:
+        meta.append([label, value])
+        meta.cell(meta.max_row, 1).font = label_font
+        for col in (1, 2):
+            meta.cell(meta.max_row, col).border = thin
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and "шт" not in label and "дней" not in label:
+            meta.cell(meta.max_row, 2).number_format = "#,##0"
+    _autosize(meta)
+
+    headers = [
+        "TID", "Регион", "Филиал", "Адрес",
+        "Было (остаток UZS)", "Цель UZS", "Можно изъять до цели",
+        "Спрос за период UZS", "Спрос в день UZS", "Хватит на, дн",
+        "USD кассета", "USD остаток", "Статус запаса", "Опрос",
+    ]
+
+    def _write_seg_sheet(title: str, part: List[Dict[str, Any]]) -> None:
+        ws = wb.create_sheet(title[:31])
+        ws.append(headers)
+        for cell in ws[1]:
+            cell.fill = head_fill
+            cell.font = head_font
+            cell.border = thin
+            cell.alignment = Alignment(wrap_text=True, vertical="center")
+        ws.freeze_panes = "B2"
+        if not part:
+            ws.append(["—", "Нет банкоматов в этом сегменте"] + [""] * (len(headers) - 2))
+            _autosize(ws)
+            return
+        part_sorted = sorted(part, key=lambda a: (-(a.get("over_cap") or 0), -(a.get("balance") or 0)))
+        for a in part_sorted:
+            ws.append([
+                a.get("tid"),
+                a.get("region") or "",
+                a.get("branch") or "",
+                a.get("address") or "",
+                a.get("balance"),
+                a.get("cap_uzs") or cap,
+                a.get("over_cap") or 0,
+                a.get("period_demand") if a.get("period_demand") is not None else a.get("withdrawn"),
+                a.get("avg_per_day"),
+                a.get("cover_days"),
+                "да" if a.get("has_usd") else "нет",
+                a.get("usd_balance") or 0,
+                a.get("status"),
+                _parse_iso(a.get("polled_at")),
+            ])
+            r = ws.max_row
+            for col in range(1, len(headers) + 1):
+                cell = ws.cell(r, col)
+                cell.border = thin
+                cell.alignment = Alignment(vertical="top", wrap_text=col == 4)
+            for col in (5, 6, 7, 8, 9, 12):
+                ws.cell(r, col).number_format = "#,##0"
+            ws.cell(r, 10).number_format = "0.0"
+            ws.cell(r, 14).number_format = "DD.MM.YYYY HH:MM"
+        ws.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{ws.max_row}"
+        _autosize(ws)
+        ws.row_dimensions[1].height = 32
+
+    # Листы сегментов сразу после сводки (порядок 1→4).
+    for key, sheet_title, _title in seg_sheets:
+        _write_seg_sheet(sheet_title, by_seg.get(key) or [])
+
+    buf = BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def _ensure_result_tables(conn) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS efficiency_result_baselines (
+            atm_id BIGINT PRIMARY KEY REFERENCES atms(id),
+            tid TEXT,
+            baseline_balance DOUBLE PRECISION NOT NULL,
+            target_uzs DOUBLE PRECISION NOT NULL DEFAULT 400000000,
+            baseline_over_cap DOUBLE PRECISION NOT NULL DEFAULT 0,
+            baseline_demand DOUBLE PRECISION,
+            address TEXT,
+            region TEXT,
+            branch TEXT,
+            has_usd BOOLEAN NOT NULL DEFAULT FALSE,
+            opened_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            closed_at TIMESTAMPTZ,
+            last_balance DOUBLE PRECISION,
+            last_seen_at TIMESTAMPTZ,
+            last_removed_uzs DOUBLE PRECISION NOT NULL DEFAULT 0
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS efficiency_result_events (
+            id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+            atm_id BIGINT NOT NULL REFERENCES atms(id),
+            at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            balance DOUBLE PRECISION NOT NULL,
+            removed_uzs DOUBLE PRECISION NOT NULL,
+            note TEXT
+        )
+        """
+    )
+
+
+def sync_efficiency_results(days: int = 30, norm_days: int = NORM_DAYS) -> Dict[str, Any]:
+    """Фиксирует базу «было» для ATM свыше 400 млн (низкий спрос) и обновляет прогресс.
+
+    Новые кандидаты → baseline = текущий остаток.
+    Уже в учёте → last_balance; если упал ниже цели — closed_at.
+    Экономия = sum(max(0, baseline − current)).
+    """
+    data = atm_efficiency(days, norm_days)
+    cap = float(data.get("cap_uzs") or CAP_UZS)
+    candidates = [
+        a for a in data["atms"]
+        if a.get("over_cap_candidate")
+        or (a.get("has_usd") and (a.get("over_cap") or 0) > 0 and a.get("low_demand"))
+    ]
+    by_id = {int(a["atm_id"]): a for a in data["atms"]}
+    now = datetime.now(timezone.utc)
+
+    with connect() as conn:
+        _ensure_result_tables(conn)
+        existing = {
+            int(r["atm_id"]): r
+            for r in conn.execute("SELECT * FROM efficiency_result_baselines").fetchall()
+        }
+        opened = updated = closed = 0
+        candidate_ids = {int(a["atm_id"]) for a in candidates}
+        for a in candidates:
+            aid = int(a["atm_id"])
+            bal = float(a["balance"])
+            over = float(a.get("over_cap") or 0)
+            if aid not in existing:
+                # Точный over относительно потолка (без округления до млн).
+                exact_over = max(0.0, bal - cap)
+                conn.execute(
+                    """
+                    INSERT INTO efficiency_result_baselines (
+                        atm_id, tid, baseline_balance, target_uzs, baseline_over_cap,
+                        baseline_demand, address, region, branch, has_usd,
+                        opened_at, last_balance, last_seen_at, last_removed_uzs
+                    ) VALUES (
+                        %(atm_id)s, %(tid)s, %(bal)s, %(cap)s, %(over)s,
+                        %(demand)s, %(address)s, %(region)s, %(branch)s, %(has_usd)s,
+                        %(now)s, %(bal)s, %(now)s, 0
+                    )
+                    """,
+                    {
+                        "atm_id": aid, "tid": a.get("tid"), "bal": bal, "cap": cap, "over": exact_over,
+                        "demand": a.get("period_demand") or a.get("withdrawn") or 0,
+                        "address": a.get("address"), "region": a.get("region"), "branch": a.get("branch"),
+                        "has_usd": bool(a.get("has_usd")), "now": now,
+                    },
+                )
+                conn.execute(
+                    """
+                    INSERT INTO efficiency_result_events (atm_id, at, balance, removed_uzs, note)
+                    VALUES (%s, %s, %s, 0, %s)
+                    """,
+                    (aid, now, bal, "baseline"),
+                )
+                opened += 1
+                continue
+
+            row = existing[aid]
+            baseline = float(row["baseline_balance"])
+            removed = max(0.0, baseline - bal)
+            prev_removed = float(row.get("last_removed_uzs") or 0)
+            newly_closed = bal <= float(row.get("target_uzs") or cap) and row.get("closed_at") is None
+            conn.execute(
+                """
+                UPDATE efficiency_result_baselines SET
+                    tid = %(tid)s,
+                    address = %(address)s,
+                    region = %(region)s,
+                    branch = %(branch)s,
+                    has_usd = %(has_usd)s,
+                    last_balance = %(bal)s,
+                    last_seen_at = %(now)s,
+                    last_removed_uzs = %(removed)s,
+                    closed_at = CASE
+                        WHEN %(close)s THEN COALESCE(closed_at, %(now)s)
+                        WHEN %(bal)s > target_uzs THEN NULL
+                        ELSE closed_at
+                    END
+                WHERE atm_id = %(atm_id)s
+                """,
+                {
+                    "atm_id": aid, "tid": a.get("tid"), "address": a.get("address"),
+                    "region": a.get("region"), "branch": a.get("branch"),
+                    "has_usd": bool(a.get("has_usd")), "bal": bal, "now": now,
+                    "removed": removed, "close": newly_closed,
+                },
+            )
+            if removed > prev_removed + 1 or newly_closed:
+                note = "closed" if newly_closed else "progress"
+                conn.execute(
+                    """
+                    INSERT INTO efficiency_result_events (atm_id, at, balance, removed_uzs, note)
+                    VALUES (%s, %s, %s, %s, %s)
+                    """,
+                    (aid, now, bal, removed, note),
+                )
+            updated += 1
+            if newly_closed:
+                closed += 1
+
+        # Обновить тех, кто уже в учёте, но сейчас не в кандидатах (остаток мог упасть)
+        tracked_ids = set(existing) | candidate_ids
+        for aid in list(existing):
+            if aid in candidate_ids:
+                continue
+            cur = by_id.get(aid)
+            if not cur:
+                continue
+            bal = float(cur["balance"])
+            row = existing[aid]
+            baseline = float(row["baseline_balance"])
+            removed = max(0.0, baseline - bal)
+            newly_closed = bal <= float(row.get("target_uzs") or cap) and row.get("closed_at") is None
+            conn.execute(
+                """
+                UPDATE efficiency_result_baselines SET
+                    last_balance = %(bal)s,
+                    last_seen_at = %(now)s,
+                    last_removed_uzs = %(removed)s,
+                    closed_at = CASE WHEN %(close)s THEN COALESCE(closed_at, %(now)s) ELSE closed_at END
+                WHERE atm_id = %(atm_id)s
+                """,
+                {"atm_id": aid, "bal": bal, "now": now, "removed": removed, "close": newly_closed},
+            )
+            if newly_closed or removed > float(row.get("last_removed_uzs") or 0) + 1:
+                conn.execute(
+                    """
+                    INSERT INTO efficiency_result_events (atm_id, at, balance, removed_uzs, note)
+                    VALUES (%s, %s, %s, %s, %s)
+                    """,
+                    (aid, now, bal, removed, "closed" if newly_closed else "progress"),
+                )
+            updated += 1
+            if newly_closed:
+                closed += 1
+
+        try:
+            conn.commit()
+        except Exception:
+            pass
+
+    return {
+        "opened": opened,
+        "updated": updated,
+        "closed": closed,
+        "tracked": len(tracked_ids),
+        "cap_uzs": cap,
+    }
+
+
+def efficiency_result_history(days: int = 30, norm_days: int = NORM_DAYS, sync: bool = True) -> Dict[str, Any]:
+    """История результата: база «было», сейчас, сколько изъяли, общая экономия."""
+    if sync:
+        sync_meta = sync_efficiency_results(days, norm_days)
+    else:
+        sync_meta = {}
+
+    data = atm_efficiency(days, norm_days)
+    by_id = {int(a["atm_id"]): a for a in data["atms"]}
+    cap = float(data.get("cap_uzs") or CAP_UZS)
+
+    with connect() as conn:
+        _ensure_result_tables(conn)
+        rows = conn.execute(
+            """
+            SELECT * FROM efficiency_result_baselines
+            ORDER BY last_removed_uzs DESC NULLS LAST, baseline_balance DESC
+            """
+        ).fetchall()
+        events_by = {}
+        for e in conn.execute(
+            """
+            SELECT atm_id, at, balance, removed_uzs, note
+            FROM efficiency_result_events
+            ORDER BY at DESC, id DESC
+            """
+        ).fetchall():
+            events_by.setdefault(int(e["atm_id"]), []).append({
+                "at": _iso(e["at"]),
+                "balance": e["balance"],
+                "removed_uzs": e["removed_uzs"],
+                "note": e["note"],
+            })
+
+    out = []
+    for r in rows:
+        aid = int(r["atm_id"])
+        live = by_id.get(aid) or {}
+        baseline = float(r["baseline_balance"])
+        current = float(live["balance"]) if live.get("balance") is not None else float(r["last_balance"] or baseline)
+        target = float(r.get("target_uzs") or cap)
+        # Точные суммы без округления до млн — для 100% сверки.
+        removed = round(max(0.0, baseline - current), 2)
+        still_over = round(max(0.0, current - target), 2)
+        done = current <= target or r.get("closed_at") is not None
+        out.append({
+            "atm_id": aid,
+            "tid": r.get("tid") or live.get("tid"),
+            "address": r.get("address") or live.get("address"),
+            "region": r.get("region") or live.get("region"),
+            "branch": r.get("branch") or live.get("branch"),
+            "has_usd": bool(r.get("has_usd") or live.get("has_usd")),
+            "baseline_balance": round(baseline, 2),
+            "current_balance": round(current, 2),
+            "target_uzs": target,
+            "removed_uzs": removed,
+            "still_over_uzs": still_over,
+            "baseline_over_cap": round(max(0.0, baseline - target), 2),
+            "opened_at": _iso(r.get("opened_at")),
+            "closed_at": _iso(r.get("closed_at")),
+            "status": "done" if done else ("progress" if removed > 0 else "waiting"),
+            "events": (events_by.get(aid) or [])[:12],
+        })
+
+    done_rows = [a for a in out if a["status"] == "done"]
+    prog_rows = [a for a in out if a["status"] == "progress"]
+    wait_rows = [a for a in out if a["status"] == "waiting"]
+    economy = round(sum(a["removed_uzs"] for a in out), 2)
+    return {
+        "days": days,
+        "norm_days": norm_days,
+        "cap_uzs": cap,
+        "sync": sync_meta,
+        "summary": {
+            "tracked": len(out),
+            "waiting": len(wait_rows),
+            "progress": len(prog_rows),
+            "done": len(done_rows),
+            "baseline_total": round(sum(a["baseline_balance"] for a in out), 2),
+            "current_total": round(sum(a["current_balance"] for a in out), 2),
+            "economy_uzs": economy,
+            "still_over_total": round(sum(a["still_over_uzs"] for a in out), 2),
+        },
+        "atms": out,
+    }
+
+
+def export_efficiency_result_xlsx(days: int = 30, norm_days: int = NORM_DAYS) -> bytes:
+    """Excel Result history: сводка экономии + ATM по статусам на отдельных листах."""
+    from io import BytesIO
+
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+    from openpyxl.utils import get_column_letter
+
+    data = efficiency_result_history(days, norm_days, sync=True)
+    rows = data["atms"]
+    cap = float(data.get("cap_uzs") or CAP_UZS)
+    s = data["summary"]
+
+    wb = Workbook()
+    thin = Border(
+        left=Side(style="thin", color="D0D7DE"),
+        right=Side(style="thin", color="D0D7DE"),
+        top=Side(style="thin", color="D0D7DE"),
+        bottom=Side(style="thin", color="D0D7DE"),
+    )
+    head_fill = PatternFill("solid", fgColor="E8EEF7")
+    head_font = Font(bold=True, color="1E293B")
+    label_font = Font(bold=True, color="334155")
+
+    meta = wb.active
+    meta.title = "0. Экономия"
+    meta.append(["Параметр", "Значение"])
+    for cell in meta[1]:
+        cell.fill = head_fill
+        cell.font = head_font
+        cell.border = thin
+    for label, value in [
+        ("Отчёт", "Result history · снижение до 400 млн"),
+        ("Сформирован", datetime.now().strftime("%d.%m.%Y %H:%M")),
+        ("Период спроса, дней", data.get("days")),
+        ("Потолок UZS", cap),
+        ("В учёте ATM", s["tracked"]),
+        ("Ожидают изъятия", s["waiting"]),
+        ("В процессе", s["progress"]),
+        ("Достигли цели", s["done"]),
+        ("Было (сумма баз)", s["baseline_total"]),
+        ("Сейчас (сумма)", s["current_total"]),
+        ("Экономия (изъято с базы)", s["economy_uzs"]),
+        ("Ещё сверх потолка", s["still_over_total"]),
+    ]:
+        meta.append([label, value])
+        meta.cell(meta.max_row, 1).font = label_font
+        for col in (1, 2):
+            meta.cell(meta.max_row, col).border = thin
+        if label in ("Потолок UZS", "Было (сумма баз)", "Сейчас (сумма)",
+                     "Экономия (изъято с базы)", "Ещё сверх потолка"):
+            meta.cell(meta.max_row, 2).number_format = "#,##0"
+    _autosize(meta)
+
+    headers = [
+        "TID", "Статус", "Регион", "Филиал", "Адрес", "USD",
+        "Было (база)", "Сейчас", "Цель", "Изъято с базы", "Ещё сверх цели",
+        "База зафиксирована", "Цель достигнута",
+    ]
+    status_sheets = [
+        ("waiting", "1. Ожидают"),
+        ("progress", "2. В процессе"),
+        ("done", "3. Достигли цели"),
+    ]
+
+    def write_sheet(title: str, part: List[Dict[str, Any]]) -> None:
+        ws = wb.create_sheet(title[:31])
+        ws.append(headers)
+        for cell in ws[1]:
+            cell.fill = head_fill
+            cell.font = head_font
+            cell.border = thin
+            cell.alignment = Alignment(wrap_text=True, vertical="center")
+        ws.freeze_panes = "B2"
+        if not part:
+            ws.append(["—", "Нет записей"] + [""] * (len(headers) - 2))
+            _autosize(ws)
+            return
+        for a in sorted(part, key=lambda x: (-x["removed_uzs"], -x["baseline_balance"])):
+            ws.append([
+                a.get("tid"),
+                {"waiting": "ожидает", "progress": "в процессе", "done": "цель достигнута"}.get(a["status"], a["status"]),
+                a.get("region") or "",
+                a.get("branch") or "",
+                a.get("address") or "",
+                "да" if a.get("has_usd") else "нет",
+                a.get("baseline_balance"),
+                a.get("current_balance"),
+                a.get("target_uzs"),
+                a.get("removed_uzs"),
+                a.get("still_over_uzs"),
+                _parse_iso(a.get("opened_at")),
+                _parse_iso(a.get("closed_at")),
+            ])
+            r = ws.max_row
+            for col in range(1, len(headers) + 1):
+                cell = ws.cell(r, col)
+                cell.border = thin
+                cell.alignment = Alignment(vertical="top", wrap_text=col == 5)
+            for col in (7, 8, 9, 10, 11):
+                ws.cell(r, col).number_format = "#,##0"
+            for col in (12, 13):
+                ws.cell(r, col).number_format = "DD.MM.YYYY HH:MM"
+        ws.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{ws.max_row}"
+        _autosize(ws)
+        ws.row_dimensions[1].height = 32
+
+    for st, title in status_sheets:
+        write_sheet(title, [a for a in rows if a["status"] == st])
 
     buf = BytesIO()
     wb.save(buf)

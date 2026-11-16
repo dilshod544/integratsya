@@ -338,6 +338,7 @@
       width: min(1120px, 100%); background: var(--surface); border-radius: 24px; box-shadow: var(--shadow-lg);
       border: 1px solid var(--border); overflow: hidden;
     }
+    .modal.wide { width: min(1280px, 100%); }
     .modal-head { display: flex; align-items: flex-start; gap: 12px; padding: 18px 20px; border-bottom: 1px solid var(--border); }
     .modal-head h3 { font-size: 20px; font-weight: 900; letter-spacing: -.02em; }
     .modal-body { padding: 4px 20px 20px; }
@@ -674,6 +675,12 @@
           <i data-lucide="list-checks" class="icon-inline"></i><h2 id="ef-table-title">Какие банкоматы взять на заметку</h2>
           <div class="spacer"></div>
           <input id="ef-q" placeholder="Банкомат, филиал, адрес…" oninput="renderEfAtms()" style="max-width:260px" />
+          <button type="button" class="btn" id="ef-result-open" onclick="openEfResultsModal()" title="Прогресс снижения до 400 млн и экономия">
+            <i data-lucide="history" class="icon-inline"></i> Result history
+          </button>
+          <button type="button" class="btn" id="ef-export-btn" onclick="exportEfExcel()" title="Скачать текущую выборку в Excel" disabled>
+            <i data-lucide="file-spreadsheet" class="icon-inline"></i> Excel
+          </button>
         </div>
         <div class="panel-body" style="padding-bottom:0">
           <div class="note" id="ef-rule" style="margin-top:0"></div>
@@ -681,8 +688,8 @@
         <div class="table-wrap" style="max-height:620px;overflow:auto">
           <table class="data">
             <thead><tr>
-              <th>Банкомат</th><th class="num">Остаток</th><th class="num">Спрос в час</th><th class="num">Спрос в день</th>
-              <th>Хватит на</th><th class="num" id="ef-norm-th">Норма</th><th>Снятия по дням</th><th class="num">Можно изъять</th><th>Статус</th>
+              <th>Банкомат</th><th class="num">Остаток (было)</th><th class="num">Спрос за период</th><th class="num">Спрос в день</th>
+              <th>Хватит на</th><th class="num" id="ef-norm-th">Цель / норма</th><th>Снятия по дням</th><th class="num" id="ef-withdraw-th">Изъять до цели</th><th>Сегмент</th>
             </tr></thead>
             <tbody id="ef-atms"></tbody>
           </table>
@@ -690,6 +697,48 @@
       </div>
     </section>
   </main>
+
+  <div class="modal-backdrop" id="ef-result-modal" onclick="if (event.target === this) closeEfResultsModal()">
+    <div class="modal wide" role="dialog" aria-modal="true" aria-labelledby="ef-result-title">
+      <div class="modal-head">
+        <div style="flex:1;min-width:0">
+          <div class="eyebrow">Аналитика ATM</div>
+          <h3 id="ef-result-title">Result history · снижение до 400 млн</h3>
+          <div class="sub" id="ef-result-sub">Экономия только в этом окне — от зафиксированной базы «было» до текущего остатка</div>
+        </div>
+        <input id="ef-result-q" placeholder="TID, филиал, адрес…" oninput="renderEfResults()" style="max-width:220px;margin-top:4px" />
+        <button type="button" class="btn" id="ef-result-export" onclick="exportEfResultsExcel()" title="Excel: экономия и прогресс">
+          <i data-lucide="file-spreadsheet" class="icon-inline"></i> Excel
+        </button>
+        <button type="button" class="btn" onclick="loadEfResults(true)" title="Обновить">
+          <i data-lucide="refresh-cw" class="icon-inline"></i>
+        </button>
+        <button class="btn" onclick="closeEfResultsModal()" aria-label="Закрыть"><i data-lucide="x" class="icon-inline"></i></button>
+      </div>
+      <div class="modal-body">
+        <div class="note" id="ef-result-note" style="margin-top:12px">
+          Учёт ATM свыше 400 млн с низким спросом (в т.ч. USD). Суммы точные, без округления до млн.
+        </div>
+        <div class="stats-bar" id="ef-result-kpis" style="margin-top:12px"></div>
+        <div class="panel" style="margin-top:16px">
+          <div class="table-wrap" style="max-height:min(62vh, 620px);overflow:auto">
+            <table class="data">
+              <thead><tr>
+                <th>Банкомат</th>
+                <th class="num">Было (база)</th>
+                <th class="num">Сейчас</th>
+                <th class="num">Изъято с базы</th>
+                <th class="num">Ещё сверх цели</th>
+                <th>Статус</th>
+                <th>Фиксация</th>
+              </tr></thead>
+              <tbody id="ef-results"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <div class="modal-backdrop" id="atm-modal" onclick="if (event.target === this) closeAtmModal()">
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="am-title">
@@ -1919,7 +1968,13 @@
     }
 
     // ── Аналитика ATM: спрос в час и лишние деньги ──
-    let efData = null, efFilter = '';
+    let efData = null, efFilter = 'over_cap';
+    let efResultData = null, efResultFilter = '';
+    const EF_RESULT_ST = {
+      waiting:  { label: 'Ожидает изъятия', cls: 'warning' },
+      progress: { label: 'В процессе', cls: 'purple' },
+      done:     { label: 'Цель достигнута', cls: 'success' },
+    };
     const EF = {
       excess:    { label: 'Лишние деньги', cls: 'warning' },
       no_demand: { label: 'Лежат без спроса', cls: 'danger' },
@@ -1927,7 +1982,29 @@
       ok:        { label: 'В норме', cls: 'success' },
       no_data:   { label: 'Мало данных', cls: 'slate' },
     };
+    const SEG = {
+      over_cap:    { label: 'Свыше 400 млн', cls: 'danger' },
+      high_demand: { label: 'Спрос > 400 млн', cls: 'warning' },
+      cap_ok:      { label: 'До 400 млн', cls: 'success' },
+      currency:    { label: 'Валютный USD', cls: 'purple' },
+    };
     const days1 = v => v === null || v === undefined ? '—' : (v < 10 ? v.toFixed(1).replace('.', ',') : Math.round(v).toLocaleString('ru-RU')) + ' дн';
+    const efCap = () => (efData && efData.cap_uzs) || 400_000_000;
+    const efRows = () => {
+      if (!efData) return [];
+      const q = (document.getElementById('ef-q').value || '').trim().toLowerCase();
+      return efData.atms.filter(a => {
+        if (efFilter === 'over_cap' && a.segment !== 'over_cap') return false;
+        if (efFilter === 'high_demand' && a.segment !== 'high_demand') return false;
+        if (efFilter === 'cap_ok' && a.segment !== 'cap_ok') return false;
+        if (efFilter === 'currency' && a.segment !== 'currency') return false;
+        if (efFilter === 'currency_over' && !(a.segment === 'currency' && a.over_cap > 0 && a.low_demand)) return false;
+        if (efFilter === 'excess' && !(a.status === 'excess' || a.status === 'no_demand')) return false;
+        if (efFilter === 'low' && a.status !== 'low') return false;
+        if (efFilter === 'ok' && a.status !== 'ok') return false;
+        return !q || [a.tid, a.region, a.branch, a.address].join(' ').toLowerCase().includes(q);
+      });
+    };
 
     async function loadEfficiency() {
       const days = document.getElementById('ef-days').value, norm = document.getElementById('ef-norm').value;
@@ -1947,23 +2024,197 @@
       loadEfHistory();
     }
 
+    /* Точное отображение млн (без Math.round), чтобы сходилось с BTech. */
+    function moneyExact(v) {
+      if (v === null || v === undefined) return '—';
+      const n = Number(v);
+      if (!Number.isFinite(n)) return '—';
+      const abs = Math.abs(n);
+      if (abs >= 1e9) {
+        const mld = n / 1e9;
+        const t = Math.abs(mld - Math.round(mld)) < 5e-4 ? String(Math.round(mld)) : mld.toFixed(2).replace(/\.?0+$/, '');
+        return t.replace('.', ',') + ' млрд';
+      }
+      const mln = n / 1e6;
+      if (Math.abs(mln - Math.round(mln)) < 5e-4) return Math.round(mln).toLocaleString('ru-RU') + ' млн';
+      return mln.toFixed(1).replace('.', ',') + ' млн';
+    }
+
+    async function openEfResultsModal() {
+      document.getElementById('ef-result-modal').classList.add('open');
+      document.body.style.overflow = 'hidden';
+      document.getElementById('ef-results').innerHTML =
+        '<tr><td colspan="7" class="empty">Загрузка…</td></tr>';
+      document.getElementById('ef-result-kpis').innerHTML = '';
+      icons();
+      await loadEfResults(true);
+    }
+
+    function closeEfResultsModal() {
+      document.getElementById('ef-result-modal').classList.remove('open');
+      if (!document.getElementById('atm-modal').classList.contains('open')) {
+        document.body.style.overflow = '';
+      }
+    }
+
+    async function loadEfResults(forceSync) {
+      const days = document.getElementById('ef-days').value;
+      const norm = document.getElementById('ef-norm').value;
+      try {
+        efResultData = await getJson(
+          `/api/analytics/atm-efficiency/results?days=${days}&norm_days=${norm}&sync=true`
+        );
+      } catch (e) {
+        document.getElementById('ef-results').innerHTML =
+          `<tr><td colspan="7" class="empty">Ошибка Result history: ${esc(e.message)}</td></tr>`;
+        document.getElementById('ef-result-kpis').innerHTML = '';
+        return;
+      }
+      paintEfResultKpis();
+      renderEfResults();
+    }
+
+    function setEfResultFilter(f) {
+      efResultFilter = efResultFilter === f ? '' : f;
+      paintEfResultKpis();
+      renderEfResults();
+    }
+
+    function paintEfResultKpis() {
+      if (!efResultData) return;
+      const s = efResultData.summary || {};
+      const capM = Math.round((efResultData.cap_uzs || 400e6) / 1e6);
+      document.getElementById('ef-result-title').textContent =
+        `Result history · снижение до ${capM} млн · ${num(s.tracked || 0)}`;
+      const sync = efResultData.sync || {};
+      document.getElementById('ef-result-sub').textContent =
+        `Экономия только здесь · база «было» → сейчас · цель ${capM} млн`;
+      document.getElementById('ef-result-note').innerHTML =
+        `ATM свыше ${capM} млн с низким спросом (UZS + USD). Суммы <b>точные</b>: изъято = было − сейчас, сверх цели = сейчас − ${capM} млн. `
+        + (sync.opened != null
+          ? `<span class="sub">Синхр.: +${num(sync.opened)} новых · ${num(sync.updated)} обновлено · ${num(sync.closed)} достигли цели.</span>`
+          : '');
+      document.getElementById('ef-result-kpis').innerHTML = [
+        { label: 'В учёте', value: num(s.tracked), icon: 'list-checks',
+          hint: `цель ${capM} млн`, action: "setEfResultFilter('')", active: !efResultFilter },
+        { label: 'Ожидают', value: num(s.waiting), icon: 'hourglass', tone: 'warning',
+          hint: 'ещё не снизили', action: "setEfResultFilter('waiting')", active: efResultFilter === 'waiting' },
+        { label: 'В процессе', value: num(s.progress), icon: 'trending-down', tone: 'purple',
+          hint: 'часть уже изъята', action: "setEfResultFilter('progress')", active: efResultFilter === 'progress' },
+        { label: 'Достигли цели', value: num(s.done), icon: 'circle-check', tone: 'success',
+          hint: `≤ ${capM} млн`, action: "setEfResultFilter('done')", active: efResultFilter === 'done' },
+        { label: 'Экономия', value: moneyExact(s.economy_uzs), icon: 'piggy-bank', tone: 'success',
+          hint: 'сумма изъятого с базы', action: '', active: false },
+        { label: 'Ещё сверх цели', value: moneyExact(s.still_over_total), icon: 'wallet', tone: 'danger',
+          hint: 'осталось до потолка', action: '', active: false },
+      ].map(statBox).join('');
+      const exportBtn = document.getElementById('ef-result-export');
+      if (exportBtn) exportBtn.disabled = !(s.tracked > 0);
+      icons();
+    }
+
+    function efResultRows() {
+      if (!efResultData) return [];
+      const q = (document.getElementById('ef-result-q').value || '').trim().toLowerCase();
+      return (efResultData.atms || []).filter(a => {
+        if (efResultFilter && a.status !== efResultFilter) return false;
+        return !q || [a.tid, a.region, a.branch, a.address].join(' ').toLowerCase().includes(q);
+      });
+    }
+
+    function renderEfResults() {
+      if (!efResultData) return;
+      const rows = efResultRows();
+      document.getElementById('ef-results').innerHTML = rows.map(a => {
+        const removed = a.removed_uzs || 0;
+        const check = Math.abs((a.baseline_balance - a.current_balance) - removed) < 1
+          && Math.abs(Math.max(0, a.current_balance - a.target_uzs) - (a.still_over_uzs || 0)) < 1;
+        return `<tr title="${check ? '' : 'проверка сумм'}">
+          <td>
+            <div class="strong">${atmLink(a.tid || '—', {id: a.atm_id, tid: a.tid})}
+              ${a.has_usd ? '<span class="pill purple">USD</span>' : ''}
+            </div>
+            <div class="sub">${esc([a.region, a.branch, a.address].filter(Boolean).join(' · ') || '—')}</div>
+          </td>
+          <td class="num">${moneyExact(a.baseline_balance)}</td>
+          <td class="num strong">${moneyExact(a.current_balance)}</td>
+          <td class="num strong" style="color:${removed ? 'var(--success)' : 'inherit'}">${removed ? moneyExact(removed) : '—'}</td>
+          <td class="num" style="color:${a.still_over_uzs ? 'var(--danger)' : 'inherit'}">${a.still_over_uzs ? moneyExact(a.still_over_uzs) : '—'}</td>
+          <td>${pill(EF_RESULT_ST, a.status)}</td>
+          <td>
+            <div class="sub">база: ${dt(a.opened_at)}</div>
+            ${a.closed_at ? `<div class="sub">цель: ${dt(a.closed_at)}</div>` : ''}
+          </td>
+        </tr>`;
+      }).join('') || '<tr><td colspan="7" class="empty">Пока нет записей — появятся после фиксации ATM свыше 400 млн с низким спросом</td></tr>';
+      icons();
+    }
+
+    async function exportEfResultsExcel() {
+      if (!efResultData) return;
+      const btn = document.getElementById('ef-result-export');
+      if (!btn || btn.disabled) return;
+      const prev = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = '<i data-lucide="loader-circle" class="icon-inline"></i> Excel…';
+      icons();
+      try {
+        const days = efResultData.days || document.getElementById('ef-days').value;
+        const norm = efResultData.norm_days || document.getElementById('ef-norm').value;
+        const r = await fetch(
+          API + `/api/analytics/atm-efficiency/results/export?days=${days}&norm_days=${norm}`
+        );
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}));
+          throw new Error(typeof err.detail === 'string' ? err.detail : 'Ошибка выгрузки');
+        }
+        const blob = await r.blob();
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = (r.headers.get('Content-Disposition') || '').match(/filename="?([^"]+)"?/)?.[1]
+          || `ATM_result_history_${new Date().toISOString().slice(0,10)}.xlsx`;
+        a.click();
+        URL.revokeObjectURL(a.href);
+      } catch (e) {
+        alert(e.message || String(e));
+      } finally {
+        btn.disabled = !(efResultData?.summary?.tracked > 0);
+        btn.innerHTML = prev;
+        icons();
+      }
+    }
+
     function paintEfKpis() {
-      const d = efData, s = d.summary, N = d.norm_days;
+      const d = efData, s = d.summary, N = d.norm_days, capM = Math.round(efCap() / 1e6);
       const until = d.data_until ? (Date.now() - new Date(d.data_until)) / 864e5 : 0;
       document.getElementById('ef-note').innerHTML = until > 1
         ? `<div class="note warn">Последний опрос BTech — ${dt(d.data_until)} (${ago(d.data_until)}). Период ${d.days} дн отсчитан от него, остатки — на этот момент.</div>` : '';
       document.getElementById('ef-kpis').innerHTML = [
-        { label: 'Банкоматов', value: num(s.atms), icon: 'landmark', hint: `за ${d.days} дн истории`, action: "setEfFilter('')", active: !efFilter },
-        { label: 'Спрос в час · сеть', value: money(s.avg_per_hour_network), icon: 'clock', hint: `на 1 ATM: ${money(s.avg_per_hour_atm)}` },
-        { label: `Запас > ${N} дн`, value: num(s.excess), icon: 'piggy-bank', tone: 'warning', hint: 'лишние деньги лежат без дела', action: "setEfFilter('excess')", active: efFilter === 'excess' },
-        { label: 'Можно изъять', value: money(s.excess_total), icon: 'hand-coins', tone: 'danger', hint: `сверх ${N} дн спроса` },
-        { label: `Мало запаса`, value: num(s.low), icon: 'battery-low', tone: 'purple', hint: `меньше ${d.low_cover_days} дн спроса`, action: "setEfFilter('low')", active: efFilter === 'low' },
-        { label: 'В норме', value: num(s.ok), icon: 'circle-check', tone: 'success', hint: `от ${d.low_cover_days} до ${N} дн`, action: "setEfFilter('ok')", active: efFilter === 'ok' },
+        { label: 'Все ATM', value: num(s.atms), icon: 'landmark', hint: `за ${d.days} дн`, action: "setEfFilter('')", active: !efFilter },
+        { label: `Свыше ${capM} млн`, value: num(s.over_cap), icon: 'target', tone: 'danger',
+          hint: `UZS · низкий спрос · изъять ${money(s.over_cap_total)}`, action: "setEfFilter('over_cap')", active: efFilter === 'over_cap' },
+        { label: `Спрос > ${capM} млн`, value: num(s.high_demand), icon: 'trending-up', tone: 'warning',
+          hint: `за ${d.days} дн · ${money(s.high_demand_total)}`, action: "setEfFilter('high_demand')", active: efFilter === 'high_demand' },
+        { label: `До ${capM} млн`, value: num(s.cap_ok), icon: 'circle-check', tone: 'success',
+          hint: 'UZS в потолке (норма)', action: "setEfFilter('cap_ok')", active: efFilter === 'cap_ok' },
+        { label: 'Валютные USD', value: num(s.currency), icon: 'dollar-sign', tone: 'purple',
+          hint: s.currency_over_cap ? `из них >${capM} млн: ${num(s.currency_over_cap)}` : `USD ≈ $${Number(s.currency_usd_total || 0).toLocaleString('en-US')}`,
+          action: "setEfFilter('currency')", active: efFilter === 'currency' || efFilter === 'currency_over' },
+        { label: `USD · изъять`, value: money(s.currency_over_cap_total), icon: 'hand-coins', tone: 'purple',
+          hint: `валютные с остатком > ${capM} млн`, action: "setEfFilter('currency_over')", active: efFilter === 'currency_over' },
       ].map(statBox).join('');
-      document.getElementById('ef-norm-th').textContent = `Норма ${N} дн`;
-      document.getElementById('ef-rule').innerHTML = `Спрос — средние фактические снятия за ${d.days} дн (по почасовым остаткам BTech; загрузки и замена кассет не считаются). `
-        + `Норма: в банкомате должно лежать не больше <b>${N} дн</b> спроса. Всё сверх неё — неэффективно лежащие деньги: «Можно изъять» — сколько вывезти при ближайшей инкассации, чтобы осталось ровно ${N} дн спроса. `
-        + `Сверху — банкоматы, где лишних денег больше всего.`;
+      const focusCap = efFilter === 'over_cap' || efFilter === 'currency_over' || efFilter === 'currency' || efFilter === 'cap_ok';
+      document.getElementById('ef-norm-th').textContent = focusCap ? `Цель ${capM} млн` : `Норма ${N} дн`;
+      document.getElementById('ef-withdraw-th').textContent = `Изъять до ${capM} млн`;
+      const rules = {
+        over_cap: `<b>Сегмент UZS:</b> остаток <b>&gt; ${capM} млн</b>, спрос за ${d.days} дн <b>≤ ${capM} млн</b>, без USD-кассет. Цель — снизить до ${capM} млн. Excel: было → цель → изъять.`,
+        high_demand: `<b>Высокий спрос:</b> за ${d.days} дн сняли <b>больше ${capM} млн</b>. Их не мешаем с «низким спросом» — отдельный список.`,
+        cap_ok: `<b>Норма потолка:</b> UZS-остаток <b>≤ ${capM} млн</b>, без валютных. Уже в целевом диапазоне по потолку.`,
+        currency: `<b>Валютные:</b> есть USD-кассета. UZS-остаток и USD считаются отдельно; клик «USD · изъять» — только те, где UZS &gt; ${capM} млн.`,
+        currency_over: `<b>Валютные + свыше ${capM} млн:</b> USD-ATM с UZS-остатком выше потолка и невысоким спросом. Изъятие считается по UZS до ${capM} млн; доллары в колонке сегмента.`,
+        '': `Четыре сегмента без смешивания: <b>свыше ${capM} млн (низкий спрос)</b>, <b>спрос &gt; ${capM} млн</b>, <b>до ${capM} млн</b>, <b>валютные USD</b>. Нажмите карточку — в таблице только эта группа.`,
+      };
+      document.getElementById('ef-rule').innerHTML = rules[efFilter] || rules[''];
       icons();
     }
 
@@ -2072,7 +2323,9 @@
       renderAtmModal();
     });
     document.addEventListener('keydown', ev => {
-      if (ev.key === 'Escape' && document.getElementById('atm-modal').classList.contains('open')) closeAtmModal();
+      if (ev.key !== 'Escape') return;
+      if (document.getElementById('atm-modal').classList.contains('open')) closeAtmModal();
+      else if (document.getElementById('ef-result-modal').classList.contains('open')) closeEfResultsModal();
     });
 
     function setEfFilter(f) {
@@ -2081,33 +2334,101 @@
       renderEfAtms();
     }
 
+    async function exportEfExcel() {
+      if (!efData) return;
+      const rows = efRows();
+      const btn = document.getElementById('ef-export-btn');
+      if (!rows.length || !btn || btn.disabled) return;
+      const prev = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = '<i data-lucide="loader-circle" class="icon-inline"></i> Excel…';
+      icons();
+      try {
+        const capM = Math.round(efCap()/1e6);
+        const labels = {
+          '': 'Все банкоматы',
+          over_cap: `Свыше ${capM} млн · низкий спрос (UZS)`,
+          high_demand: `Спрос > ${capM} млн за период`,
+          cap_ok: `До ${capM} млн (норма потолка)`,
+          currency: 'Валютные USD',
+          currency_over: `Валютные · свыше ${capM} млн`,
+          excess: 'Запас сверх нормы дней',
+          low: 'Мало запаса',
+          ok: 'В норме',
+        };
+        const r = await fetch(API + '/api/analytics/atm-efficiency/export', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            atm_ids: rows.map(a => a.atm_id),
+            days: efData.days,
+            norm_days: efData.norm_days,
+            filter_label: labels[efFilter] || efFilter || 'Выборка',
+          }),
+        });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}));
+          throw new Error(typeof err.detail === 'string' ? err.detail : 'Ошибка выгрузки');
+        }
+        const blob = await r.blob();
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = (r.headers.get('Content-Disposition') || '').match(/filename="?([^"]+)"?/)?.[1]
+          || `ATM_efficiency_${new Date().toISOString().slice(0,10)}.xlsx`;
+        a.click();
+        URL.revokeObjectURL(a.href);
+      } catch (e) {
+        alert(e.message || String(e));
+      } finally {
+        btn.disabled = !efRows().length;
+        btn.innerHTML = prev;
+        icons();
+      }
+    }
+
     function renderEfAtms() {
       if (!efData) return;
-      const q = (document.getElementById('ef-q').value || '').trim().toLowerCase();
-      const N = efData.norm_days, sel = document.getElementById('ef-atm').value;
-      const rows = efData.atms.filter(a => {
-        if (efFilter === 'excess' && !(a.status === 'excess' || a.status === 'no_demand')) return false;
-        if (efFilter && efFilter !== 'excess' && a.status !== efFilter) return false;
-        return !q || [a.tid, a.region, a.branch, a.address].join(' ').toLowerCase().includes(q);
-      });
-      document.getElementById('ef-table-title').textContent = `Какие банкоматы взять на заметку · ${rows.length}`;
+      const N = efData.norm_days, sel = document.getElementById('ef-atm').value, cap = efCap(), capM = Math.round(cap / 1e6);
+      const rows = efRows();
+      const titles = {
+        over_cap: `Свыше ${capM} млн · низкий спрос (UZS)`,
+        high_demand: `Спрос > ${capM} млн за период`,
+        cap_ok: `До ${capM} млн · норма потолка (UZS)`,
+        currency: 'Валютные ATM (USD)',
+        currency_over: `Валютные · UZS свыше ${capM} млн`,
+        '': 'Все банкоматы',
+      };
+      document.getElementById('ef-table-title').textContent = `${titles[efFilter] || titles['']} · ${rows.length}`;
+      const exportBtn = document.getElementById('ef-export-btn');
+      if (exportBtn) exportBtn.disabled = !rows.length;
       document.getElementById('ef-atms').innerHTML = rows.map(a => {
         const pct = a.cover_days === null ? (a.status === 'no_demand' ? 100 : 0) : Math.min(100, a.cover_days / N * 100);
-        const color = a.status === 'excess' || a.status === 'no_demand' ? 'var(--warning)' : a.status === 'low' ? 'var(--purple)' : 'var(--success)';
-        const cover = a.status === 'no_demand' ? 'снятий нет' : a.cover_days === null ? '—'
+        const color = a.segment === 'over_cap' || (a.segment === 'currency' && a.over_cap > 0) ? 'var(--danger)'
+          : a.segment === 'high_demand' ? 'var(--warning)'
+          : a.segment === 'currency' ? 'var(--purple)' : 'var(--success)';
+        const cover = a.status === 'no_demand' ? 'снятий нет' : a.cover_days === null
+          ? `<span class="sub">спрос за период: ${money(a.period_demand || a.withdrawn || 0)}</span>`
           : a.cover_days > N ? `${days1(a.cover_days)} <span class="sub">(в ${(a.cover_days / N).toFixed(1).replace('.', ',')}× больше нормы)</span>` : days1(a.cover_days);
+        const withdrawable = a.over_cap || 0;
+        const badges = [
+          a.segment === 'over_cap' ? `<span class="pill danger">${capM}+</span>` : '',
+          a.segment === 'high_demand' ? `<span class="pill warning">спрос ${capM}+</span>` : '',
+          a.segment === 'cap_ok' ? `<span class="pill success">≤${capM}</span>` : '',
+          a.has_usd ? `<span class="pill purple">USD${a.usd_balance ? ' $' + Number(a.usd_balance).toLocaleString('en-US') : ''}</span>` : '',
+        ].filter(Boolean).join(' ');
         return `<tr class="clickable ${String(a.atm_id) === sel ? 'selected' : ''}" onclick="selectEfAtm(${a.atm_id})" title="Показать остаток на графике">
-          <td><div class="strong">${atmLink(a.tid || '—', {id: a.atm_id, tid: a.tid})}</div><div class="sub">${esc([a.region, a.branch, a.address].filter(Boolean).join(' · ') || 'не сопоставлен')}</div></td>
+          <td><div class="strong">${atmLink(a.tid || '—', {id: a.atm_id, tid: a.tid})} ${badges}</div><div class="sub">${esc([a.region, a.branch, a.address].filter(Boolean).join(' · ') || 'не сопоставлен')}</div></td>
           <td class="num strong">${money(a.balance)}</td>
-          <td class="num">${money(a.avg_per_hour)}</td>
+          <td class="num">${money(a.period_demand != null ? a.period_demand : a.withdrawn)}</td>
           <td class="num">${money(a.avg_per_day)}</td>
           <td><div class="cover"><span>${cover}</span><div class="track"><div class="fill" style="width:${Math.max(2, pct)}%;background:${color}"></div></div></div></td>
-          <td class="num">${money(a.target)}</td>
+          <td class="num">${money(a.cap_uzs || cap)}</td>
           <td class="spark" onclick="event.stopPropagation(); openAtmModal(${a.atm_id})" title="Открыть всю историю банкомата">${sparkline(a.daily_withdrawals, efData.days)}</td>
-          <td class="num strong" style="color:${a.excess ? 'var(--danger)' : 'inherit'}">${a.excess ? money(a.excess) : '—'}</td>
-          <td>${pill(EF, a.status)}</td>
+          <td class="num strong" style="color:${withdrawable ? 'var(--danger)' : 'inherit'}">${withdrawable ? money(withdrawable) : '—'}</td>
+          <td>${pill(SEG, a.segment)}${a.status === 'no_data' ? '' : `<div class="sub" style="margin-top:4px">${pill(EF, a.status)}</div>`}</td>
         </tr>`;
       }).join('') || '<tr><td colspan="9" class="empty">Нет банкоматов в этой группе</td></tr>';
+      icons();
     }
 
     function selectEfAtm(id) {
@@ -2232,9 +2553,15 @@
     window.selectLedgerBranch = selectLedgerBranch;
     window.setVashBand = setVashBand;
     window.setEfFilter = setEfFilter;
+    window.setEfResultFilter = setEfResultFilter;
     window.selectEfAtm = selectEfAtm;
     window.openAtmModal = openAtmModal;
     window.closeAtmModal = closeAtmModal;
+    window.openEfResultsModal = openEfResultsModal;
+    window.closeEfResultsModal = closeEfResultsModal;
+    window.loadEfResults = loadEfResults;
+    window.exportEfResultsExcel = exportEfResultsExcel;
+    window.renderEfResults = renderEfResults;
 
     icons();
     if (['forecast', 'withdrawals', 'efficiency', 'kassa', 'vash'].includes(location.hash.slice(1))) switchTab(location.hash.slice(1));

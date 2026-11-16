@@ -153,11 +153,23 @@ def test_efficiency_and_balance_history(pg_db):
     # Остаток падает на 1 млн в час.
     assert round(a["avg_per_hour"] / 1e6) == 1 and a["status"] in {"low", "ok"}
     assert len(eff["hour_profile"]) == 24
+    assert eff["cap_uzs"] == atm_analytics.CAP_UZS
+    assert "over_cap" in eff["summary"] and "over_cap_candidate" in a
+    assert a["segment"] in {"over_cap", "high_demand", "cap_ok", "currency"}
 
     net = atm_analytics.balance_history(None, 7)
     one = atm_analytics.balance_history(a["atm_id"], 7)
     assert net["points"] and one["points"]
     assert net["points"][-1]["v"] > one["points"][-1]["v"]
+
+
+def test_efficiency_over_cap_export(pg_db):
+    _seed()
+    atm_analytics.invalidate_cache()
+    eff = atm_analytics.atm_efficiency(7, 30)
+    ids = [a["atm_id"] for a in eff["atms"][:2]]
+    blob = atm_analytics.export_atm_efficiency_xlsx(ids, days=7, norm_days=30, filter_label="test")
+    assert blob[:2] == b"PK"
 
 
 def test_atm_history_full(pg_db):

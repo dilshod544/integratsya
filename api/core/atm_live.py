@@ -198,7 +198,14 @@ def _fill_live(
     row["ml_method"] = live.get("ml_method")
     row["ml_withdrawal_per_day"] = live.get("ml_withdrawal_per_day")
     if cassettes_by_tid is not None:
-        row["cassettes"] = cassettes_by_tid.get(tid) or []
+        cass = cassettes_by_tid.get(tid) or []
+        row["cassettes"] = cass
+        usd = [c for c in cass if str(c.get("currency") or "").strip().upper() == "USD"]
+        row["has_usd"] = bool(usd)
+        row["usd_balance"] = float(sum((c.get("balance") or 0) for c in usd)) if usd else 0.0
+    else:
+        row["has_usd"] = bool(live.get("has_usd"))
+        row["usd_balance"] = live.get("usd_balance")
 
 
 def match_live_to_rows(
@@ -328,10 +335,23 @@ def _row_to_cassette(r: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-# Только "живые" кассеты купюр: REJECTCASSETTE/RETRACTCASSETTE/RECYCLING — это
-# отбракованные/принятые при депозите купюры, а не выдаваемый остаток, и мы их
-# не показываем как деньги, которые можно снять.
-_CASSETTE_FILTER_SQL = "c.cassette_type = 'BILLCASSETTE' AND c.nominal >= %s"
+# Живые кассеты купюр (не reject/retract).
+# UZS: nominal >= 1000 — отсекает служебные слоты 5/6/7/50/100 и мусор NCR.
+# USD: реальные долларовые номиналы 1…100 (у нас обычно 50 и 100) — иначе
+# фильтр UZS скрывал бы всю валюту на карте.
+_CASSETTE_FILTER_SQL = """
+c.cassette_type = 'BILLCASSETTE' AND (
+  (
+    UPPER(TRIM(COALESCE(c.currency, ''))) = 'USD'
+    AND c.nominal IS NOT NULL
+    AND c.nominal BETWEEN 1 AND 100
+  )
+  OR (
+    UPPER(TRIM(COALESCE(c.currency, ''))) NOT IN ('USD', 'NCR')
+    AND c.nominal >= %s
+  )
+)
+"""
 
 
 def cassettes_by_tid(tid: str) -> List[Dict[str, Any]]:

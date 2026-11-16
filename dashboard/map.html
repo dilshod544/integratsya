@@ -158,11 +158,16 @@
       <i data-lucide="credit-card"></i>
     </button>
 
+    <!-- Только валютные ATM (USD-кассеты из BTech) -->
+    <button id="currency-toggle-btn" class="map-floating-btn" onclick="toggleCurrencyFilter()" title="Только валютные ATM (USD)" style="top:164px;">
+      <span style="font-weight:800;font-size:16px;line-height:1;">$</span>
+    </button>
+
     <!-- Branches menu: Филиалы · ВАШ · Со складом -->
-    <button id="branches-toggle-btn" class="map-floating-btn" onclick="toggleBranchMenu()" title="Филиалы · ВАШ · склад" style="top:164px;">
+    <button id="branches-toggle-btn" class="map-floating-btn" onclick="toggleBranchMenu()" title="Филиалы · ВАШ · склад" style="top:206px;">
       <i data-lucide="building-2"></i>
     </button>
-    <div id="branch-menu" class="branch-menu" style="top:160px;">
+    <div id="branch-menu" class="branch-menu" style="top:202px;">
       <button id="bm-branches" class="branch-menu-item" type="button" onclick="setBranchMode('all')" title="Все филиалы">
         <i data-lucide="building-2"></i><span>Филиалы</span>
       </button>

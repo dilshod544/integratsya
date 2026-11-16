@@ -243,9 +243,18 @@
     const cass = d.cassettes.map((c) => {
       const max = loaded[c.cassette_index];
       const width = max > 0 ? Math.min(100, Math.round(100 * (c.count || 0) / max)) : 0;
-      const name = c.cassette_type === 'BILLCASSETTE' ? (c.status === 'MISSING' ? 'нет кассеты' : `${num(c.nominal)} ${esc(c.currency || '')}`) : 'Отбраковка';
-      return `<div class="cassette"><div class="top"><span><b>${esc(c.cassette_index)}.</b> ${name}</span>
-        <span><b>${num(c.count)}</b>${max ? ' из ' + num(max) : ''} ${badge(c.status)}</span></div>
+      const cur = String(c.currency || '').toUpperCase();
+      const isUsd = cur === 'USD';
+      let name;
+      if (c.cassette_type !== 'BILLCASSETTE') name = 'Отбраковка';
+      else if (c.status === 'MISSING') name = 'нет кассеты';
+      else if (isUsd) name = `<span style="color:#0f766e;font-weight:800">$${num(c.nominal)}</span>`;
+      else name = `${num(c.nominal)} ${esc(c.currency || 'UZS')}`;
+      const sum = (c.count != null && c.nominal != null)
+        ? (isUsd ? ` · $${num(Number(c.count) * Number(c.nominal))}` : '')
+        : '';
+      return `<div class="cassette" style="${isUsd ? 'background:#f0fdfa;border-radius:10px;padding:8px 10px;border:1px solid #99f6e4' : ''}"><div class="top"><span><b>${esc(c.cassette_index)}.</b> ${name}</span>
+        <span><b>${num(c.count)}</b>${max ? ' из ' + num(max) : ''}${sum} ${badge(c.status)}</span></div>
         ${max ? `<div class="meter"><div style="width:${width}%"></div></div>` : ''}</div>`;
     }).join('');
     return `<section class="card"><h2>Кассеты сейчас</h2>${cass || '<p class="hint">Нет данных по кассетам</p>'}</section>`;

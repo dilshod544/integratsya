@@ -103,3 +103,23 @@ def test_valid_gps_rejects_junk():
     assert _valid_gps(41.3, 69.2) == (41.3, 69.2)
     assert _valid_gps("41.3", "69.2") == (41.3, 69.2)
     assert _valid_gps(50.0, 69.0) is None
+
+
+def test_fill_live_marks_usd_cassettes():
+    from api.core.atm_live import _fill_live
+
+    rows = [{"terminal_id": "T1", "lat": 41.0, "lon": 69.0}]
+    live = {
+        "lat": 41.1, "lon": 69.1, "balance": 10, "btech_atm_id": 1,
+        "address": None, "place": None,
+    }
+    cass = {
+        "T1": [
+            {"index": 1, "type": "BILLCASSETTE", "status": "OK", "count": 10, "currency": "UZS", "nominal": 100000, "balance": 1_000_000},
+            {"index": 2, "type": "BILLCASSETTE", "status": "OK", "count": 50, "currency": "USD", "nominal": 100, "balance": 5000},
+        ]
+    }
+    _fill_live(rows[0], "T1", "terminal_id", live, cass)
+    assert rows[0]["has_usd"] is True
+    assert rows[0]["usd_balance"] == 5000.0
+    assert len(rows[0]["cassettes"]) == 2
