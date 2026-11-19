@@ -808,14 +808,14 @@
     };
     const FILTERS = {
       all:            { label: 'Все',                       test: () => true },
-      working:        { label: 'Работают',                  test: a => a.operational === 'working' },
+      working:        { label: 'Работают',                  test: a => a.operational === 'working' || a.operational === 'busy' },
       busy:           { label: 'Заняты клиентом',           test: a => a.operational === 'busy' },
       out_of_service: { label: 'Не работают',               test: a => a.operational === 'out_of_service' },
       offline:        { label: 'Офлайн / нет данных',       test: a => a.operational === 'offline' || a.operational === 'no_data' },
       empty:          { label: 'Не заряжены',               test: a => a.cash === 'empty' },
       low:            { label: 'Мало наличных',             test: a => a.cash === 'critical' || a.cash === 'warning' },
       faults:         { label: 'С неисправностями',         test: a => a.faults.length > 0 },
-      idle:           { label: 'Простой > 24 ч',            test: a => a.idle },
+      idle:           { label: 'Без снятий > 30 дн',        test: a => a.idle },
       can_dispense:   { label: 'Выдают наличные',           test: a => a.can_dispense },
       low_soon:       { label: 'Low-cash в ближайшие 24 ч', test: a => a.forecast && a.forecast.low_cash_at && hoursUntil(a.forecast.low_cash_at) <= 24 },
     };
@@ -1000,11 +1000,13 @@
       const groups = [
         { title: 'Работа банкоматов', note: 'Состояние по последнему опросу BTech', cards: [
           { key: 'all', label: 'Всего банкоматов', value: num(s.total), icon: 'credit-card', hint: `в реестре: ${s.matched_to_registry}` },
-          { key: 'working', label: 'Работают', value: num(s.working), icon: 'shield-check', tone: 'success', hint: pct(s.working), share: share(s.working) },
+          { key: 'working', label: 'Работают', value: num(s.working + s.busy), icon: 'shield-check', tone: 'success',
+            hint: `${pct(s.working + s.busy)} · из них заняты клиентом: ${num(s.busy)}`, share: share(s.working + s.busy) },
           { key: 'busy', label: 'Заняты клиентом', value: num(s.busy), icon: 'user-round', tone: 'purple', hint: 'идёт операция — это норма', share: share(s.busy) },
           { key: 'out_of_service', label: 'Не работают', value: num(s.out_of_service), icon: 'circle-pause', tone: 'warning', hint: `на связи, но не обслуживают · ${pct(s.out_of_service)}`, share: share(s.out_of_service) },
           { key: 'offline', label: 'Нет связи', value: num(s.offline + s.no_data), icon: 'wifi-off', tone: 'danger', hint: s.no_data ? `${pct(s.offline + s.no_data)} · без свежих данных: ${s.no_data}` : `офлайн · ${pct(s.offline)}`, share: share(s.offline + s.no_data) },
-          { key: 'idle', label: 'Без снятий > 24 ч', value: num(s.idle_24h), icon: 'hourglass', tone: 'slate', hint: 'работают, но никто не снимал', share: share(s.idle_24h) },
+          { key: 'idle', label: 'Без снятий > 30 дн', value: num(s.idle_30d ?? s.idle_24h), icon: 'hourglass', tone: 'slate',
+            hint: 'работают, но никто не снимал месяц — нажмите список', share: share(s.idle_30d ?? s.idle_24h) },
         ] },
         { title: 'Наличные и неисправности', note: 'Остатки в кассетах, прогноз и поломки устройств', cards: [
           { key: 'can_dispense', label: 'Выдают наличные', value: num(s.can_dispense), icon: 'banknote', tone: 'success', hint: `клиент может снять деньги · ${pct(s.can_dispense)}`, share: share(s.can_dispense) },
@@ -1210,7 +1212,7 @@
       if (a.cash === 'warning') p.push(['warn', 'Мало наличных']);
       if (a.cash === 'anomaly') p.push(['info', 'BTech передаёт неверный остаток']);
       a.faults.forEach(f => p.push(['', `${f.label} — ${devStatus(f.status)}`]));
-      if (a.idle) p.push(['warn', `Нет снятий больше суток (последнее ${ago(a.last_cash_out)})`]);
+      if (a.idle) p.push(['warn', `Нет снятий больше месяца (последнее ${ago(a.last_cash_out)})`]);
       return p.length
         ? `<div class="problems">${p.map(([c, t]) => `<div class="${c}">${esc(t)}</div>`).join('')}</div>`
         : '<span class="ok-text">✓ всё в порядке</span>';
@@ -1245,8 +1247,8 @@
     const DETAIL = {
       all:            { icon: 'credit-card', tone: '', cols: ['atm', 'state', 'problems', 'cash'], sort: by(a => -PROBLEM_SCORE(a)),
                         note: 'Вся сеть. Сверху — банкоматы с проблемами. Нажмите на карточку или строку сводки, чтобы посмотреть одну группу.' },
-      working:        { icon: 'shield-check', tone: 'success', cols: ['atm', 'cash', 'lastOut', 'lowAt', 'problems'], sort: by(a => a.balance_pct ?? 999),
-                        note: 'На связи и обслуживают клиентов. Отсортировано по остатку: сверху те, где наличных меньше всего.' },
+      working:        { icon: 'shield-check', tone: 'success', cols: ['atm', 'state', 'cash', 'lastOut', 'lowAt', 'problems'], sort: by(a => a.balance_pct ?? 999),
+                        note: 'На связи и обслуживают: свободные + занятые клиентом. Занятость — нормальная работа, в счёт «Работают» входит.' },
       busy:           { icon: 'user-round', tone: 'purple', cols: ['atm', 'cash', 'lastOut', 'problems'], sort: by(a => a.balance_pct ?? 999),
                         note: 'В момент последнего опроса у банкомата был клиент. Это нормальная работа, не проблема.' },
       out_of_service: { icon: 'circle-pause', tone: 'warning', cols: ['atm', 'reason', 'faults', 'cash', 'seen'], sort: by(a => -a.faults.length),
@@ -1262,7 +1264,7 @@
       faults:         { icon: 'wrench', tone: 'danger', cols: ['atm', 'faults', 'state', 'dispense'], sort: by(a => -(a.faults.some(f => f.device === 'dispenser') * 10 + a.faults.length)),
                         note: 'Хотя бы одно устройство неисправно. Сверху — с неисправным диспенсером: они не могут выдавать наличные.' },
       idle:           { icon: 'hourglass', tone: 'slate', cols: ['atm', 'lastOut', 'cash', 'problems'], sort: by(a => tsOr(a.last_cash_out, 0)),
-                        note: 'Банкомат в работе, но наличные не снимали больше суток. Возможная скрытая неисправность или неудобное место.' },
+                        note: 'В работе, но снятий нет > 30 дней (BTech last_cash_out + падения остатка между опросами). Сверху — дольше всего без снятий.' },
       low_soon:       { icon: 'alarm-clock', tone: 'warning', cols: ['atm', 'cash', 'perDay', 'lowAt', 'emptyAt', 'refill'], sort: by(a => tsOr(fc(a, 'low_cash_at'), Infinity)),
                         note: 'По прогнозу снятий в ближайшие 24 часа остаток опустится ниже порога. Это кандидаты на инкассацию сегодня.' },
       dev:            { icon: 'wrench', tone: 'danger', cols: ['atm', 'faults', 'state', 'dispense'], sort: by(a => -a.faults.length),

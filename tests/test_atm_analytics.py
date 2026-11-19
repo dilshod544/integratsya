@@ -44,7 +44,9 @@ def test_classify_cash_faults_idle():
     # 70 млрд в одном ATM физически невозможны — это ошибка данных BTech, а не «норма».
     assert atm_analytics.classify(_snap(cdm_total_uzs=70e9), NOW, cap)["cash"] == "anomaly"
 
-    idle = atm_analytics.classify(_snap(last_transaction_cash_out=NOW - timedelta(hours=30)), NOW, cap)
+    # Порог простоя — 30 дней; 30 часов ещё не idle.
+    assert not atm_analytics.classify(_snap(last_transaction_cash_out=NOW - timedelta(hours=30)), NOW, cap)["idle"]
+    idle = atm_analytics.classify(_snap(last_transaction_cash_out=NOW - timedelta(days=31)), NOW, cap)
     assert idle["idle"]
 
 

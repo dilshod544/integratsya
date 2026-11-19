@@ -11,7 +11,7 @@ atm_live.match_live_to_rows); пороги заполненности — те �
   * cash        — empty (не заряжен) / critical / warning / ok / unknown /
                   anomaly (BTech отдаёт невозможный остаток — тестовое/неверно настроенное устройство);
   * faults      — неисправные устройства (диспенсер, картридер, PIN-пад...);
-  * idle        — онлайн, но без выдачи наличных больше суток.
+  * idle        — онлайн, но без выдачи наличных больше 30 дней.
 """
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ log = logging.getLogger(__name__)
 
 MAX_REAL_NOMINAL = 200_000        # крупнейшая купюра UZS
 STALE_AFTER = timedelta(hours=3)   # снимок старше последнего опроса на столько — «нет данных»
-IDLE_AFTER = timedelta(hours=24)
+IDLE_AFTER = timedelta(days=30)  # «Без снятий» — больше месяца
 
 DEVICES = [
     ("dispenser_status", "Диспенсер (выдача)"),
@@ -157,6 +157,45 @@ def classify(snap: Dict[str, Any], latest_poll: Optional[datetime], capacity: fl
     }
 
 
+def _last_observed_withdrawals(conn, since: datetime) -> Dict[int, datetime]:
+    """Последнее наблюдаемое снятие: падение остатка между соседними опросами (≤3 ч).
+
+    Поле BTech `last_transaction_cash_out` часто устаревает или NULL, хотя кассеты
+    реально опустошаются — для «Без снятий > 30 дн» берём и этот сигнал.
+    """
+    rows = conn.execute(
+        """
+        WITH ordered AS (
+            SELECT atm_id, polled_at, cdm_total_uzs,
+                   LAG(cdm_total_uzs) OVER (PARTITION BY atm_id ORDER BY polled_at) AS prev,
+                   LAG(polled_at) OVER (PARTITION BY atm_id ORDER BY polled_at) AS prev_t
+            FROM atm_snapshots
+            WHERE polled_at >= %(since)s
+              AND cdm_total_uzs IS NOT NULL
+              AND cdm_total_uzs <= %(max_bal)s
+        )
+        SELECT atm_id, MAX(polled_at) AS last_wd
+        FROM ordered
+        WHERE prev IS NOT NULL
+          AND cdm_total_uzs < prev
+          AND (prev - cdm_total_uzs) > 100000
+          AND EXTRACT(EPOCH FROM (polled_at - prev_t)) / 3600.0 <= %(max_gap)s
+        GROUP BY atm_id
+        """,
+        {
+            "since": since,
+            "max_bal": forecast.MAX_PLAUSIBLE_UZS,
+            "max_gap": forecast.MAX_GAP_HOURS,
+        },
+    ).fetchall()
+    out: Dict[int, datetime] = {}
+    for r in rows:
+        ts = _ts(r["last_wd"])
+        if ts:
+            out[int(r["atm_id"])] = ts
+    return out
+
+
 def _network_status() -> Dict[str, Any]:
     with connect() as conn:
         snaps = conn.execute(
@@ -190,6 +229,10 @@ def _network_status() -> Dict[str, Any]:
         from atm_monitor.history import capacity_by_atm
 
         capacities = capacity_by_atm(conn, 0)
+        # Окно чуть шире IDLE_AFTER, чтобы не пропустить снятие на границе 30 дней.
+        observed_wd = _last_observed_withdrawals(
+            conn, datetime.now(timezone.utc) - IDLE_AFTER - timedelta(days=5)
+        )
 
     registry = _registry_by_tid()
     latest_poll = max((_ts(s["polled_at"]) for s in snaps), default=None)
@@ -202,6 +245,17 @@ def _network_status() -> Dict[str, Any]:
         reg = registry.get(str(s["tid"])) or {}
         capacity = reg.get("capacity") or capacities.get(int(s["atm_id"])) or DEFAULT_CAPACITY
         cls = classify(s, latest_poll, capacity)
+
+        # Idle: BTech-поле + фактически наблюдаемые падения остатка.
+        field_out = _ts(s.get("last_transaction_cash_out"))
+        observed = observed_wd.get(int(s["atm_id"]))
+        candidates = [t for t in (field_out, observed) if t is not None]
+        effective_out = max(candidates) if candidates else None
+        polled = _ts(s.get("polled_at"))
+        if cls["operational"] in ("working", "busy") and polled is not None:
+            cls["idle"] = effective_out is None or (polled - effective_out > IDLE_AFTER)
+        else:
+            cls["idle"] = False
 
         bills = []
         for c in cassettes.get(int(s["snapshot_id"]), []):
@@ -235,7 +289,8 @@ def _network_status() -> Dict[str, Any]:
             "app_status": s.get("app_status"),
             "polled_at": _iso(s.get("polled_at")),
             "agent_last_online": _iso(s.get("agent_last_online")),
-            "last_cash_out": _iso(s.get("last_transaction_cash_out")),
+            "last_cash_out": _iso(effective_out),
+            "last_cash_out_btech": _iso(field_out),
             "last_cash_in": _iso(s.get("last_transaction_cash_in")),
             "cassettes": bills,
             "forecast": {
@@ -266,7 +321,8 @@ def _network_status() -> Dict[str, Any]:
         "data_anomalies": count(lambda a: a["cash"] == "anomaly"),
         "with_faults": count(lambda a: a["faults"]),
         "dispenser_faults": count(lambda a: any(f["device"] == "dispenser" for f in a["faults"])),
-        "idle_24h": count(lambda a: a["idle"]),
+        "idle_30d": count(lambda a: a["idle"]),
+        "idle_24h": count(lambda a: a["idle"]),  # alias = idle_30d (совместимость)
         "can_dispense": count(lambda a: a["can_dispense"]),
         "total_cash": sum(a["balance"] or 0 for a in atms if a["cash"] != "anomaly"),
         "reject_cassettes_full": reject_full,
@@ -858,7 +914,7 @@ def _problems_text(atm: Dict[str, Any]) -> str:
     for f in atm.get("faults") or []:
         lines.append(f"{f.get('label') or f.get('device')} — {_dev_status_ru(f.get('status'))}")
     if atm.get("idle"):
-        lines.append("Нет снятий больше суток")
+        lines.append("Нет снятий больше месяца")
     return "; ".join(lines) if lines else "всё в порядке"
 
 
