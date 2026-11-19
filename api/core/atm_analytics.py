@@ -980,6 +980,30 @@ def export_atm_status_xlsx(
     if not rows:
         raise ValueError("Выбранные банкоматы не найдены в текущем опросе")
 
+    # Последняя инкассация из BTech (цикл загрузки) — в network_status её нет.
+    last_enc: Dict[int, Dict[str, Any]] = {}
+    with connect() as conn:
+        for r in conn.execute(
+            """
+            SELECT DISTINCT ON (atm_id)
+                   atm_id, started_at, finished_at, loaded_uzs, unloaded_uzs
+            FROM btech_encashments
+            WHERE atm_id = ANY(%(ids)s)
+            ORDER BY atm_id, started_at DESC
+            """,
+            {"ids": [int(a["atm_id"]) for a in rows]},
+        ).fetchall():
+            started = _ts(r["started_at"])
+            finished = _ts(r["finished_at"])
+            last_enc[int(r["atm_id"])] = {
+                # openpyxl не принимает tz-aware datetime
+                "started_at": started.replace(tzinfo=None) if started else None,
+                "finished_at": finished.replace(tzinfo=None) if finished else None,
+                "loaded_uzs": r["loaded_uzs"],
+                "unloaded_uzs": r["unloaded_uzs"],
+                "open": r["finished_at"] is None,
+            }
+
     wb = Workbook()
     meta = wb.active
     meta.title = "Сводка"
@@ -1032,7 +1056,9 @@ def export_atm_status_xlsx(
         "Состояние", "Выдаёт наличные", "Что не так",
         "Наличные UZS", "% ёмкости", "Статус наличных", "Доступно UZS", "Ёмкость UZS",
         "Кассеты", "Неисправности",
-        "Последний раз на связи", "Последнее снятие", "Опрос",
+        "Последний раз на связи", "Последнее снятие", "Последняя инкассация",
+        "Загружено UZS (инкассация)", "Выгружено UZS (инкассация)", "Цикл инкассации",
+        "Опрос",
         "Снимают за сутки (прогноз)", "Мало наличных к", "Опустеет к", "Рекомендуемая загрузка UZS",
     ]
     ws.append(headers)
@@ -1046,6 +1072,11 @@ def export_atm_status_xlsx(
 
     for a in rows:
         fc = a.get("forecast") or {}
+        enc = last_enc.get(int(a["atm_id"])) or {}
+        if enc:
+            cycle = "открыт" if enc.get("open") else "закрыт"
+        else:
+            cycle = "нет данных"
         ws.append([
             a.get("tid"),
             a.get("region") or "Не сопоставлен с реестром",
@@ -1066,6 +1097,10 @@ def export_atm_status_xlsx(
             _faults_text(a),
             _parse_iso(a.get("agent_last_online")),
             _parse_iso(a.get("last_cash_out")),
+            enc.get("started_at"),
+            enc.get("loaded_uzs"),
+            enc.get("unloaded_uzs"),
+            cycle,
             _parse_iso(a.get("polled_at")),
             fc.get("withdrawal_24h"),
             _parse_iso(fc.get("low_cash_at")),
@@ -1077,10 +1112,10 @@ def export_atm_status_xlsx(
             cell = ws.cell(r, col)
             cell.border = thin
             cell.alignment = Alignment(vertical="top", wrap_text=col in (4, 10, 16, 17))
-        for col in (11, 13, 14, 15, 21, 24):
+        for col in (11, 13, 14, 15, 21, 22, 25, 28):
             ws.cell(r, col).number_format = "#,##0"
         ws.cell(r, 12).number_format = "0.0"
-        for col in (18, 19, 20, 22, 23):
+        for col in (18, 19, 20, 24, 26, 27):
             ws.cell(r, col).number_format = "DD.MM.YYYY HH:MM"
 
     _autosize(ws)
