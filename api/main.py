@@ -59,7 +59,7 @@ import sys
 import tempfile
 import threading
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -82,6 +82,7 @@ import atm_monitor.forecast as atm_forecast
 import atm_monitor.history as atm_history
 import atm_monitor.scheduler as atm_collector
 from core import ai_assistant, atm_analytics, atm_live, auth, economics, savings
+from core import atm_abc, atm_encashments
 from core import incassation_plan as inc_plan
 from core.config import AUTH_DISABLED, BASE_DIR, SECRET_KEY
 from core.db import (
@@ -1664,6 +1665,40 @@ def analytics_atm_status_export(payload: AtmStatusExportRequest):
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@app.get("/api/analytics/encashments", summary="Инкассации за день и предыдущий день: тип, сколько было и сколько загрузили")
+def analytics_encashments(day: Optional[date] = Query(None, description="День (по Ташкенту), по умолчанию сегодня")):
+    return atm_encashments.encashments_report(day)
+
+
+class EncashmentsExportRequest(BaseModel):
+    day: Optional[date] = None
+    ids: Optional[List[int]] = None
+
+
+@app.post("/api/analytics/encashments/export", summary="Excel: инкассации за день и предыдущий день")
+def analytics_encashments_export(payload: EncashmentsExportRequest):
+    try:
+        content = atm_encashments.export_encashments_xlsx(payload.day, payload.ids)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    day = payload.day or atm_encashments.today()
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="ATM_encashments_{day.isoformat()}.xlsx"'},
+    )
+
+
+@app.get("/api/analytics/abc", summary="Категории банкоматов A/B/C по снятиям в месяц (отчёты BTech)")
+def analytics_abc(days: int = Query(30, ge=7, le=120)):
+    return atm_abc.abc_report(days)
+
+
+@app.get("/api/analytics/abc/{atm_id}", summary="Суточный и месячный спрос банкомата (отчёты BTech)")
+def analytics_abc_atm(atm_id: int):
+    return atm_abc.abc_atm_detail(atm_id)
 
 
 @app.get("/api/analytics/forecast", summary="Прогноз снятий наличных (XGBoost) и сроки cash-out")

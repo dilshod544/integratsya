@@ -367,6 +367,19 @@
       .model-grid, .grid-4 { grid-template-columns: 1fr; }
       .kpi-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
+    /* Категория ABC в окне банкомата: крупная буква, под ней словами */
+    .abc-grade { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin: 4px 0 2px; letter-spacing: 0; }
+    .abc-letter { width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center;
+      color: #fff; font-size: 26px; font-weight: 900; line-height: 1; }
+    .abc-grade b { font-size: 15px; font-weight: 800; white-space: nowrap; }
+    /* Инкассации: раскрывающаяся строка с купюрами и проверкой по опросам */
+    tr.en-detail > td { background: var(--surface-2); padding: 14px 16px; }
+    .en-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+    .en-grid h4 { margin: 0 0 8px; font-size: 11px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); }
+    .en-lines div { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; padding: 3px 0; border-bottom: 1px dashed var(--border); }
+    .en-lines div:last-child { border-bottom: 0; }
+    .en-lines b { font-variant-numeric: tabular-nums; }
+    .en-toggle { padding: 4px 8px; }
   </style>
 <script src="/dashboard/js/atm-link.js"></script>
 </head>
@@ -398,6 +411,9 @@
       <button class="section-tab" data-tab="withdrawals" onclick="switchTab('withdrawals')"><i data-lucide="banknote" class="icon-inline"></i> Снятия по дням</button>
       <button class="section-tab" data-tab="kassa" onclick="switchTab('kassa')"><i data-lucide="wallet" class="icon-inline"></i> Касса филиалов</button>
       <button class="section-tab" data-tab="vash" onclick="switchTab('vash')"><i data-lucide="arrow-left-right" class="icon-inline"></i> ВАШ</button>
+      <button class="section-tab" data-tab="over400" onclick="switchTab('over400')"><i data-lucide="piggy-bank" class="icon-inline"></i> Свыше 400 млн</button>
+      <button class="section-tab" data-tab="encash" onclick="switchTab('encash')"><i data-lucide="truck" class="icon-inline"></i> Инкассации</button>
+      <button class="section-tab" data-tab="abc" onclick="switchTab('abc')"><i data-lucide="bar-chart-3" class="icon-inline"></i> Категории ABC</button>
       <button class="section-tab" data-tab="efficiency" style="margin-left:auto" onclick="switchTab('efficiency')"><i data-lucide="scale" class="icon-inline"></i> Аналитика ATM</button>
     </nav>
 
@@ -637,6 +653,140 @@
       </div>
     </section>
 
+    <!-- ── Банкоматы, где больше 400 млн ── -->
+    <section id="tab-over400" class="tab-panel">
+      <div class="stats-bar" id="o4-kpis"></div>
+      <div class="grid-2" style="margin-top:16px">
+        <div class="panel">
+          <div class="panel-head"><i data-lucide="map-pinned" class="icon-inline"></i><h2>По регионам</h2><div class="spacer"></div><span class="pager-info">клик — фильтр таблицы</span></div>
+          <div class="panel-body" id="o4-regions"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><i data-lucide="layers" class="icon-inline"></i><h2>По размеру остатка</h2><div class="spacer"></div><span class="pager-info">клик — фильтр таблицы</span></div>
+          <div class="panel-body" id="o4-bands"></div>
+        </div>
+      </div>
+      <div class="panel" id="o4-panel" style="margin-top:16px">
+        <div class="panel-head">
+          <i data-lucide="piggy-bank" class="icon-inline"></i><h2 id="o4-title">Банкоматы свыше 400 млн</h2>
+          <div class="spacer"></div>
+          <button class="btn" id="o4-reset" style="display:none" onclick="resetO4Filters()">Сбросить фильтры</button>
+        </div>
+        <div class="toolbar">
+          <input id="o4-search" type="search" placeholder="Поиск: TID, адрес, филиал..." oninput="o4Page = 1; renderOver400()" />
+          <select id="o4-region" onchange="o4Page = 1; renderOver400()"><option value="">Все регионы</option></select>
+          <button type="button" class="btn" id="o4-export-btn" onclick="exportOver400Excel()" title="Скачать текущую выборку в Excel">
+            <i data-lucide="file-spreadsheet" class="icon-inline"></i> Excel
+          </button>
+          <span class="pager-info" id="o4-count"></span>
+        </div>
+        <div class="table-wrap">
+          <table class="data">
+            <thead><tr>
+              <th>Банкомат</th><th>Состояние</th><th class="num">Наличные</th><th class="num">Сверх 400 млн</th>
+              <th>Кассеты (номинал × купюр)</th><th>Последнее снятие</th><th class="num">Снимают за сутки</th>
+            </tr></thead>
+            <tbody id="o4-body"><tr><td colspan="7" class="empty">Загрузка...</td></tr></tbody>
+          </table>
+        </div>
+        <div class="pagination" id="o4-pager"></div>
+      </div>
+    </section>
+
+    <!-- ── Инкассации за день и предыдущий день ── -->
+    <section id="tab-encash" class="tab-panel">
+      <div class="toolbar" style="margin-top:16px;border:1px solid var(--border);border-radius:16px;">
+        <span class="stat-label">День</span>
+        <input id="en-day" type="date" style="flex:0 0 auto;min-width:0" onchange="loadEncash()" />
+        <button type="button" class="btn" onclick="setEnDay(0)">Сегодня</button>
+        <button type="button" class="btn" onclick="setEnDay(-1)">Вчера</button>
+        <span class="pager-info" style="margin-left:auto" id="en-sync"></span>
+      </div>
+      <div class="stats-bar" id="en-kpis"></div>
+      <div class="grid-2" style="margin-top:16px">
+        <div class="panel">
+          <div class="panel-head"><i data-lucide="calendar-days" class="icon-inline"></i><h2>По дням</h2><div class="spacer"></div><span class="pager-info">клик — фильтр таблицы</span></div>
+          <div class="panel-body" id="en-days"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><i data-lucide="tags" class="icon-inline"></i><h2>По типу инкассации</h2><div class="spacer"></div><span class="pager-info">клик — фильтр таблицы</span></div>
+          <div class="panel-body" id="en-types"></div>
+        </div>
+      </div>
+      <div class="panel" id="en-panel" style="margin-top:16px">
+        <div class="panel-head">
+          <i data-lucide="truck" class="icon-inline"></i><h2 id="en-title">Инкассации</h2>
+          <div class="spacer"></div>
+          <button class="btn" id="en-reset" style="display:none" onclick="resetEnFilters()">Сбросить фильтры</button>
+        </div>
+        <div class="toolbar">
+          <input id="en-search" type="search" placeholder="Поиск: TID, адрес, филиал..." oninput="enPage = 1; renderEncash()" />
+          <select id="en-region" onchange="enPage = 1; renderEncash()"><option value="">Все регионы</option></select>
+          <button type="button" class="btn" id="en-export-btn" onclick="exportEncashExcel()" title="Скачать текущую выборку в Excel">
+            <i data-lucide="file-spreadsheet" class="icon-inline"></i> Excel
+          </button>
+          <span class="pager-info" id="en-count"></span>
+        </div>
+        <div class="table-wrap">
+          <table class="data">
+            <thead><tr>
+              <th>Время</th><th>Банкомат</th><th>Тип</th><th class="num">Было до инкассации</th><th class="num">Загружено</th>
+              <th class="num">Разница</th><th>Прошлый цикл</th><th></th>
+            </tr></thead>
+            <tbody id="en-body"><tr><td colspan="8" class="empty">Загрузка...</td></tr></tbody>
+          </table>
+        </div>
+        <div class="pagination" id="en-pager"></div>
+      </div>
+    </section>
+
+    <!-- ── Категории A / B / C по снятиям в месяц ── -->
+    <section id="tab-abc" class="tab-panel">
+      <div class="toolbar" style="margin-top:16px;border:1px solid var(--border);border-radius:16px;">
+        <span class="stat-label">Период</span>
+        <select id="abc-days" onchange="loadAbc()" title="Снятия за период пересчитываются в месяц (30 дней)">
+          <option value="30" selected>30 дней</option>
+          <option value="60">60 дней</option>
+          <option value="90">90 дней</option>
+        </select>
+        <span class="pager-info" style="margin-left:auto" id="abc-period"></span>
+      </div>
+      <div class="stats-bar" id="abc-kpis"></div>
+      <div class="grid-2" style="margin-top:16px">
+        <div class="panel">
+          <div class="panel-head"><i data-lucide="layers" class="icon-inline"></i><h2>Категории</h2><div class="spacer"></div><span class="pager-info">клик — фильтр таблицы</span></div>
+          <div class="panel-body" id="abc-cats"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><i data-lucide="map-pinned" class="icon-inline"></i><h2>По регионам</h2><div class="spacer"></div><span class="pager-info">клик — фильтр таблицы</span></div>
+          <div class="panel-body" id="abc-regions" style="max-height:420px;overflow:auto"></div>
+        </div>
+      </div>
+      <div class="panel" id="abc-panel" style="margin-top:16px">
+        <div class="panel-head">
+          <i data-lucide="list-ordered" class="icon-inline"></i><h2 id="abc-title">Банкоматы</h2>
+          <div class="spacer"></div>
+          <button class="btn" id="abc-reset" style="display:none" onclick="resetAbcFilters()">Сбросить фильтры</button>
+        </div>
+        <div class="panel-body" style="padding-bottom:0"><div class="note" id="abc-rule" style="margin-top:0"></div></div>
+        <div class="toolbar">
+          <input id="abc-search" type="search" placeholder="Поиск: TID, адрес, филиал..." oninput="abcPage = 1; renderAbc()" />
+          <select id="abc-region" onchange="abcPage = 1; renderAbc()"><option value="">Все регионы</option></select>
+          <span class="pager-info" id="abc-count"></span>
+        </div>
+        <div class="table-wrap">
+          <table class="data">
+            <thead><tr>
+              <th>Банкомат</th><th>Категория</th><th class="num">Снятия в месяц</th><th class="num">В сутки (среднее)</th>
+              <th class="num">Макс. за сутки</th><th class="num">Дней без снятий</th><th>Снятия по дням</th>
+            </tr></thead>
+            <tbody id="abc-body"><tr><td colspan="7" class="empty">Загрузка...</td></tr></tbody>
+          </table>
+        </div>
+        <div class="pagination" id="abc-pager"></div>
+      </div>
+    </section>
+
     <section id="tab-efficiency" class="tab-panel">
       <div class="toolbar" style="margin-top:16px;border:1px solid var(--border);border-radius:16px;">
         <span class="stat-label">Период</span>
@@ -733,6 +883,58 @@
                 <th>Фиксация</th>
               </tr></thead>
               <tbody id="ef-results"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="abc-modal" onclick="if (event.target === this) closeAbcModal()">
+    <div class="modal wide" role="dialog" aria-modal="true" aria-labelledby="abc-m-title">
+      <div class="modal-head">
+        <div style="flex:1;min-width:0">
+          <div class="eyebrow">Спрос банкомата · отчёты BTech</div>
+          <h3 id="abc-m-title">—</h3>
+          <div class="sub" id="abc-m-sub"></div>
+        </div>
+        <button class="btn" onclick="closeAbcModal()" aria-label="Закрыть"><i data-lucide="x" class="icon-inline"></i></button>
+      </div>
+      <div class="modal-body">
+        <div class="stats-bar" id="abc-m-kpis"></div>
+        <div class="panel" style="margin-top:16px">
+          <div class="panel-head">
+            <i data-lucide="chart-column" class="icon-inline"></i><h2>Суточный спрос: снятия по дням</h2><div class="spacer"></div>
+            <div class="chips" id="abc-m-range">
+              <button data-d="30" class="on">30 дн</button><button data-d="60">60 дн</button><button data-d="0">Всё</button>
+            </div>
+          </div>
+          <div class="chart" id="abc-m-daily"></div>
+        </div>
+        <div class="grid-2">
+          <div class="panel">
+            <div class="panel-head"><i data-lucide="calendar-range" class="icon-inline"></i><h2>Месячный спрос</h2></div>
+            <div class="chart" id="abc-m-months"></div>
+            <div class="table-wrap">
+              <table class="data">
+                <thead><tr><th>Месяц</th><th class="num">Снято</th><th class="num">Дней с данными</th><th class="num">В сутки</th><th class="num">В пересчёте на 30 дн</th><th>Категория</th></tr></thead>
+                <tbody id="abc-m-months-body"></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><i data-lucide="calendar-days" class="icon-inline"></i><h2>По дням недели</h2><div class="spacer"></div><span class="pager-info">среднее за день</span></div>
+            <div class="panel-body" id="abc-m-weekdays"></div>
+            <div class="panel-head" style="border-top:1px solid var(--border)"><i data-lucide="coins" class="icon-inline"></i><h2>Купюры за последние 30 дней</h2></div>
+            <div class="panel-body" id="abc-m-nominals"></div>
+          </div>
+        </div>
+        <div class="panel" style="margin-top:16px">
+          <div class="panel-head"><i data-lucide="table" class="icon-inline"></i><h2 id="abc-m-days-title">Все дни</h2></div>
+          <div class="table-wrap" style="max-height:360px;overflow:auto">
+            <table class="data">
+              <thead><tr><th>Дата</th><th class="num">Снято UZS</th><th class="num">Снято USD</th><th class="num">К среднему</th></tr></thead>
+              <tbody id="abc-m-days"></tbody>
             </table>
           </div>
         </div>
@@ -883,9 +1085,9 @@
 
     /* Столбчатая диаграмма одной серии: тонкие столбцы со скруглённым верхом,
        2px просвет, тусклая сетка, тултип при наведении. */
-    function barChart(el, rows, { color = 'var(--primary)', valueLabel = 'Снято', height = 240 } = {}) {
+    function barChart(el, rows, { color = 'var(--primary)', valueLabel = 'Снято', height = 240, width = 720 } = {}) {
       if (!rows.length) { el.innerHTML = '<div class="empty">Нет данных</div>'; return; }
-      const W = 720, H = height, L = 62, R = 8, T = 10, B = 26;
+      const W = width, H = height, L = 62, R = 8, T = 10, B = 26;
       const max = Math.max(...rows.map(r => r.value)) || 1;
       const step = niceStep(max / 4);
       const top = Math.ceil(max / step) * step;
@@ -943,6 +1145,8 @@
       if (tab === 'kassa' && !ledgerData) loadLedger();
       if (tab === 'vash' && !vashOps) loadVashOps();
       if (tab === 'efficiency' && !efData) loadEfficiency();
+      if (tab === 'encash' && !enData) loadEncash();
+      if (tab === 'abc' && !abcData) loadAbc();
       history.replaceState(null, '', tab === 'status' ? location.pathname : '#' + tab);
       icons();
     }
@@ -960,6 +1164,7 @@
       renderSummaries();
       renderRegions();
       renderAtmTable();
+      renderOver400();
       icons();
     }
 
@@ -1312,9 +1517,17 @@
       return filteredAtms().sort(d.sort);
     }
 
-    async function exportAtmExcel() {
-      const rows = currentAtmExportRows();
-      const btn = document.getElementById('atm-export-btn');
+    function exportAtmExcel() {
+      return exportStatusExcel('atm-export-btn', currentAtmExportRows(), {
+        region: regionFilter || null,
+        filter_label: activeFilter === 'all' ? 'Все банкоматы' : filterFor(activeFilter).label,
+        search: document.getElementById('atm-search').value.trim() || null,
+      });
+    }
+
+    // Excel по выбранным банкоматам (тот же отчёт, что у «Состояния сети»)
+    async function exportStatusExcel(btnId, rows, meta) {
+      const btn = document.getElementById(btnId);
       if (!rows.length) {
         alert('Нечего выгружать: в текущей выборке нет банкоматов.');
         return;
@@ -1327,12 +1540,7 @@
         const r = await fetch(API + '/api/analytics/atm-status/export', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            atm_ids: rows.map(a => a.atm_id),
-            region: regionFilter || null,
-            filter_label: activeFilter === 'all' ? 'Все банкоматы' : filterFor(activeFilter).label,
-            search: document.getElementById('atm-search').value.trim() || null,
-          }),
+          body: JSON.stringify({ atm_ids: rows.map(a => a.atm_id), ...meta }),
         });
         if (!r.ok) {
           let detail = `HTTP ${r.status}`;
@@ -1417,6 +1625,629 @@
       renderRegions();
       if (scroll) document.getElementById('detail-panel').scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
+
+    // ── Свыше 400 млн: остаток наличных по последнему опросу BTech ──
+    const O4_LIMIT = 400e6;
+    const O4_BANDS = [
+      { label: '400–500 млн', min: 400e6, max: 500e6 },
+      { label: '500–600 млн', min: 500e6, max: 600e6 },
+      { label: '600–700 млн', min: 600e6, max: 700e6 },
+      { label: 'Свыше 700 млн', min: 700e6, max: Infinity },
+    ];
+    let o4Page = 1, o4Band = -1;
+
+    // Аномальный остаток BTech (тестовые/неверно настроенные ATM) в выборку не берём
+    const o4All = () => (statusData?.atms || []).filter(a => a.cash !== 'anomaly' && a.balance > O4_LIMIT);
+    const o4InBand = (a, i) => i < 0 || (a.balance > O4_BANDS[i].min && a.balance <= O4_BANDS[i].max);
+
+    function o4Rows({ region = true, band = true } = {}) {
+      const q = document.getElementById('o4-search').value.trim().toLowerCase();
+      const reg = document.getElementById('o4-region').value;
+      return o4All().filter(a =>
+        (!region || !reg || regionOf(a) === reg) &&
+        (!band || o4InBand(a, o4Band)) &&
+        (!q || [a.tid, a.address, a.place, a.branch, a.region, a.registry_terminal_id, a.serial].some(v => String(v || '').toLowerCase().includes(q)))
+      ).sort((x, y) => y.balance - x.balance);
+    }
+
+    function renderOver400() {
+      if (!statusData) return;
+      const all = o4All();
+      const sum = rows => rows.reduce((s, a) => s + a.balance, 0);
+      const excess = rows => rows.reduce((s, a) => s + a.balance - O4_LIMIT, 0);
+      const netCash = statusData.summary.total_cash || 0;
+      const total = statusData.atms.length;
+      const working = all.filter(a => a.operational === 'working' || a.operational === 'busy').length;
+
+      document.getElementById('o4-kpis').innerHTML = [
+        { label: 'Банкоматов свыше 400 млн', value: num(all.length), icon: 'piggy-bank', tone: 'warning',
+          hint: total ? `${Math.round(all.length / total * 100)}% сети · опрос BTech ${ago(statusData.latest_poll_at)}` : 'нет данных BTech' },
+        { label: 'Наличных в них', value: money(sum(all)) + ' сум', icon: 'wallet',
+          hint: netCash ? `${Math.round(sum(all) / netCash * 100)}% всех наличных сети` : '' },
+        { label: 'Сверх 400 млн', value: money(excess(all)) + ' сум', icon: 'arrow-up-from-line', tone: 'danger',
+          hint: 'сумма превышения по всем банкоматам' },
+        { label: 'Средний остаток', value: all.length ? money(sum(all) / all.length) + ' сум' : '—', icon: 'scale',
+          hint: all.length ? `максимум: ${money(Math.max(...all.map(a => a.balance)))}` : '' },
+        { label: 'Работают', value: num(working), icon: 'shield-check', tone: 'success',
+          hint: `не работают / нет связи: ${num(all.length - working)}` },
+      ].map(statBox).join('');
+
+      // Регионы и диапазоны считаем с учётом поиска и другого фильтра, но не своего
+      const reg = document.getElementById('o4-region').value;
+      const byRegion = {};
+      o4Rows({ region: false }).forEach(a => {
+        const r = byRegion[regionOf(a)] ||= { count: 0, cash: 0 };
+        r.count++; r.cash += a.balance;
+      });
+      o4SumRows(document.getElementById('o4-regions'), Object.entries(byRegion)
+        .sort((a, b) => b[1].count - a[1].count)
+        .map(([region, r]) => ({ key: region, label: region, value: r.count, active: reg === region,
+          sub: `наличных ${money(r.cash)} · сверх 400 млн ${money(r.cash - r.count * O4_LIMIT)}` })),
+        'pickO4Region', 'var(--warning)');
+
+      const bandRows = o4Rows({ band: false });
+      o4SumRows(document.getElementById('o4-bands'), O4_BANDS.map((b, i) => {
+        const rows = bandRows.filter(a => o4InBand(a, i));
+        return { key: String(i), label: b.label, value: rows.length, active: o4Band === i,
+          sub: rows.length ? `наличных ${money(sum(rows))}` : '' };
+      }), 'pickO4Band', 'var(--danger)');
+
+      renderRegionOptions('o4-region', all);
+      renderOver400Table();
+    }
+
+    function o4SumRows(el, rows, onPick, color) {
+      const max = Math.max(1, ...rows.map(r => r.value));
+      el.innerHTML = rows.length ? rows.map(r => `
+        <button type="button" class="sum-row ${r.active ? 'active' : ''}" data-key="${esc(r.key)}" onclick="${onPick}(this.dataset.key)">
+          <div class="sum-line"><span class="lbl">${esc(r.label)}</span><span class="val">${num(r.value)}<small>ATM</small></span></div>
+          <div class="sum-track"><div style="width:${r.value ? Math.max(2, r.value / max * 100) : 0}%;background:${color}"></div></div>
+          ${r.sub ? `<div class="sum-sub">${r.sub}</div>` : ''}
+        </button>`).join('') : '<div class="empty" style="padding:4px 0">Нет</div>';
+    }
+
+    function renderRegionOptions(selectId, rows) {
+      const sel = document.getElementById(selectId);
+      const cur = sel.value;
+      const regions = [...new Set(rows.map(regionOf))].sort((a, b) => a.localeCompare(b, 'ru'));
+      sel.innerHTML = '<option value="">Все регионы</option>' +
+        regions.map(r => `<option value="${esc(r)}">${esc(r)}</option>`).join('');
+      sel.value = regions.includes(cur) ? cur : '';
+    }
+
+    function renderOver400Table() {
+      if (!statusData) return;
+      const rows = o4Rows();
+      const reg = document.getElementById('o4-region').value;
+      const parts = [reg, o4Band >= 0 ? O4_BANDS[o4Band].label : ''].filter(Boolean);
+      document.getElementById('o4-title').textContent = `Банкоматы свыше 400 млн — ${num(rows.length)}${parts.length ? ' · ' + parts.join(' · ') : ''}`;
+      document.getElementById('o4-reset').style.display = parts.length ? 'inline-flex' : 'none';
+      document.getElementById('o4-count').textContent = `показано ${rows.length} из ${o4All().length}`;
+      document.getElementById('o4-export-btn').disabled = !rows.length;
+
+      const pages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+      o4Page = Math.min(o4Page, pages);
+      document.getElementById('o4-body').innerHTML = rows.slice((o4Page - 1) * PAGE_SIZE, o4Page * PAGE_SIZE).map(a => `<tr>
+          <td>${atmCell(a)}</td>
+          <td>${COLS.state.td(a)}</td>
+          <td class="num"><div class="strong">${money(a.balance)}</div><div class="sub">${a.balance_pct != null ? Math.round(a.balance_pct) + '% ёмкости' : ''}</div></td>
+          <td class="num"><span class="strong" style="color:var(--danger)">+${money(a.balance - O4_LIMIT)}</span></td>
+          <td>${cassCell(a)}</td>
+          <td>${timeCell(a.last_cash_out)}</td>
+          <td class="num">${COLS.perDay.td(a)}</td>
+        </tr>`).join('')
+        || `<tr><td colspan="7" class="empty">${statusData.atms.length ? 'Нет банкоматов с остатком свыше 400 млн' : 'Данных BTech ещё нет: сборщик не запущен или первый опрос не завершён.'}</td></tr>`;
+      renderPager('o4-pager', rows.length, o4Page, pages, 'goO4Page');
+      icons();
+    }
+
+    function goO4Page(p) {
+      o4Page = p;
+      renderOver400Table();
+      document.getElementById('o4-panel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    function pickO4Region(region) {
+      const sel = document.getElementById('o4-region');
+      sel.value = sel.value === region ? '' : region;
+      o4Page = 1;
+      renderOver400();
+    }
+    function pickO4Band(i) {
+      o4Band = o4Band === +i ? -1 : +i;
+      o4Page = 1;
+      renderOver400();
+    }
+    function resetO4Filters() {
+      document.getElementById('o4-region').value = '';
+      o4Band = -1;
+      o4Page = 1;
+      renderOver400();
+    }
+    function exportOver400Excel() {
+      const reg = document.getElementById('o4-region').value;
+      return exportStatusExcel('o4-export-btn', o4Rows(), {
+        region: reg || null,
+        filter_label: 'Остаток свыше 400 млн' + (o4Band >= 0 ? ' · ' + O4_BANDS[o4Band].label : ''),
+        search: document.getElementById('o4-search').value.trim() || null,
+      });
+    }
+
+    // ── Инкассации: выбранный день и предыдущий (циклы BTech) ──
+    const EN_TYPE = {
+      replace:    { label: 'Замена кассет',        cls: 'success', color: 'var(--success)',  hint: 'остаток изъят, загружены новые кассеты' },
+      load_empty: { label: 'Загрузка пустого',     cls: 'warning', color: 'var(--warning)',  hint: 'до инкассации наличных не было' },
+      unload:     { label: 'Изъятие без загрузки', cls: 'danger',  color: 'var(--danger)',   hint: 'деньги изъяли, новые не загрузили' },
+      load:       { label: 'Загрузка',             cls: 'slate',   color: 'var(--slate)',    hint: 'нет данных, сколько было до инкассации' },
+    };
+    const EN_SOURCE = { btech: 'изъято из кассет (BTech)', cycle: 'загружено − набрано за прошлый цикл', poll: 'последний опрос до инкассации' };
+    let enData = null, enPage = 1, enType = '', enDayFilter = '';
+    const enOpen = new Set();
+    const tashkentDay = (offset = 0) => new Date(Date.now() + offset * 864e5).toLocaleDateString('sv-SE', { timeZone: 'Asia/Tashkent' });
+    const enDayLabel = d => new Date(d + 'T00:00:00').toLocaleDateString('ru-RU', { day: '2-digit', month: 'long', weekday: 'short' });
+    const enTime = v => new Date(v).toLocaleTimeString('ru-RU', { timeZone: 'Asia/Tashkent', hour: '2-digit', minute: '2-digit' });
+    const curAmount = (cur, v) => v == null ? '—' : cur === 'UZS' ? money(v) : `${num(Math.round(v))} ${esc(cur)}`;
+    const curSum = obj => Object.keys(obj || {}).sort((a, b) => (a !== 'UZS') - (b !== 'UZS'))
+      .map(c => curAmount(c, obj[c])).join(' + ') || '—';
+
+    function setEnDay(offset) {
+      document.getElementById('en-day').value = tashkentDay(offset);
+      loadEncash();
+    }
+
+    async function loadEncash() {
+      const input = document.getElementById('en-day');
+      if (!input.value) input.value = tashkentDay(0);
+      input.max = tashkentDay(0);
+      document.getElementById('en-body').innerHTML = '<tr><td colspan="8" class="empty">Загрузка...</td></tr>';
+      try {
+        enData = await getJson('/api/analytics/encashments?day=' + encodeURIComponent(input.value));
+      } catch (e) {
+        document.getElementById('en-body').innerHTML = `<tr><td colspan="8" class="empty">Ошибка загрузки: ${esc(e.message)}</td></tr>`;
+        return;
+      }
+      if (enDayFilter && !enData.days.some(d => d.day === enDayFilter)) enDayFilter = '';
+      enPage = 1;
+      renderEncash();
+    }
+
+    function enRows({ day = true, type = true } = {}) {
+      const q = document.getElementById('en-search').value.trim().toLowerCase();
+      const reg = document.getElementById('en-region').value;
+      return (enData?.items || []).filter(i =>
+        (!day || !enDayFilter || i.day === enDayFilter) &&
+        (!type || !enType || i.type === enType) &&
+        (!reg || regionOf(i) === reg) &&
+        (!q || [i.tid, i.address, i.place, i.branch, i.region, i.serial].some(v => String(v || '').toLowerCase().includes(q)))
+      );
+    }
+
+    function enTotals(rows) {
+      const t = { loaded: {}, before: {} };
+      rows.forEach(i => ['loaded', 'before'].forEach(k => Object.entries(i[k]).forEach(([c, v]) => { t[k][c] = (t[k][c] || 0) + v.total; })));
+      return t;
+    }
+
+    function renderEncash() {
+      if (!enData) return;
+      const sync = enData.last_sync_at;
+      const stale = !sync || (Date.now() - new Date(sync)) / 36e5 > enData.sync_every_hours * 2;
+      document.getElementById('en-sync').innerHTML =
+        `<span class="meta-chip ${stale ? 'bad' : ''}"><i data-lucide="radio" class="icon-inline"></i> Инкассации BTech: <b>${sync ? ago(sync) : 'ещё не собирались'}</b> · сбор раз в ${enData.sync_every_hours} ч</span>`;
+
+      renderRegionOptions('en-region', enData.items);
+      const rows = enRows();
+      const t = enTotals(rows);
+      const avgCycle = rows.map(i => i.prev_cycle?.days).filter(v => v != null);
+      document.getElementById('en-kpis').innerHTML = [
+        { label: 'Инкассаций', value: num(rows.length), icon: 'truck', hint: enData.days.map(d => `${enDayLabel(d.day)}: ${d.count}`).join(' · ') },
+        { label: 'Было до инкассации', value: curSum(t.before), icon: 'wallet', tone: 'warning', hint: 'изъято из кассет при инкассации' },
+        { label: 'Загружено', value: curSum(t.loaded), icon: 'arrow-down-to-line', tone: 'success', hint: 'положено в банкоматы' },
+        { label: 'Чистое пополнение', value: curAmount('UZS', (t.loaded.UZS || 0) - (t.before.UZS || 0)), icon: 'scale',
+          hint: 'загружено минус было, UZS' },
+        { label: 'Средний цикл', value: avgCycle.length ? (avgCycle.reduce((a, b) => a + b, 0) / avgCycle.length).toFixed(1).replace('.', ',') + ' дн' : '—',
+          icon: 'timer', hint: 'сколько дней прошло с прошлой инкассации' },
+      ].map(statBox).join('');
+
+      const dayRows = enRows({ day: false });
+      enSumRows(document.getElementById('en-days'), enData.days.map((d, idx) => {
+        const r = dayRows.filter(i => i.day === d.day), dt_ = enTotals(r);
+        return { key: d.day, label: `${idx === 0 && d.day === tashkentDay(0) ? 'Сегодня' : idx === 1 && d.day === tashkentDay(-1) ? 'Вчера' : ''} ${enDayLabel(d.day)}`.trim(),
+          value: r.length, active: enDayFilter === d.day, color: 'var(--primary)',
+          sub: r.length ? `было ${curSum(dt_.before)} · загружено ${curSum(dt_.loaded)}` : 'инкассаций нет' };
+      }), 'pickEnDay');
+
+      const typeRows = enRows({ type: false });
+      enSumRows(document.getElementById('en-types'), Object.entries(EN_TYPE).map(([k, ty]) => {
+        const r = typeRows.filter(i => i.type === k), tt = enTotals(r);
+        return { key: k, label: ty.label, value: r.length, active: enType === k, color: ty.color,
+          sub: r.length ? `${ty.hint} · загружено ${curSum(tt.loaded)}` : ty.hint };
+      }).filter(r => r.value || r.key !== 'load'), 'pickEnType');
+
+      const parts = [enDayFilter ? enDayLabel(enDayFilter) : '', enType ? EN_TYPE[enType].label : '', document.getElementById('en-region').value].filter(Boolean);
+      document.getElementById('en-title').textContent = `Инкассации — ${num(rows.length)}${parts.length ? ' · ' + parts.join(' · ') : ''}`;
+      document.getElementById('en-reset').style.display = (enDayFilter || enType || document.getElementById('en-region').value) ? 'inline-flex' : 'none';
+      document.getElementById('en-count').textContent = `показано ${rows.length} из ${enData.items.length}`;
+      document.getElementById('en-export-btn').disabled = !rows.length;
+
+      const pages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+      enPage = Math.min(enPage, pages);
+      document.getElementById('en-body').innerHTML = rows.slice((enPage - 1) * PAGE_SIZE, enPage * PAGE_SIZE).map(enRowHtml).join('')
+        || `<tr><td colspan="8" class="empty">${enData.items.length ? 'Ничего не найдено'
+          : `За ${enData.days.map(d => enDayLabel(d.day)).join(' и ')} инкассаций нет. ${stale ? 'Данные BTech устарели — проверьте вход сборщика.' : ''}`}</td></tr>`;
+      renderPager('en-pager', rows.length, enPage, pages, 'goEnPage');
+      icons();
+    }
+
+    function enSumRows(el, rows, onPick) {
+      const max = Math.max(1, ...rows.map(r => r.value));
+      el.innerHTML = rows.map(r => `
+        <button type="button" class="sum-row ${r.active ? 'active' : ''}" data-key="${esc(r.key)}" onclick="${onPick}(this.dataset.key)">
+          <div class="sum-line"><span class="lbl">${esc(r.label)}</span><span class="val">${num(r.value)}<small>шт</small></span></div>
+          <div class="sum-track"><div style="width:${r.value ? Math.max(2, r.value / max * 100) : 0}%;background:${r.color}"></div></div>
+          ${r.sub ? `<div class="sum-sub">${r.sub}</div>` : ''}
+        </button>`).join('');
+    }
+
+    function enCurLines(i, fn) {
+      const curs = i.currencies.length ? i.currencies : ['UZS'];
+      return curs.map(c => `<div>${fn(c)}</div>`).join('');
+    }
+
+    function enRowHtml(i) {
+      const ty = EN_TYPE[i.type] || EN_TYPE.load;
+      const open = enOpen.has(String(i.id));
+      const before = enCurLines(i, c => i.before[c] ? `<span class="strong">${curAmount(c, i.before[c].total)}</span>` : '<span class="sub">—</span>')
+        + (i.before_source === 'poll' ? `<div class="sub" title="Последний опрос BTech до инкассации">по опросу ${esc(dt(i.poll_before?.at))}</div>`
+          : i.before_source === 'cycle' ? '<div class="sub" title="Загружено в прошлый цикл минус набрано клиентами">расчёт по циклу</div>' : '');
+      const loaded = enCurLines(i, c => i.loaded[c] ? `<span class="strong">${curAmount(c, i.loaded[c].total)}</span>` : '<span class="sub">0</span>');
+      const diff = enCurLines(i, c => {
+        if (!i.before[c] && !i.loaded[c]) return '<span class="sub">—</span>';
+        if (!i.before_source) return '<span class="sub">—</span>';
+        const d = (i.loaded[c]?.total || 0) - (i.before[c]?.total || 0);
+        return `<span class="strong" style="color:${d >= 0 ? 'var(--success)' : 'var(--danger)'}">${d >= 0 ? '+' : '−'}${curAmount(c, Math.abs(d))}</span>`;
+      });
+      const pc = i.prev_cycle;
+      const prev = pc ? `<div>${String(pc.days).replace('.', ',')} дн</div><div class="sub">набрано ${pc.dispensed_uzs != null ? money(pc.dispensed_uzs) : '—'}</div>` : '<span class="sub">нет данных</span>';
+      const ref = { id: i.atm_id, tid: i.tid };
+      return `<tr>
+          <td><div class="strong">${enTime(i.at)}</div><div class="sub">${esc(enDayLabel(i.day))}</div>${i.unloaded_at ? `<div class="sub" title="Двухшаговая инкассация: сначала сняли кассеты, потом загрузили">снято в ${enTime(i.unloaded_at)}</div>` : ''}</td>
+          <td><div class="strong">${atmLink(i.tid, ref)}</div><div class="sub">${esc(i.address || i.place || '—')}</div>
+            <div class="sub">${esc(i.region ? [i.region, i.branch].filter(Boolean).join(' · ') : NO_REGION)}</div></td>
+          <td><span class="pill ${ty.cls}">${esc(ty.label)}</span>${i.currencies.length > 1 ? `<div class="sub">${esc(i.currencies.join(' + '))}</div>` : ''}</td>
+          <td class="num">${before}</td>
+          <td class="num">${loaded}</td>
+          <td class="num">${diff}</td>
+          <td>${prev}</td>
+          <td><button type="button" class="btn en-toggle" data-id="${esc(i.id)}" onclick="toggleEnRow(this.dataset.id)" title="Купюры и проверка по опросам">
+            <i data-lucide="${open ? 'chevron-up' : 'chevron-down'}" class="icon-inline"></i></button></td>
+        </tr>${open ? enDetailHtml(i) : ''}`;
+    }
+
+    function enBills(block) {
+      const vals = Object.entries(block?.values || {});
+      return vals.length
+        ? vals.map(([nom, cnt]) => `<div><span>${num(+nom)} × ${num(cnt)} шт</span><b>${money(+nom * cnt)}</b></div>`).join('')
+        : '<div><span class="sub">разбивки по купюрам нет</span></div>';
+    }
+
+    function enDetailHtml(i) {
+      const curs = i.currencies.length ? i.currencies : ['UZS'];
+      const bills = (key, title) => curs.map(c => `
+        <div><h4>${title}${curs.length > 1 ? ' · ' + esc(c) : ''}</h4>
+          <div class="en-lines">${i[key][c] ? enBills(i[key][c]) : '<div><span class="sub">—</span></div>'}
+            <div><span>Итого</span><b>${i[key][c] ? curAmount(c, i[key][c].total) : '—'}</b></div></div></div>`).join('');
+      const pb = i.poll_before, pa = i.poll_after, pc = i.prev_cycle;
+      const line = (label, value) => `<div><span>${label}</span><b>${value}</b></div>`;
+      return `<tr class="en-detail"><td colspan="8"><div class="en-grid">
+          ${bills('before', 'Было до инкассации')}
+          ${bills('loaded', 'Загружено')}
+          <div><h4>Проверка по опросам BTech</h4><div class="en-lines">
+            ${line('Остаток до' + (pb ? ` (${enTime(pb.at)})` : ''), pb && pb.uzs != null ? money(pb.uzs) : '—')}
+            ${line('Остаток после' + (pa ? ` (${enTime(pa.at)})` : ''), pa && pa.uzs != null ? money(pa.uzs) : '—')}
+            ${line('Источник «было»', EN_SOURCE[i.before_source] || 'нет данных')}
+            ${i.unloaded_at ? line('Кассеты сняли', `${enTime(i.unloaded_at)} · загрузили в ${enTime(i.at)}`) : ''}
+          </div></div>
+          <div><h4>Прошлый цикл</h4><div class="en-lines">
+            ${line('Начат', pc?.started_at ? dt(pc.started_at) : '—')}
+            ${line('Длина', pc?.days != null ? String(pc.days).replace('.', ',') + ' дн' : '—')}
+            ${line('Набрано клиентами', pc?.dispensed_uzs != null ? money(pc.dispensed_uzs) : '—')}
+            ${line('Отбраковано', pc?.rejected_uzs != null ? money(pc.rejected_uzs) : '—')}
+            ${line('Модель', esc(i.model || '—'))}
+          </div></div>
+        </div></td></tr>`;
+    }
+
+    function toggleEnRow(id) {
+      enOpen.has(id) ? enOpen.delete(id) : enOpen.add(id);
+      renderEncash();
+    }
+    function goEnPage(p) {
+      enPage = p;
+      renderEncash();
+      document.getElementById('en-panel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    function pickEnDay(day) { enDayFilter = enDayFilter === day ? '' : day; enPage = 1; renderEncash(); }
+    function pickEnType(t) { enType = enType === t ? '' : t; enPage = 1; renderEncash(); }
+    function resetEnFilters() {
+      enDayFilter = ''; enType = ''; enPage = 1;
+      document.getElementById('en-region').value = '';
+      renderEncash();
+    }
+
+    async function exportEncashExcel() {
+      const btn = document.getElementById('en-export-btn');
+      const rows = enRows();
+      if (!rows.length) { alert('Нечего выгружать: в текущей выборке нет инкассаций.'); return; }
+      btn.disabled = true;
+      const old = btn.innerHTML;
+      btn.innerHTML = '<i data-lucide="loader-circle" class="icon-inline"></i> Excel…';
+      icons();
+      try {
+        const r = await fetch(API + '/api/analytics/encashments/export', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ day: document.getElementById('en-day').value, ids: rows.map(i => +i.id) }),
+        });
+        if (!r.ok) {
+          let detail = `HTTP ${r.status}`;
+          try { detail = (await r.json()).detail || detail; } catch (_) {}
+          throw new Error(detail);
+        }
+        const m = /filename="([^"]+)"/.exec(r.headers.get('Content-Disposition') || '');
+        const url = URL.createObjectURL(await r.blob());
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = m ? m[1] : 'ATM_encashments.xlsx';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      } catch (e) {
+        alert('Не удалось выгрузить Excel: ' + (e.message || e));
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = old;
+        icons();
+      }
+    }
+
+    // ── Категории A / B / C: снятия в месяц по дневным отчётам BTech ──
+    const ABC = {
+      A: { label: 'A · высокий спрос', short: 'A', cls: 'success', color: 'var(--success)', tone: 'success', icon: 'trending-up' },
+      B: { label: 'B · средний спрос', short: 'B', cls: 'warning', color: 'var(--warning)', tone: 'warning', icon: 'minus' },
+      C: { label: 'C · низкий спрос',  short: 'C', cls: 'danger',  color: 'var(--danger)',  tone: 'danger',  icon: 'trending-down' },
+    };
+    let abcData = null, abcPage = 1, abcCat = '';
+    const abcPill = c => `<span class="pill ${ABC[c].cls}">${esc(ABC[c].short)}</span>`;
+    const ABC_WORD = { A: 'Высокий спрос', B: 'Средний спрос', C: 'Низкий спрос' };
+    // Крупная буква категории, под ней — словами
+    const abcGrade = c => `<span class="abc-grade">
+        <span class="abc-letter" style="background:${ABC[c].color}">${c}</span>
+        <b style="color:${ABC[c].color}">${ABC_WORD[c]}</b></span>`;
+    const shortDate = d => new Date(d + 'T00:00:00').toLocaleDateString('ru-RU', { day: '2-digit', month: 'short' });
+
+    async function loadAbc() {
+      document.getElementById('abc-body').innerHTML = '<tr><td colspan="7" class="empty">Загрузка...</td></tr>';
+      try {
+        abcData = await getJson('/api/analytics/abc?days=' + document.getElementById('abc-days').value);
+      } catch (e) {
+        document.getElementById('abc-body').innerHTML = `<tr><td colspan="7" class="empty">Ошибка загрузки: ${esc(e.message)}</td></tr>`;
+        return;
+      }
+      abcPage = 1;
+      renderAbc();
+    }
+
+    function abcRows({ region = true, cat = true } = {}) {
+      const q = document.getElementById('abc-search').value.trim().toLowerCase();
+      const reg = document.getElementById('abc-region').value;
+      return (abcData?.atms || []).filter(a =>
+        (!cat || !abcCat || a.category === abcCat) &&
+        (!region || !reg || regionOf(a) === reg) &&
+        (!q || [a.tid, a.address, a.place, a.branch, a.region, a.serial].some(v => String(v || '').toLowerCase().includes(q))));
+    }
+
+    function setAbcCat(c) { abcCat = abcCat === c ? '' : c; abcPage = 1; renderAbc(); }
+    function pickAbcRegion(r) {
+      const sel = document.getElementById('abc-region');
+      sel.value = sel.value === r ? '' : r;
+      abcPage = 1; renderAbc();
+    }
+    function resetAbcFilters() {
+      abcCat = ''; abcPage = 1;
+      document.getElementById('abc-region').value = '';
+      renderAbc();
+    }
+    function goAbcPage(p) {
+      abcPage = p; renderAbc();
+      document.getElementById('abc-panel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    function renderAbc() {
+      if (!abcData) return;
+      const d = abcData;
+      document.getElementById('abc-period').innerHTML = d.from
+        ? `<span class="meta-chip"><i data-lucide="calendar-range" class="icon-inline"></i> Отчёты BTech: <b>${shortDate(d.from)} – ${shortDate(d.to)}</b> · снятия пересчитаны на ${d.month_days} дн</span>`
+        : '<span class="meta-chip bad">Дневных отчётов BTech ещё нет</span>';
+      renderRegionOptions('abc-region', d.atms);
+
+      // KPI и «Категории» — с учётом поиска и региона, но без фильтра категории
+      const base = abcRows({ cat: false });
+      const sumM = rows => rows.reduce((s, a) => s + a.monthly, 0);
+      const total = sumM(base) || 1;
+      const byCat = Object.fromEntries(Object.keys(ABC).map(k => [k, base.filter(a => a.category === k)]));
+      const rule = { A: `≥ ${money(d.thresholds?.A)} в месяц`, B: `${money(d.thresholds?.B)} – ${money(d.thresholds?.A)}`, C: `< ${money(d.thresholds?.B)} в месяц` };
+      document.getElementById('abc-kpis').innerHTML = [
+        { label: 'Банкоматов', value: num(base.length), icon: 'credit-card', hint: `с отчётами BTech за период`, action: "setAbcCat('')", active: !abcCat },
+        ...Object.entries(ABC).map(([k, c]) => ({
+          label: c.label, value: num(byCat[k].length), icon: c.icon, tone: c.tone, action: `setAbcCat('${k}')`, active: abcCat === k,
+          hint: `${rule[k]} · ${Math.round(sumM(byCat[k]) / total * 100)}% снятий сети`,
+        })),
+        { label: 'Снятия сети в месяц', value: money(sumM(base)) + ' сум', icon: 'banknote', hint: base.length ? `в среднем ${money(sumM(base) / base.length)} на банкомат` : '' },
+      ].map(statBox).join('');
+
+      const max = Math.max(1, ...Object.values(byCat).map(r => r.length));
+      document.getElementById('abc-cats').innerHTML = Object.entries(ABC).map(([k, c]) => {
+        const rows = byCat[k];
+        return `<button type="button" class="sum-row ${abcCat === k ? 'active' : ''}" onclick="setAbcCat('${k}')">
+          <div class="sum-line"><span class="lbl">${esc(c.label)} <span class="sub">· ${esc(rule[k])}</span></span><span class="val">${num(rows.length)}<small>ATM</small></span></div>
+          <div class="sum-track"><div style="width:${rows.length ? Math.max(2, rows.length / max * 100) : 0}%;background:${c.color}"></div></div>
+          <div class="sum-sub">${rows.length ? `снимают ${money(sumM(rows))} в месяц · ${Math.round(sumM(rows) / total * 100)}% спроса сети · в среднем ${money(sumM(rows) / rows.length)} на банкомат` : 'нет банкоматов'}</div>
+        </button>`;
+      }).join('');
+
+      const reg = document.getElementById('abc-region').value;
+      const regions = {};
+      abcRows({ region: false }).forEach(a => {
+        const r = regions[regionOf(a)] ||= { n: 0, A: 0, B: 0, C: 0, m: 0 };
+        r.n++; r[a.category]++; r.m += a.monthly;
+      });
+      const rmax = Math.max(1, ...Object.values(regions).map(r => r.n));
+      document.getElementById('abc-regions').innerHTML = Object.entries(regions).sort((a, b) => b[1].n - a[1].n).map(([name, r]) => `
+        <button type="button" class="sum-row ${reg === name ? 'active' : ''}" data-key="${esc(name)}" onclick="pickAbcRegion(this.dataset.key)">
+          <div class="sum-line"><span class="lbl">${esc(name)}</span><span class="val">${num(r.n)}<small>ATM</small></span></div>
+          <div class="sum-track" style="display:flex">${['A', 'B', 'C'].map(k => r[k] ? `<div style="width:${r[k] / rmax * 100}%;background:${ABC[k].color}" title="${k}: ${r[k]}"></div>` : '').join('')}</div>
+          <div class="sum-sub">A ${r.A} · B ${r.B} · C ${r.C} · снимают ${money(r.m)} в месяц</div>
+        </button>`).join('') || '<div class="empty" style="padding:4px 0">Нет</div>';
+
+      document.getElementById('abc-rule').innerHTML =
+        `<b>Как считается:</b> снято клиентами за ${d.days} дн по дневным отчётам BTech ÷ дней с данными × ${d.month_days}. ` +
+        `<b>A</b> — от ${money(d.thresholds?.A)}, <b>B</b> — от ${money(d.thresholds?.B)} до ${money(d.thresholds?.A)}, <b>C</b> — меньше ${money(d.thresholds?.B)} в месяц. ` +
+        `Категория — по UZS. Пометка «оценка» — данных меньше 80% периода. Нажмите строку — суточный и месячный спрос банкомата.`;
+
+      const rows = abcRows();
+      const parts = [abcCat ? ABC[abcCat].label : '', reg].filter(Boolean);
+      document.getElementById('abc-title').textContent = `Банкоматы по спросу — ${num(rows.length)}${parts.length ? ' · ' + parts.join(' · ') : ''}`;
+      document.getElementById('abc-reset').style.display = parts.length ? 'inline-flex' : 'none';
+      document.getElementById('abc-count').textContent = `показано ${rows.length} из ${d.atms.length}`;
+      const top = Math.max(1, ...d.atms.map(a => a.monthly));
+      const pages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+      abcPage = Math.min(abcPage, pages);
+      document.getElementById('abc-body').innerHTML = rows.slice((abcPage - 1) * PAGE_SIZE, abcPage * PAGE_SIZE).map(a => `
+        <tr class="clickable" data-id="${a.atm_id}" onclick="openAbcModal(+this.dataset.id)" title="Суточный и месячный спрос">
+          <td>${atmCell(a)}</td>
+          <td>${abcPill(a.category)}${a.estimate ? `<div class="sub" title="Данных за ${a.covered_days} из ${d.days} дн">оценка · ${a.covered_days} дн</div>` : ''}</td>
+          <td class="num"><div class="strong">${money(a.monthly)}</div>
+            <div class="meter"><div style="width:${Math.max(2, a.monthly / top * 100)}%;background:${ABC[a.category].color}"></div></div>
+            ${a.monthly_usd ? `<div class="sub">+ ${num(Math.round(a.monthly_usd))} USD</div>` : ''}</td>
+          <td class="num">${money(a.per_day)}</td>
+          <td class="num">${money(a.max_day)}</td>
+          <td class="num">${a.zero_days ? `<span class="pill ${a.zero_days > 3 ? 'warning' : 'plain'}">${a.zero_days}</span>` : '—'}</td>
+          <td>${sparkline(a.spark, d.days)}</td>
+        </tr>`).join('')
+        || `<tr><td colspan="7" class="empty">${d.atms.length ? 'Ничего не найдено' : 'Дневных отчётов BTech ещё нет: они собираются вместе с инкассациями.'}</td></tr>`;
+      renderPager('abc-pager', rows.length, abcPage, pages, 'goAbcPage');
+      icons();
+    }
+
+    // ── Окно: суточный и месячный спрос банкомата ──
+    let abcM = null, abcMAtm = null, abcMRange = 30;
+    async function openAbcModal(id) {
+      abcMAtm = abcData.atms.find(a => a.atm_id === id) || { atm_id: id, tid: id };
+      abcM = null; abcMRange = 30;
+      const a = abcMAtm;
+      document.getElementById('abc-m-title').innerHTML = atmLink(a.tid, { id: a.atm_id, tid: a.tid });
+      document.getElementById('abc-m-sub').textContent = [a.region, a.branch, a.address, a.model].filter(Boolean).join(' · ') || 'не сопоставлен с реестром';
+      document.getElementById('abc-m-kpis').innerHTML = '';
+      ['abc-m-daily', 'abc-m-months', 'abc-m-weekdays'].forEach(x => document.getElementById(x).innerHTML = '<div class="empty">Загрузка…</div>');
+      ['abc-m-months-body', 'abc-m-days', 'abc-m-nominals'].forEach(x => document.getElementById(x).innerHTML = '');
+      syncAbcRange();
+      document.getElementById('abc-modal').classList.add('open');
+      document.body.style.overflow = 'hidden';
+      icons();
+      try {
+        const d = await getJson(`/api/analytics/abc/${id}`);
+        if (abcMAtm?.atm_id !== id) return;
+        abcM = d;
+      } catch (e) {
+        document.getElementById('abc-m-daily').innerHTML = `<div class="empty">Ошибка загрузки: ${esc(e.message)}</div>`;
+        return;
+      }
+      renderAbcModal();
+    }
+    function closeAbcModal() {
+      document.getElementById('abc-modal').classList.remove('open');
+      document.body.style.overflow = '';
+      abcM = abcMAtm = null;
+    }
+    function syncAbcRange() {
+      document.querySelectorAll('#abc-m-range button').forEach(b => b.classList.toggle('on', +b.dataset.d === abcMRange));
+    }
+
+    function renderAbcModal() {
+      if (!abcM) return;
+      const d = abcM, st = d.stats;
+      if (!st) {
+        document.getElementById('abc-m-daily').innerHTML = '<div class="empty">Дневных отчётов BTech по этому банкомату нет</div>';
+        ['abc-m-months', 'abc-m-weekdays'].forEach(x => document.getElementById(x).innerHTML = '');
+        return;
+      }
+      const thr = abcData.thresholds;
+      const toNext = st.category === 'A' ? null : (st.category === 'B' ? thr.A : thr.B) - st.monthly;
+      document.getElementById('abc-m-kpis').innerHTML = [
+        { label: 'Категория', value: abcGrade(st.category), icon: ABC[st.category].icon, tone: ABC[st.category].tone,
+          hint: toNext != null ? `до ${st.category === 'B' ? 'A' : 'B'} не хватает ${money(toNext)} в месяц` : `${money(thr.A)} и больше в месяц` },
+        { label: 'Снятия в месяц', value: money(st.monthly), icon: 'calendar-range',
+          hint: `последние ${st.last30_days} дн с данными: ${money(st.last30_total)}` },
+        { label: 'В сутки (среднее)', value: money(st.per_day), icon: 'sun', hint: 'за последние 30 дн' },
+        { label: 'Медиана суток', value: money(st.median_day), icon: 'equal', hint: 'обычный день, без пиков' },
+        { label: 'Макс. за сутки', value: money(st.max_day), icon: 'arrow-up-to-line', hint: dayLabel(st.max_day_date) },
+        { label: 'Дней без снятий', value: num(st.zero_days), icon: 'circle-off', tone: st.zero_days > 3 ? 'warning' : '',
+          hint: `из ${st.covered_days} дн с данными` },
+      ].map(statBox).join('');
+      const fromTxt = shortDate(st.from), toTxt = shortDate(st.to);
+      document.getElementById('abc-m-sub').textContent = [abcMAtm.region, abcMAtm.branch, abcMAtm.address, abcMAtm.model].filter(Boolean)
+        .concat([`отчёты BTech с ${fromTxt} по ${toTxt}`]).join(' · ');
+
+      let days = d.daily;
+      if (abcMRange) days = days.slice(-abcMRange);
+      const avg = st.avg_all || 1;
+      barChart(document.getElementById('abc-m-daily'), days.map(x => ({
+        label: dayLabel(x.date), short: dayShort(x.date), value: x.uzs,
+        extra: `${x.usd ? num(Math.round(x.usd)) + ' USD · ' : ''}${Math.round(x.uzs / avg * 100)}% от среднего`,
+      })), { valueLabel: 'Снято', height: 260, width: 1200 });
+
+      const monthName = m => new Date(m + '-01T00:00:00').toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' });
+      barChart(document.getElementById('abc-m-months'), d.months.map(m => ({
+        label: monthName(m.month), short: new Date(m.month + '-01T00:00:00').toLocaleDateString('ru-RU', { month: 'short' }),
+        value: m.uzs, extra: `${m.days} из ${m.calendar_days} дн с данными`,
+      })), { valueLabel: 'Снято за месяц', height: 200, color: 'var(--purple)' });
+      document.getElementById('abc-m-months-body').innerHTML = [...d.months].reverse().map(m => `
+        <tr><td class="strong">${esc(monthName(m.month))}</td><td class="num strong">${money(m.uzs)}${m.usd ? `<div class="sub">+ ${num(Math.round(m.usd))} USD</div>` : ''}</td>
+          <td class="num">${m.complete ? m.days : `<span class="pill warning" title="Месяц неполный">${m.days} из ${m.calendar_days}</span>`}</td>
+          <td class="num">${money(m.per_day)}</td><td class="num">${money(m.monthly_30)}</td><td>${abcPill(m.category)}</td></tr>`).join('');
+
+      hbars(document.getElementById('abc-m-weekdays'), d.weekdays.map(w => ({
+        label: w.weekday, value: w.avg, display: money(w.avg), title: `${w.weekday}: в среднем ${money(w.avg)} · дней в выборке: ${w.days}`,
+      })), 'var(--primary)');
+
+      const nomTotal = d.nominals.reduce((s, n) => s + (n.currency === 'UZS' ? n.amount : 0), 0) || 1;
+      hbars(document.getElementById('abc-m-nominals'), d.nominals.map(n => ({
+        label: `${num(n.nominal)} ${n.currency}`, value: n.amount,
+        display: n.currency === 'UZS' ? `${money(n.amount)} · ${Math.round(n.amount / nomTotal * 100)}%` : `${num(n.amount)} ${esc(n.currency)}`,
+        title: `${num(n.count)} купюр`,
+      })), 'var(--primary)');
+
+      document.getElementById('abc-m-days-title').textContent = `Все дни · ${d.daily.length}`;
+      document.getElementById('abc-m-days').innerHTML = [...d.daily].reverse().map(x => {
+        const pct = Math.round(x.uzs / avg * 100);
+        return `<tr><td>${esc(dayLabel(x.date))}</td><td class="num strong">${x.uzs ? money(x.uzs) : '<span class="sub">0</span>'}</td>
+          <td class="num">${x.usd ? num(Math.round(x.usd)) : '—'}</td>
+          <td class="num"><span class="pill ${pct >= 150 ? 'success' : pct <= 50 ? 'danger' : 'plain'}">${pct}%</span></td></tr>`;
+      }).join('');
+      icons();
+    }
+
+    document.getElementById('abc-m-range').addEventListener('click', ev => {
+      const b = ev.target.closest('button');
+      if (!b) return;
+      abcMRange = +b.dataset.d;
+      syncAbcRange();
+      renderAbcModal();
+    });
+    document.addEventListener('keydown', ev => {
+      if (ev.key === 'Escape' && document.getElementById('abc-modal').classList.contains('open')) closeAbcModal();
+    });
 
     // ── Прогноз ──
     const METHOD = {
@@ -2551,6 +3382,8 @@
       if (document.getElementById('tab-kassa').classList.contains('active')) loadLedger();
       if (document.getElementById('tab-vash').classList.contains('active')) loadVashOps();
       if (document.getElementById('tab-efficiency').classList.contains('active')) loadEfficiency();
+      if (document.getElementById('tab-encash').classList.contains('active')) loadEncash();
+      if (document.getElementById('tab-abc').classList.contains('active')) loadAbc();
     }
 
     window.selectLedgerBranch = selectLedgerBranch;
@@ -2567,7 +3400,7 @@
     window.renderEfResults = renderEfResults;
 
     icons();
-    if (['forecast', 'withdrawals', 'efficiency', 'kassa', 'vash'].includes(location.hash.slice(1))) switchTab(location.hash.slice(1));
+    if (['forecast', 'withdrawals', 'efficiency', 'kassa', 'vash', 'over400', 'encash', 'abc'].includes(location.hash.slice(1))) switchTab(location.hash.slice(1));
     loadForecast().then(loadStatus);
     setInterval(reloadAll, 5 * 60 * 1000);
   </script>
