@@ -61,14 +61,19 @@ def _currencies(block: Optional[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
     return out
 
 
-def classify(before: Dict[str, Any], loaded: Dict[str, Any], before_known: bool) -> str:
+def classify(before: Dict[str, Any], loaded: Dict[str, Any], before_known: bool,
+             unknown: Optional[set] = None) -> str:
+    """unknown — валюты, остаток которых до инкассации неизвестен (расчёт по циклу и опрос дают только UZS)."""
     had = any(v["total"] > 0 for v in before.values())
     put = any(v["total"] > 0 for v in loaded.values())
     if not put:
         return "unload"
     if not before_known:
         return "load"
-    return "replace" if had else "load_empty"
+    if had:
+        return "replace"
+    # UZS не было, но про другую валюту не знаем — «пустым» банкомат назвать нельзя
+    return "load" if unknown else "load_empty"
 
 
 def _day_bounds(day: date, tz: ZoneInfo):
@@ -139,7 +144,11 @@ def _report(day: date) -> Dict[str, Any]:
         if not before and r["poll_before_uzs"] is not None:
             before = {"UZS": {"total": float(r["poll_before_uzs"]), "values": {}}}
             before_source = "poll"
-        kind = classify(before, loaded, before_source is not None)
+        unknown = set()
+        if before_source in ("cycle", "poll"):
+            prev_loaded = _currencies(prev.get("loaded")) if prev else {}
+            unknown = {c for c, v in {**prev_loaded, **loaded}.items() if c != "UZS" and v["total"] > 0}
+        kind = classify(before, loaded, before_source is not None, unknown)
 
         reg = registry.get(str(r["tid"])) or {}
         started = _ts(r["started_at"])

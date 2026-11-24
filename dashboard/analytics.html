@@ -675,6 +675,9 @@
         <div class="toolbar">
           <input id="o4-search" type="search" placeholder="Поиск: TID, адрес, филиал..." oninput="o4Page = 1; renderOver400()" />
           <select id="o4-region" onchange="o4Page = 1; renderOver400()"><option value="">Все регионы</option></select>
+          <select id="o4-state" onchange="o4Page = 1; renderOver400()" title="Остаток неработающего банкомата — последний известный, мог измениться">
+            <option value="">Все состояния</option><option value="up">Работают</option><option value="down">Не работают / нет связи</option>
+          </select>
           <button type="button" class="btn" id="o4-export-btn" onclick="exportOver400Excel()" title="Скачать текущую выборку в Excel">
             <i data-lucide="file-spreadsheet" class="icon-inline"></i> Excel
           </button>
@@ -1639,12 +1642,16 @@
     // Аномальный остаток BTech (тестовые/неверно настроенные ATM) в выборку не берём
     const o4All = () => (statusData?.atms || []).filter(a => a.cash !== 'anomaly' && a.balance > O4_LIMIT);
     const o4InBand = (a, i) => i < 0 || (a.balance > O4_BANDS[i].min && a.balance <= O4_BANDS[i].max);
+    const o4Up = a => a.operational === 'working' || a.operational === 'busy';
+    const o4InState = (a, st) => !st || (st === 'up') === o4Up(a);
 
     function o4Rows({ region = true, band = true } = {}) {
       const q = document.getElementById('o4-search').value.trim().toLowerCase();
       const reg = document.getElementById('o4-region').value;
+      const st = document.getElementById('o4-state').value;
       return o4All().filter(a =>
         (!region || !reg || regionOf(a) === reg) &&
+        o4InState(a, st) &&
         (!band || o4InBand(a, o4Band)) &&
         (!q || [a.tid, a.address, a.place, a.branch, a.region, a.registry_terminal_id, a.serial].some(v => String(v || '').toLowerCase().includes(q)))
       ).sort((x, y) => y.balance - x.balance);
@@ -1656,8 +1663,9 @@
       const sum = rows => rows.reduce((s, a) => s + a.balance, 0);
       const excess = rows => rows.reduce((s, a) => s + a.balance - O4_LIMIT, 0);
       const netCash = statusData.summary.total_cash || 0;
-      const total = statusData.atms.length;
-      const working = all.filter(a => a.operational === 'working' || a.operational === 'busy').length;
+      // % сети — от банкоматов с достоверным остатком (аномальные не считаем ни в числителе, ни в знаменателе)
+      const total = statusData.atms.filter(a => a.cash !== 'anomaly').length;
+      const working = all.filter(o4Up).length;
 
       document.getElementById('o4-kpis').innerHTML = [
         { label: 'Банкоматов свыше 400 млн', value: num(all.length), icon: 'piggy-bank', tone: 'warning',
@@ -1669,7 +1677,7 @@
         { label: 'Средний остаток', value: all.length ? money(sum(all) / all.length) + ' сум' : '—', icon: 'scale',
           hint: all.length ? `максимум: ${money(Math.max(...all.map(a => a.balance)))}` : '' },
         { label: 'Работают', value: num(working), icon: 'shield-check', tone: 'success',
-          hint: `не работают / нет связи: ${num(all.length - working)}` },
+          hint: `не работают / нет связи: ${num(all.length - working)} — у них последний известный остаток` },
       ].map(statBox).join('');
 
       // Регионы и диапазоны считаем с учётом поиска и другого фильтра, но не своего
@@ -1719,7 +1727,8 @@
       if (!statusData) return;
       const rows = o4Rows();
       const reg = document.getElementById('o4-region').value;
-      const parts = [reg, o4Band >= 0 ? O4_BANDS[o4Band].label : ''].filter(Boolean);
+      const st = document.getElementById('o4-state');
+      const parts = [reg, o4Band >= 0 ? O4_BANDS[o4Band].label : '', st.value ? st.selectedOptions[0].text : ''].filter(Boolean);
       document.getElementById('o4-title').textContent = `Банкоматы свыше 400 млн — ${num(rows.length)}${parts.length ? ' · ' + parts.join(' · ') : ''}`;
       document.getElementById('o4-reset').style.display = parts.length ? 'inline-flex' : 'none';
       document.getElementById('o4-count').textContent = `показано ${rows.length} из ${o4All().length}`;
@@ -1730,7 +1739,8 @@
       document.getElementById('o4-body').innerHTML = rows.slice((o4Page - 1) * PAGE_SIZE, o4Page * PAGE_SIZE).map(a => `<tr>
           <td>${atmCell(a)}</td>
           <td>${COLS.state.td(a)}</td>
-          <td class="num"><div class="strong">${money(a.balance)}</div><div class="sub">${a.balance_pct != null ? Math.round(a.balance_pct) + '% ёмкости' : ''}</div></td>
+          <td class="num"><div class="strong">${money(a.balance)}</div><div class="sub">${a.balance_pct != null ? Math.round(a.balance_pct) + '% ёмкости' : ''}</div>
+            ${o4Up(a) ? '' : `<div class="sub" style="color:var(--warning)" title="Банкомат не работает — остаток мог измениться">последний известный${a.polled_at ? ' · ' + ago(a.polled_at) : ''}</div>`}</td>
           <td class="num"><span class="strong" style="color:var(--danger)">+${money(a.balance - O4_LIMIT)}</span></td>
           <td>${cassCell(a)}</td>
           <td>${timeCell(a.last_cash_out)}</td>
@@ -1759,6 +1769,7 @@
     }
     function resetO4Filters() {
       document.getElementById('o4-region').value = '';
+      document.getElementById('o4-state').value = '';
       o4Band = -1;
       o4Page = 1;
       renderOver400();
@@ -1767,7 +1778,8 @@
       const reg = document.getElementById('o4-region').value;
       return exportStatusExcel('o4-export-btn', o4Rows(), {
         region: reg || null,
-        filter_label: 'Остаток свыше 400 млн' + (o4Band >= 0 ? ' · ' + O4_BANDS[o4Band].label : ''),
+        filter_label: 'Остаток свыше 400 млн' + (o4Band >= 0 ? ' · ' + O4_BANDS[o4Band].label : '')
+          + (document.getElementById('o4-state').value ? ' · ' + document.getElementById('o4-state').selectedOptions[0].text : ''),
         search: document.getElementById('o4-search').value.trim() || null,
       });
     }
@@ -2038,11 +2050,13 @@
       renderAbc();
     }
 
-    function abcRows({ region = true, cat = true } = {}) {
+    // abcCat === 'none' — банкоматы без отчётов BTech за период
+    function abcRows({ region = true, cat = true, none = false } = {}) {
       const q = document.getElementById('abc-search').value.trim().toLowerCase();
       const reg = document.getElementById('abc-region').value;
-      return (abcData?.atms || []).filter(a =>
-        (!cat || !abcCat || a.category === abcCat) &&
+      const src = (none || (cat && abcCat === 'none')) ? (abcData?.no_data || []) : (abcData?.atms || []);
+      return src.filter(a =>
+        (none || !cat || !abcCat || abcCat === 'none' || a.category === abcCat) &&
         (!region || !reg || regionOf(a) === reg) &&
         (!q || [a.tid, a.address, a.place, a.branch, a.region, a.serial].some(v => String(v || '').toLowerCase().includes(q))));
     }
@@ -2069,21 +2083,29 @@
       document.getElementById('abc-period').innerHTML = d.from
         ? `<span class="meta-chip"><i data-lucide="calendar-range" class="icon-inline"></i> Отчёты BTech: <b>${shortDate(d.from)} – ${shortDate(d.to)}</b> · снятия пересчитаны на ${d.month_days} дн</span>`
         : '<span class="meta-chip bad">Дневных отчётов BTech ещё нет</span>';
-      renderRegionOptions('abc-region', d.atms);
+      renderRegionOptions('abc-region', [...d.atms, ...(d.no_data || [])]);
 
-      // KPI и «Категории» — с учётом поиска и региона, но без фильтра категории
+      // KPI и «Категории» — с учётом поиска и региона, но без фильтра категории.
+      // Суммы и доли спроса — без «оценок» (данных меньше 80% периода), их показываем отдельно.
       const base = abcRows({ cat: false });
-      const sumM = rows => rows.reduce((s, a) => s + a.monthly, 0);
+      const noData = abcRows({ none: true });
+      const sure = rows => rows.filter(a => !a.estimate);
+      const sumM = rows => sure(rows).reduce((s, a) => s + a.monthly, 0);
+      const est = rows => rows.length - sure(rows).length;
       const total = sumM(base) || 1;
       const byCat = Object.fromEntries(Object.keys(ABC).map(k => [k, base.filter(a => a.category === k)]));
       const rule = { A: `≥ ${money(d.thresholds?.A)} в месяц`, B: `${money(d.thresholds?.B)} – ${money(d.thresholds?.A)}`, C: `< ${money(d.thresholds?.B)} в месяц` };
       document.getElementById('abc-kpis').innerHTML = [
-        { label: 'Банкоматов', value: num(base.length), icon: 'credit-card', hint: `с отчётами BTech за период`, action: "setAbcCat('')", active: !abcCat },
+        { label: 'Банкоматов', value: num(base.length), icon: 'credit-card', action: "setAbcCat('')", active: !abcCat,
+          hint: `с отчётами BTech за период${est(base) ? ` · из них оценка: ${num(est(base))}` : ''}` },
         ...Object.entries(ABC).map(([k, c]) => ({
           label: c.label, value: num(byCat[k].length), icon: c.icon, tone: c.tone, action: `setAbcCat('${k}')`, active: abcCat === k,
-          hint: `${rule[k]} · ${Math.round(sumM(byCat[k]) / total * 100)}% снятий сети`,
+          hint: `${rule[k]} · ${Math.round(sumM(byCat[k]) / total * 100)}% снятий сети${est(byCat[k]) ? ` · оценка: ${est(byCat[k])}` : ''}`,
         })),
-        { label: 'Снятия сети в месяц', value: money(sumM(base)) + ' сум', icon: 'banknote', hint: base.length ? `в среднем ${money(sumM(base) / base.length)} на банкомат` : '' },
+        { label: 'Нет отчётов', value: num(noData.length), icon: 'circle-off', action: "setAbcCat('none')", active: abcCat === 'none',
+          hint: 'нет дневных отчётов BTech за период — категория не определена' },
+        { label: 'Снятия сети в месяц', value: money(sumM(base)) + ' сум', icon: 'banknote',
+          hint: sure(base).length ? `в среднем ${money(sumM(base) / sure(base).length)} на банкомат · без оценок` : '' },
       ].map(statBox).join('');
 
       const max = Math.max(1, ...Object.values(byCat).map(r => r.length));
@@ -2092,15 +2114,15 @@
         return `<button type="button" class="sum-row ${abcCat === k ? 'active' : ''}" onclick="setAbcCat('${k}')">
           <div class="sum-line"><span class="lbl">${esc(c.label)} <span class="sub">· ${esc(rule[k])}</span></span><span class="val">${num(rows.length)}<small>ATM</small></span></div>
           <div class="sum-track"><div style="width:${rows.length ? Math.max(2, rows.length / max * 100) : 0}%;background:${c.color}"></div></div>
-          <div class="sum-sub">${rows.length ? `снимают ${money(sumM(rows))} в месяц · ${Math.round(sumM(rows) / total * 100)}% спроса сети · в среднем ${money(sumM(rows) / rows.length)} на банкомат` : 'нет банкоматов'}</div>
+          <div class="sum-sub">${rows.length ? (sure(rows).length ? `снимают ${money(sumM(rows))} в месяц · ${Math.round(sumM(rows) / total * 100)}% спроса сети · в среднем ${money(sumM(rows) / sure(rows).length)} на банкомат` : 'только оценки') + (est(rows) ? ` · ещё ${est(rows)} — оценка, в суммы не входят` : '') : 'нет банкоматов'}</div>
         </button>`;
       }).join('');
 
       const reg = document.getElementById('abc-region').value;
       const regions = {};
-      abcRows({ region: false }).forEach(a => {
+      abcRows({ region: false, cat: abcCat !== 'none' }).forEach(a => {
         const r = regions[regionOf(a)] ||= { n: 0, A: 0, B: 0, C: 0, m: 0 };
-        r.n++; r[a.category]++; r.m += a.monthly;
+        r.n++; r[a.category]++; if (!a.estimate) r.m += a.monthly;
       });
       const rmax = Math.max(1, ...Object.values(regions).map(r => r.n));
       document.getElementById('abc-regions').innerHTML = Object.entries(regions).sort((a, b) => b[1].n - a[1].n).map(([name, r]) => `
@@ -2113,17 +2135,23 @@
       document.getElementById('abc-rule').innerHTML =
         `<b>Как считается:</b> снято клиентами за ${d.days} дн по дневным отчётам BTech ÷ дней с данными × ${d.month_days}. ` +
         `<b>A</b> — от ${money(d.thresholds?.A)}, <b>B</b> — от ${money(d.thresholds?.B)} до ${money(d.thresholds?.A)}, <b>C</b> — меньше ${money(d.thresholds?.B)} в месяц. ` +
-        `Категория — по UZS. Пометка «оценка» — данных меньше 80% периода. Нажмите строку — суточный и месячный спрос банкомата.`;
+        `Категория — по UZS. Пометка «оценка» — данных меньше 80% периода; такие банкоматы в суммы и доли спроса не входят. ` +
+        `Банкоматы без отчётов за период — в «Нет отчётов». Нажмите строку — суточный и месячный спрос банкомата.`;
 
       const rows = abcRows();
-      const parts = [abcCat ? ABC[abcCat].label : '', reg].filter(Boolean);
+      const parts = [abcCat === 'none' ? 'Нет отчётов' : abcCat ? ABC[abcCat].label : '', reg].filter(Boolean);
       document.getElementById('abc-title').textContent = `Банкоматы по спросу — ${num(rows.length)}${parts.length ? ' · ' + parts.join(' · ') : ''}`;
       document.getElementById('abc-reset').style.display = parts.length ? 'inline-flex' : 'none';
-      document.getElementById('abc-count').textContent = `показано ${rows.length} из ${d.atms.length}`;
+      document.getElementById('abc-count').textContent = `показано ${rows.length} из ${abcCat === 'none' ? (d.no_data || []).length : d.atms.length}`;
       const top = Math.max(1, ...d.atms.map(a => a.monthly));
       const pages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
       abcPage = Math.min(abcPage, pages);
-      document.getElementById('abc-body').innerHTML = rows.slice((abcPage - 1) * PAGE_SIZE, abcPage * PAGE_SIZE).map(a => `
+      document.getElementById('abc-body').innerHTML = abcCat === 'none'
+        ? rows.slice((abcPage - 1) * PAGE_SIZE, abcPage * PAGE_SIZE).map(a => `<tr>
+            <td>${atmCell(a)}</td><td><span class="pill plain">нет данных</span></td>
+            <td colspan="5" class="sub">BTech не прислал дневных отчётов за ${d.days} дн — спрос неизвестен</td></tr>`).join('')
+          || '<tr><td colspan="7" class="empty">У всех банкоматов есть отчёты за период</td></tr>'
+        : rows.slice((abcPage - 1) * PAGE_SIZE, abcPage * PAGE_SIZE).map(a => `
         <tr class="clickable" data-id="${a.atm_id}" onclick="openAbcModal(+this.dataset.id)" title="Суточный и месячный спрос">
           <td>${atmCell(a)}</td>
           <td>${abcPill(a.category)}${a.estimate ? `<div class="sub" title="Данных за ${a.covered_days} из ${d.days} дн">оценка · ${a.covered_days} дн</div>` : ''}</td>

@@ -75,7 +75,7 @@ def _report(days: int) -> Dict[str, Any]:
         until = _last_day(conn)
         if until is None:
             return {"generated_at": datetime.now(timezone.utc).isoformat(), "from": None, "to": None,
-                    "days": days, "categories": CATEGORIES, "atms": [], "summary": {}}
+                    "days": days, "categories": CATEGORIES, "atms": [], "no_data": [], "summary": {}}
         since = until - timedelta(days=days - 1)
         daily = _daily(conn, since, until)
         meta = {int(r["id"]): r for r in conn.execute(
@@ -118,15 +118,34 @@ def _report(days: int) -> Dict[str, Any]:
         })
     atms.sort(key=lambda a: -a["monthly"])
 
-    total_monthly = sum(a["monthly"] for a in atms) or 1
+    # Банкоматы без единого отчёта BTech за период — отдельно, а не как «C»
+    listed = {a["atm_id"] for a in atms}
+    no_data = []
+    for atm_id, m in meta.items():
+        if atm_id in listed:
+            continue
+        reg = registry.get(str(m["tid"])) or {}
+        no_data.append({
+            "atm_id": atm_id, "tid": m["tid"], "serial": m["serial"],
+            "address": m["address"] or reg.get("registry_address"), "place": m["place"],
+            "model": " ".join(x for x in (m["vendor_name"], m["model_name"]) if x) or None,
+            "region": reg.get("region"), "branch": reg.get("branch"),
+        })
+    no_data.sort(key=lambda a: str(a["tid"] or ""))
+
+    # Суммы и доли спроса — только по банкоматам с достаточными данными; «оценки» считаем отдельно
+    reliable = [a for a in atms if not a["estimate"]]
+    total_monthly = sum(a["monthly"] for a in reliable) or 1
     summary = {}
     for key in CATEGORIES:
         rows = [a for a in atms if a["category"] == key]
+        sure = [a for a in rows if not a["estimate"]]
         summary[key] = {
             "count": len(rows),
-            "monthly": sum(a["monthly"] for a in rows),
-            "share_demand_pct": round(sum(a["monthly"] for a in rows) / total_monthly * 100, 1),
-            "avg_monthly": sum(a["monthly"] for a in rows) / len(rows) if rows else 0,
+            "estimates": len(rows) - len(sure),
+            "monthly": sum(a["monthly"] for a in sure),
+            "share_demand_pct": round(sum(a["monthly"] for a in sure) / total_monthly * 100, 1),
+            "avg_monthly": sum(a["monthly"] for a in sure) / len(sure) if sure else 0,
         }
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -138,6 +157,7 @@ def _report(days: int) -> Dict[str, Any]:
         "categories": CATEGORIES,
         "summary": summary,
         "atms": atms,
+        "no_data": no_data,
     }
 
 
