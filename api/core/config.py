@@ -56,3 +56,14 @@ _cors_raw = os.getenv("CORS_ORIGINS", "").strip()
 CORS_ORIGINS = [o.strip() for o in _cors_raw.split(",") if o.strip()] if _cors_raw else []
 # /docs и /openapi.json при включённом входе закрыты (см. auth_gate).
 EXPOSE_API_DOCS = os.getenv("EXPOSE_API_DOCS", "0").strip().lower() in ("1", "true", "yes")
+
+# Bootstrap admin из .env (НЕ коммитить в git — только на сервере / локально).
+# ADMIN_PASSWORD — при первом создании admin; ADMIN_PASSWORD_SYNC=1 — при каждом
+# старте сервера пароль admin берётся из .env (удобно для банк-сервера).
+ADMIN_USERNAME = (os.getenv("ADMIN_USERNAME") or "admin").strip() or "admin"
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD") or ""
+ADMIN_PASSWORD_SYNC = os.getenv("ADMIN_PASSWORD_SYNC", "0").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)

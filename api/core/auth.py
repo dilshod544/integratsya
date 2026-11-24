@@ -379,25 +379,84 @@ def create_auth_tables(conn) -> Optional[str]:
     n_users = int(conn.execute("SELECT COUNT(*) AS c FROM users").fetchone()["c"])
     if n_users:
         return None
+
+    from .config import ADMIN_PASSWORD, ADMIN_USERNAME
+    from .security import validate_password_strength
+
     admin_role = conn.execute("SELECT id FROM roles WHERE name = 'admin'").fetchone()
-    seeded_password = generate_password()
+    username = (ADMIN_USERNAME or "admin").strip() or "admin"
+    if ADMIN_PASSWORD:
+        err = validate_password_strength(ADMIN_PASSWORD)
+        if err:
+            raise ValueError(f"ADMIN_PASSWORD в .env слабый: {err}")
+        seeded_password = ADMIN_PASSWORD
+        must_change = 0
+    else:
+        seeded_password = generate_password()
+        must_change = 1
     creds = _hash_password(seeded_password)
     conn.execute(
         """INSERT INTO users (username, password_hash, password_salt, full_name, role_id,
                               is_active, must_change_password)
-           VALUES ('admin', %s, %s, 'Администратор', %s, 1, 1)""",
-        (creds["hash"], creds["salt"], admin_role["id"]),
+           VALUES (%s, %s, %s, 'Администратор', %s, 1, %s)""",
+        (username, creds["hash"], creds["salt"], admin_role["id"], must_change),
     )
     return seeded_password
 
 
+def sync_admin_password_from_env() -> bool:
+    """Если ADMIN_PASSWORD_SYNC=1 и ADMIN_PASSWORD задан — обновить пароль admin из .env.
+
+    Нужно для банк-сервера: пароль кладут в серверный .env (не в git), после
+    рестарта вход совпадает. В git секреты не коммитим.
+    """
+    from .config import ADMIN_PASSWORD, ADMIN_PASSWORD_SYNC, ADMIN_USERNAME
+    from .security import validate_password_strength
+
+    if not ADMIN_PASSWORD_SYNC or not ADMIN_PASSWORD:
+        return False
+    err = validate_password_strength(ADMIN_PASSWORD)
+    if err:
+        log.error("ADMIN_PASSWORD_SYNC пропущен: %s", err)
+        return False
+    username = (ADMIN_USERNAME or "admin").strip() or "admin"
+    creds = _hash_password(ADMIN_PASSWORD)
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT id FROM users WHERE username = %s", (username,)
+        ).fetchone()
+        if not row:
+            admin_role = conn.execute("SELECT id FROM roles WHERE name = 'admin'").fetchone()
+            if not admin_role:
+                log.error("ADMIN_PASSWORD_SYNC: роль admin не найдена")
+                return False
+            conn.execute(
+                """INSERT INTO users (username, password_hash, password_salt, full_name, role_id,
+                                      is_active, must_change_password)
+                   VALUES (%s,%s,%s,'Администратор',%s,1,0)""",
+                (username, creds["hash"], creds["salt"], admin_role["id"]),
+            )
+        else:
+            conn.execute(
+                """UPDATE users SET password_hash = %s, password_salt = %s,
+                   must_change_password = 0, is_active = 1 WHERE id = %s""",
+                (creds["hash"], creds["salt"], row["id"]),
+            )
+    write_admin_credentials(ADMIN_PASSWORD)
+    log.warning(
+        "Пароль пользователя %r синхронизирован из .env (ADMIN_PASSWORD_SYNC=1).",
+        username,
+    )
+    return True
+
+
 def write_admin_credentials(password: str) -> None:
-    from .config import DATA_DIR
+    from .config import ADMIN_USERNAME, DATA_DIR
 
     creds_path = DATA_DIR / "admin_credentials.txt"
     creds_path.write_text(
-        f"Логин: admin\nПароль: {password}\n\n"
-        "Это одноразовый пароль — смените его при первом входе.\n",
+        f"Логин: {ADMIN_USERNAME or 'admin'}\nПароль: {password}\n\n"
+        "Хранится только на сервере (data/ в .gitignore). Не коммитьте в git.\n",
         encoding="utf-8",
     )
     log.warning(

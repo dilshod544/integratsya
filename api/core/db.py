@@ -242,6 +242,10 @@ def init_db() -> None:
         # Файл с паролем пишется только после commit — иначе при откате он не совпал бы с базой.
         if seeded_password:
             write_admin_credentials(seeded_password)
+        # Банк-сервер: пароль admin из .env (ADMIN_PASSWORD_SYNC=1), не из git.
+        from .auth import sync_admin_password_from_env
+
+        sync_admin_password_from_env()
         _schema_ready = True
     log.info("База данных инициализирована: %s", _safe_url())
 
