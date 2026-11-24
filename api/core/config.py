@@ -49,3 +49,10 @@ if not os.getenv("SECRET_KEY"):
         "SECRET_KEY не задан в .env — сгенерирован временный, сессии слетят при перезапуске сервера. "
         "Для продакшена задайте свой SECRET_KEY в .env."
     )
+# Secure cookie (HTTPS only). В локалке http://localhost — оставьте 0.
+SECURE_COOKIES = os.getenv("SECURE_COOKIES", "0").strip().lower() in ("1", "true", "yes")
+# CORS: пусто = только same-origin (credentials). Список через запятую для внешних UI.
+_cors_raw = os.getenv("CORS_ORIGINS", "").strip()
+CORS_ORIGINS = [o.strip() for o in _cors_raw.split(",") if o.strip()] if _cors_raw else []
+# /docs и /openapi.json при включённом входе закрыты (см. auth_gate).
+EXPOSE_API_DOCS = os.getenv("EXPOSE_API_DOCS", "0").strip().lower() in ("1", "true", "yes")

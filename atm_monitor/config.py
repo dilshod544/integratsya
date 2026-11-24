@@ -25,7 +25,11 @@ class Settings:
     # Названия полей в теле запроса логина и в ответе — подтверждены по вашему запросу.
     LOGIN_USERNAME_FIELD = os.getenv("LOGIN_USERNAME_FIELD", "email")
     LOGIN_PASSWORD_FIELD = os.getenv("LOGIN_PASSWORD_FIELD", "password")
+    LOGIN_OTP_FIELD = os.getenv("LOGIN_OTP_FIELD", "otpCode")
     LOGIN_TOKEN_RESPONSE_FIELD = os.getenv("LOGIN_TOKEN_RESPONSE_FIELD", "token")
+    # TOTP secret из otpauth://…?secret=… (Google Authenticator). Если задан —
+    # сборщик сам генерирует otpCode при каждом логине.
+    AUTH_OTP_SECRET = os.getenv("AUTH_OTP_SECRET", "").replace(" ", "").strip()
 
     # --- Database ---
     # Та же база PostgreSQL, что и у платформы; таблицы — в схеме atm_monitor.

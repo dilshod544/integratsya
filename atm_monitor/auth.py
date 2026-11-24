@@ -2,13 +2,18 @@ import base64
 import json
 import logging
 import re
+import threading
 import time
 
+import pyotp
 import requests
 
 from .config import settings
 
 logger = logging.getLogger("atm_monitor.auth")
+
+# После "too many login" не долбим BTech соседними TOTP-кодами.
+_LOGIN_COOLDOWN_SEC = 15 * 60
 
 # Похоже на JWT: три base64url-блока через точку.
 _JWT_RE = re.compile(r"^[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}$")
@@ -57,26 +62,41 @@ class TokenManager:
     - при первом обращении;
     - когда до истечения (поле 'exp' в JWT) остаётся < 60 секунд;
     - принудительно, если API вернул 401 (см. force_refresh, используется в api_client).
+
+    OTP/TOTP генерируется на сервере из AUTH_OTP_SECRET — в браузер и data-console
+    секрет не отдаётся. Логин сериализован (lock), после rate-limit — cooldown.
     """
 
     def __init__(self):
         self._token = None
         self._exp = 0
+        self._lock = threading.Lock()
+        self._cooldown_until = 0.0
 
     def get_token(self) -> str:
-        if not self._token or time.time() > self._exp - 60:
-            self._login()
-        return self._token
+        with self._lock:
+            if not self._token or time.time() > self._exp - 60:
+                self._login_locked()
+            return self._token
 
     def force_refresh(self) -> str:
-        self._login()
-        return self._token
+        with self._lock:
+            self._login_locked()
+            return self._token
 
-    def _login(self):
+    def _login_locked(self):
         if not settings.AUTH_USERNAME or not settings.AUTH_PASSWORD:
             raise RuntimeError(
                 "AUTH_USERNAME / AUTH_PASSWORD не заданы (см. .env). "
                 "Без учётных данных сервис не может залогиниться сам."
+            )
+
+        now = time.time()
+        if now < self._cooldown_until:
+            wait = int(self._cooldown_until - now)
+            raise RuntimeError(
+                f"BTech login cooldown ({wait}s) — слишком много попыток входа. "
+                f"Подождите, чтобы не усилить блокировку OTP."
             )
 
         url = settings.API_BASE_URL.rstrip("/") + settings.LOGIN_PATH
@@ -84,16 +104,71 @@ class TokenManager:
             settings.LOGIN_USERNAME_FIELD: settings.AUTH_USERNAME,
             settings.LOGIN_PASSWORD_FIELD: settings.AUTH_PASSWORD,
         }
+        if settings.AUTH_OTP_SECRET:
+            logger.info("Логинимся на платформу (%s) с TOTP...", url)
+            totp = pyotp.TOTP(settings.AUTH_OTP_SECRET)
+            # Соседние 30-сек окна — на случай небольшой рассинхронизации часов.
+            seen = set()
+            codes = []
+            for t in (0, -30, 30):
+                c = totp.at(int(time.time()) + t)
+                if c not in seen:
+                    seen.add(c)
+                    codes.append(c)
+        else:
+            logger.info("Логинимся на платформу (%s)...", url)
+            codes = [None]
 
-        logger.info("Логинимся на платформу (%s)...", url)
-        resp = requests.post(
-            url,
-            json=payload,
-            params={"lang": settings.QUERY_PARAMS.get("lang", "ru")},
-            timeout=settings.REQUEST_TIMEOUT,
-        )
-        resp.raise_for_status()
-        data = resp.json()
+        last_resp = None
+        data = None
+        rate_limited = False
+        for code in codes:
+            body = dict(payload)
+            if code is not None:
+                body[settings.LOGIN_OTP_FIELD] = code
+            last_resp = requests.post(
+                url,
+                json=body,
+                params={"lang": settings.QUERY_PARAMS.get("lang", "ru")},
+                timeout=settings.REQUEST_TIMEOUT,
+            )
+            if last_resp.ok:
+                data = last_resp.json()
+                break
+            try:
+                err = last_resp.json()
+            except Exception:
+                err = {"raw": (last_resp.text or "")[:300]}
+            logger.warning(
+                "Логин BTech %s: %s",
+                last_resp.status_code,
+                err.get("errors") or err,
+            )
+            errors = (err.get("errors") or {}) if isinstance(err, dict) else {}
+            # Too many login attempt — соседние коды только усугубляют блокировку.
+            if "password" in errors and any("many" in str(x).lower() for x in errors["password"]):
+                rate_limited = True
+                break
+            if code is None:
+                break
+
+        if rate_limited:
+            self._cooldown_until = time.time() + _LOGIN_COOLDOWN_SEC
+            raise RuntimeError(
+                f"BTech login rate-limited — пауза {_LOGIN_COOLDOWN_SEC // 60} мин"
+            )
+
+        if last_resp is None or not last_resp.ok:
+            detail = ""
+            try:
+                detail = (last_resp.text or "")[:400] if last_resp is not None else ""
+            except Exception:
+                pass
+            raise RuntimeError(
+                f"BTech login failed ({getattr(last_resp, 'status_code', '?')}): {detail}"
+            )
+        if data is None:
+            data = last_resp.json()
 
         token = self._extract_token(data)
         if not token:
@@ -110,19 +185,18 @@ class TokenManager:
         if not token:
             # В теле нет ничего похожего на JWT — пробуем заголовки ответа
             # (включая Set-Cookie): некоторые API отдают токен именно так.
-            token = _find_jwt_in_headers(resp.headers)
+            token = _find_jwt_in_headers(last_resp.headers)
 
         if not token:
             raise RuntimeError(
                 f"Не нашли токен ни в теле ответа (ключ '{settings.LOGIN_TOKEN_RESPONSE_FIELD}' "
-                f"и автопоиск JWT), ни в заголовках ответа. Ответ сервера: {data}. "
-                f"Заголовки ответа: {dict(resp.headers)}. "
-                f"Похоже, токен приходит через cookie с httpOnly (недоступно для чтения "
-                f"скриптом) — нужно смотреть вкладку Application → Cookies в DevTools."
+                f"и автопоиск JWT), ни в заголовках ответа. "
+                f"Похоже, токен приходит через cookie с httpOnly."
             )
 
         self._token = token
         self._exp = self._decode_exp(token)
+        self._cooldown_until = 0.0
         logger.info("Токен обновлён, истекает: %s", time.ctime(self._exp))
 
     def _extract_token(self, data):

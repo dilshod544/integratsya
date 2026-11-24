@@ -84,7 +84,15 @@ import atm_monitor.scheduler as atm_collector
 from core import ai_assistant, atm_analytics, atm_live, auth, economics, savings
 from core import atm_abc, atm_encashments
 from core import incassation_plan as inc_plan
-from core.config import AUTH_DISABLED, BASE_DIR, SECRET_KEY
+from core.config import (
+    AUTH_DISABLED,
+    BASE_DIR,
+    CORS_ORIGINS,
+    EXPOSE_API_DOCS,
+    SECRET_KEY,
+    SECURE_COOKIES,
+)
+from core import security as sec
 from core.db import (
     DatabaseUnavailableError,
     bulk_insert_atms,
@@ -247,6 +255,7 @@ async def lifespan(app: FastAPI):
 
 # ── FastAPI App ──────────────────────────────────────────────
 
+_docs_on = AUTH_DISABLED or EXPOSE_API_DOCS
 app = FastAPI(
     title="Bank Intelligence Platform API",
     description=(
@@ -255,14 +264,20 @@ app = FastAPI(
     ),
     version="3.0.0",
     lifespan=lifespan,
+    docs_url="/docs" if _docs_on else None,
+    redoc_url="/redoc" if _docs_on else None,
+    openapi_url="/openapi.json" if _docs_on else None,
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Same-origin по умолчанию — credentials/cookie не утекают на чужие origin.
+if CORS_ORIGINS:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=CORS_ORIGINS,
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
+        allow_headers=["Content-Type", "Accept"],
+    )
 
 app.include_router(atm_monitor_api.router)
 
@@ -325,21 +340,47 @@ def _current_user(request: Request) -> Optional[Dict[str, Any]]:
     uid = request.session.get("user_id")
     if not uid:
         return None
+    expires_at = request.session.get("expires_at")
+    if expires_at is not None:
+        try:
+            if float(expires_at) < datetime.now(timezone.utc).timestamp():
+                request.session.clear()
+                return None
+        except (TypeError, ValueError):
+            request.session.clear()
+            return None
     user = auth.get_user_by_id(uid)
     if not user or not user["is_active"]:
+        request.session.clear()
         return None
     return user
 
 
 def _public_user(user: Dict[str, Any]) -> Dict[str, Any]:
     return {
+        "id": user["id"],
         "username": user["username"],
         "full_name": user["full_name"],
         "role_name": user["role_name"],
         "role_label": user["role_label"],
         "is_admin": user["is_admin"],
         "pages": user["pages"],
+        "must_change_password": bool(user.get("must_change_password")),
     }
+
+
+def _admin_user_payload(user: Dict[str, Any]) -> Dict[str, Any]:
+    """Admin JSON: never include hash/salt; temporary_password only if present (create/reset)."""
+    out = _public_user(user)
+    out["is_active"] = bool(user.get("is_active", True))
+    out["role_id"] = user.get("role_id")
+    if "temporary_password" in user:
+        out["temporary_password"] = user["temporary_password"]
+    return out
+
+
+SESSION_MAX_AGE_REMEMBER = 60 * 60 * 24 * 30  # 30 дней
+SESSION_MAX_AGE_SHORT = 60 * 60 * 8  # 8 часов
 
 
 def require_admin(request: Request) -> Dict[str, Any]:
@@ -380,66 +421,115 @@ async def auth_gate(request: Request, call_next):
     код его читает (Starlette оборачивает в обратном порядке регистрации)."""
     path = request.url.path
 
+    async def _finish(resp):
+        return sec.apply_security_headers(_no_cache(path, resp), path)
+
     # Вход и роли выключены (по умолчанию); AUTH_DISABLED=0 включает их.
     if AUTH_DISABLED:
-        return _no_cache(path, await call_next(request))
+        return await _finish(await call_next(request))
 
-    if path in auth.PUBLIC_PATHS:
-        return await call_next(request)
+    # Логин всегда публичный; change-password — только для уже вошедших
+    # (проверяется ниже) или при must_change.
+    if path in {"/api/auth/login", "/api/health", "/dashboard/login.html"}:
+        return sec.apply_security_headers(await call_next(request), path)
 
     is_api = path.startswith("/api/")
     user = _current_user(request)
 
     if not user:
         if is_api:
-            return JSONResponse({"detail": "Не авторизован"}, status_code=401)
-        return RedirectResponse(url=f"/dashboard/login.html?next={path}", status_code=303)
+            return sec.apply_security_headers(
+                JSONResponse({"detail": "Не авторизован"}, status_code=401), path
+            )
+        return sec.apply_security_headers(
+            RedirectResponse(url=f"/dashboard/login.html?next={path}", status_code=303),
+            path,
+        )
 
-    if path.startswith("/admin") or path == "/dashboard/data-console.html":
+    # Одноразовый пароль: только смена пароля / me / logout / login UI
+    if user.get("must_change_password"):
+        if path in auth.PASSWORD_CHANGE_ALLOWED or path == "/dashboard/login.html":
+            return sec.apply_security_headers(await call_next(request), path)
+        if is_api:
+            return sec.apply_security_headers(
+                JSONResponse(
+                    {"detail": "Требуется смена пароля", "must_change_password": True},
+                    status_code=403,
+                ),
+                path,
+            )
+        return sec.apply_security_headers(
+            RedirectResponse(url="/dashboard/login.html?change=1", status_code=303),
+            path,
+        )
+
+    if auth.is_admin_only_path(path):
         if not user["is_admin"]:
             if is_api:
-                return JSONResponse({"detail": "Доступ запрещён"}, status_code=403)
-            return RedirectResponse(url="/dashboard/index.html?denied=1", status_code=303)
-        return await call_next(request)
+                return sec.apply_security_headers(
+                    JSONResponse({"detail": "Доступ запрещён"}, status_code=403), path
+                )
+            return sec.apply_security_headers(
+                RedirectResponse(url="/dashboard/index.html?denied=1", status_code=303),
+                path,
+            )
+        return await _finish(await call_next(request))
 
     if user["is_admin"] or path in auth.FREE_HTML_PATHS:
-        return _no_cache(path, await call_next(request))
+        return await _finish(await call_next(request))
 
-    page_key = auth.resolve_page_key(path)
-    if page_key is None:
-        # Не размечено (например статический .js/.css) — реальные данные
-        # защищены на уровне /api/*, отдачу самого файла не гейтим отдельно.
-        return _no_cache(path, await call_next(request))
+    if auth.user_can_access(user, path):
+        return await _finish(await call_next(request))
 
-    if page_key in (user.get("pages") or []):
-        return _no_cache(path, await call_next(request))
+    # Не размечено (js/css) — данные закрыты на /api/*
+    if not auth.resolve_page_keys(path):
+        return await _finish(await call_next(request))
 
     if is_api:
-        return JSONResponse({"detail": "Доступ запрещён"}, status_code=403)
-    return RedirectResponse(url="/dashboard/index.html?denied=1", status_code=303)
+        return sec.apply_security_headers(
+            JSONResponse({"detail": "Доступ запрещён"}, status_code=403), path
+        )
+    return sec.apply_security_headers(
+        RedirectResponse(url="/dashboard/index.html?denied=1", status_code=303),
+        path,
+    )
 
 
 app.add_middleware(
     SessionMiddleware,
     secret_key=SECRET_KEY,
     session_cookie="bip_session",
-    max_age=60 * 60 * 24 * 7,  # 7 дней
+    max_age=SESSION_MAX_AGE_REMEMBER,
+    same_site="lax",
+    https_only=SECURE_COOKIES,
 )
 
 
 class LoginRequest(BaseModel):
     username: str
     password: str
+    remember_me: bool = True
 
 
 @app.post("/api/auth/login", summary="Вход")
-async def login(payload: LoginRequest, request: Request):
+async def login(payload: LoginRequest, request: Request, response: Response):
+    limited = sec.check_login_rate(request, payload.username)
+    if limited:
+        raise HTTPException(429, limited)
     user = auth.authenticate(payload.username, payload.password)
     if not user:
+        sec.record_login_failure(request, payload.username)
         raise HTTPException(401, "Неверный логин или пароль")
+    sec.clear_login_failures(request, payload.username)
     request.session.clear()
+    max_age = SESSION_MAX_AGE_REMEMBER if payload.remember_me else SESSION_MAX_AGE_SHORT
+    now_ts = datetime.now(timezone.utc).timestamp()
     request.session["user_id"] = user["id"]
-    return {"ok": True, "user": _public_user(user)}
+    request.session["remember_me"] = bool(payload.remember_me)
+    request.session["max_age"] = max_age
+    request.session["expires_at"] = now_ts + max_age
+    # Не возвращаем ничего кроме публичного профиля — пароль никогда не в JSON.
+    return {"ok": True, "user": _public_user(user), "remember_me": bool(payload.remember_me)}
 
 
 @app.post("/api/auth/logout", summary="Выход")
@@ -448,11 +538,38 @@ async def logout(request: Request):
     return {"ok": True}
 
 
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
+@app.post("/api/auth/change-password", summary="Сменить свой пароль")
+async def change_password(payload: ChangePasswordRequest, request: Request):
+    if AUTH_DISABLED:
+        raise HTTPException(400, "Вход выключен")
+    user = _current_user(request)
+    if not user:
+        raise HTTPException(401, "Не авторизован")
+    try:
+        updated = auth.change_password(user["id"], payload.current_password, payload.new_password)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True, "user": _public_user(updated)}
+
+
 @app.get("/api/auth/me", summary="Текущий пользователь")
 async def me(request: Request):
     if AUTH_DISABLED:
-        return {"username": "local", "full_name": None, "role_name": "admin", "role_label": "Вход выключен",
-                "is_admin": True, "pages": list(auth.PAGE_KEYS), "auth_disabled": True}
+        return {
+            "username": "local",
+            "full_name": None,
+            "role_name": "admin",
+            "role_label": "Вход выключен",
+            "is_admin": True,
+            "pages": list(auth.PAGE_KEYS),
+            "must_change_password": False,
+            "auth_disabled": True,
+        }
     user = _current_user(request)
     if not user:
         raise HTTPException(401, "Не авторизован")
@@ -461,40 +578,75 @@ async def me(request: Request):
 
 @app.get("/api/admin/pages", summary="Функциональные блоки для чекбоксов ролей")
 async def admin_list_pages(_: Dict[str, Any] = Depends(require_admin)):
-    return {"pages": [{"key": p["key"], "label": p["label"]} for p in auth.PAGE_DEFINITIONS]}
+    return {"pages": auth.pages_for_admin_ui()}
 
 
 @app.get("/api/admin/users", summary="Список пользователей")
 async def admin_list_users(_: Dict[str, Any] = Depends(require_admin)):
-    return {"users": auth.list_users()}
+    # Список без временных паролей / хешей — только публичные поля.
+    return {"users": [_admin_user_payload(u) for u in auth.list_users()]}
 
 
 class CreateUserRequest(BaseModel):
     username: str
-    password: str
-    full_name: Optional[str] = None
-    role_id: int
+    password: Optional[str] = None  # пусто → одноразовый
+    role_id: Optional[int] = None
+    pages: List[str] = []
+    is_admin: bool = False
 
 
-@app.post("/api/admin/users", summary="Создать пользователя")
+@app.post("/api/admin/users", summary="Создать пользователя + видимость модулей")
 async def admin_create_user(payload: CreateUserRequest, _: Dict[str, Any] = Depends(require_admin)):
     try:
-        return auth.create_user(payload.username, payload.password, payload.full_name, payload.role_id)
+        user = auth.create_user(
+            payload.username,
+            password=payload.password,
+            role_id=payload.role_id,
+            pages=payload.pages,
+            is_admin=payload.is_admin,
+            must_change=True,
+        )
+        # temporary_password только один раз при создании (админ копирует и закрывает).
+        return JSONResponse(
+            _admin_user_payload(user),
+            headers={"Cache-Control": "no-store"},
+        )
     except ValueError as e:
         raise HTTPException(400, str(e))
 
 
 class UpdateUserRequest(BaseModel):
-    full_name: Optional[str] = None
     role_id: Optional[int] = None
     is_active: Optional[bool] = None
     new_password: Optional[str] = None
+    pages: Optional[List[str]] = None
+    is_admin: Optional[bool] = None
 
 
-@app.patch("/api/admin/users/{user_id}", summary="Изменить пользователя")
+@app.patch("/api/admin/users/{user_id}", summary="Изменить пользователя и видимость")
 async def admin_update_user(user_id: int, payload: UpdateUserRequest, _: Dict[str, Any] = Depends(require_admin)):
     try:
-        return auth.update_user(user_id, payload.full_name, payload.role_id, payload.is_active, payload.new_password)
+        user = auth.update_user(
+            user_id,
+            role_id=payload.role_id,
+            is_active=payload.is_active,
+            new_password=payload.new_password,
+            pages=payload.pages,
+            is_admin=payload.is_admin,
+        )
+        return _admin_user_payload(user)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/api/admin/users/{user_id}/reset-password", summary="Сбросить пароль (одноразовый)")
+async def admin_reset_password(user_id: int, _: Dict[str, Any] = Depends(require_admin)):
+    try:
+        user = auth.reset_user_password(user_id)
+        return JSONResponse(
+            _admin_user_payload(user),
+            headers={"Cache-Control": "no-store"},
+        )
     except ValueError as e:
         raise HTTPException(400, str(e))
 

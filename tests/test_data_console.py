@@ -263,3 +263,10 @@ def test_atm_card_finds_atm_by_each_identifier(app_client, monkeypatch):
 def test_pull_refuses_without_login(client, monkeypatch):
     monkeypatch.setattr(settings, "AUTH_USERNAME", "")
     assert client.post("/api/data-console/pull", json={"scope": "all"}).status_code == 400
+
+
+def test_pull_refuses_without_otp_secret(client, monkeypatch):
+    monkeypatch.setattr(settings, "AUTH_USERNAME", "u")
+    monkeypatch.setattr(settings, "AUTH_PASSWORD", "p")
+    monkeypatch.setattr(settings, "AUTH_OTP_SECRET", "")
+    assert client.post("/api/data-console/pull", json={"scope": "all"}).status_code == 400

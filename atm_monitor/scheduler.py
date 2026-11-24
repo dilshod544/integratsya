@@ -27,8 +27,10 @@ from .ingest import ingest
 logger = logging.getLogger("atm_monitor.scheduler")
 
 # После сбоя (например, кратковременный обрыв DNS/сети) не ждём полный интервал —
-# пробуем снова через минуту.
+# пробуем снова через минуту. При rate-limit BTech — дольше, иначе блокировка
+# обновляется каждые 60 с и никогда не снимается.
 RETRY_DELAY_SEC = 60
+RATE_LIMIT_RETRY_SEC = 15 * 60
 # Нет success дольше чем N интервалов → watchdog форсирует опрос.
 STALE_INTERVALS = 2
 WATCH_EVERY_SEC = 60
@@ -80,6 +82,9 @@ def run_once() -> bool:
     except Exception as e:  # noqa: BLE001
         logger.error("Опрос завершился с ошибкой (%s), следующая попытка по расписанию", e)
         ok = False
+        msg = str(e).lower()
+        if "too many login" in msg or "many login attempt" in msg:
+            run_once.last_rate_limited = True  # type: ignore[attr-defined]
     finally:
         _run_lock.release()
 
@@ -90,6 +95,9 @@ def run_once() -> bool:
             # Данные уже сохранены; постобработка не должна ломать следующий цикл.
             logger.exception("Постобработка после опроса завершилась с ошибкой")
     return ok
+
+
+run_once.last_rate_limited = False  # type: ignore[attr-defined]
 
 
 def _last_success_ts() -> float:
@@ -121,8 +129,19 @@ def _loop():
     while not _stop.is_set():
         try:
             if time.time() >= next_run:
+                run_once.last_rate_limited = False  # type: ignore[attr-defined]
                 ok = run_once()
-                next_run = time.time() + (interval if ok else RETRY_DELAY_SEC)
+                if ok:
+                    delay = interval
+                elif run_once.last_rate_limited:  # type: ignore[attr-defined]
+                    delay = RATE_LIMIT_RETRY_SEC
+                    logger.warning(
+                        "BTech rate-limit — следующая попытка через %d мин",
+                        RATE_LIMIT_RETRY_SEC // 60,
+                    )
+                else:
+                    delay = RETRY_DELAY_SEC
+                next_run = time.time() + delay
         except Exception:  # noqa: BLE001 — цикл не должен умирать
             logger.exception("Сбой цикла сборщика")
             next_run = time.time() + RETRY_DELAY_SEC

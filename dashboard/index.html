@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>cash flow</title>
+  <title>Cash Management AI</title>
   <script src="/dashboard/js/utils.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -171,7 +171,7 @@
   <div class="glow b"></div>
 
   <div class="container">
-    <h1>cash <span>flow</span></h1>
+    <h1>Cash Management <span>AI</span></h1>
 
     <div class="stats">
       <div class="stat"><div class="label">Банкоматов в базе</div><div class="value" id="s-atms">—</div></div>
@@ -180,39 +180,39 @@
       <div class="stat"><div class="label">Кассиров в отчёте</div><div class="value" id="s-cashiers">—</div></div>
     </div>
 
-    <div class="section-title">Модуль 1 — Сеть банкоматов и инкассация</div>
+    <div class="section-title" data-perm-section>Модуль 1 — Сеть банкоматов и инкассация</div>
     <div class="grid">
-      <a class="card" href="/dashboard/map.html">
+      <a class="card" href="/dashboard/map.html" data-perm="atm_map">
         <div class="icon blue">🗺️</div>
         <h3>Карта банкоматов</h3>
         <p>Интерактивная карта сети с остатками, статусами cash-out и границами областей Узбекистана.</p>
         <div class="go">Открыть карту →</div>
       </a>
-      <a class="card" href="/dashboard/analytics.html">
+      <a class="card" href="/dashboard/analytics.html" data-perm="atm_analytics">
         <div class="icon blue">📈</div>
         <h3>Аналитика</h3>
         <p>Какие банкоматы работают, заняты, не обслуживают или не заряжены; неисправности, регионы и прогноз снятий (XGBoost).</p>
         <div class="go">Открыть аналитику →</div>
       </a>
-      <a class="card" href="/dashboard/incassation-plan.html">
+      <a class="card" href="/dashboard/incassation-plan.html" data-perm="atm_plan">
         <div class="icon amber">🚚</div>
         <h3>План инкассаций</h3>
         <p>Какие банкоматы загрузить: срочность 1–10, сумма и номиналы, крайний срок, рейсы от филиалов и проверка кассы филиала.</p>
         <div class="go">Открыть план →</div>
       </a>
-      <a class="card" href="/dashboard/savings.html">
+      <a class="card" href="/dashboard/savings.html" data-perm="atm_savings">
         <div class="icon green">💸</div>
         <h3>Экономия</h3>
         <p>Сколько денег и выездов экономит система: факт банка против рекомендаций на тех же реальных циклах инкассации.</p>
         <div class="go">Открыть экономию →</div>
       </a>
-      <a class="card" href="/dashboard/incassation.html">
+      <a class="card" href="/dashboard/incassation.html" data-perm="atm_calendar">
         <div class="icon amber">📅</div>
         <h3>Календарь инкассации</h3>
         <p>Календарь прогнозных выездов и региональные маршруты от филиалов с признаком «Инкассация = 1».</p>
         <div class="go">Открыть календарь →</div>
       </a>
-      <a class="card" href="/dashboard/analytics.html#kassa">
+      <a class="card" href="/dashboard/analytics.html#kassa" data-perm="treasury">
         <div class="icon" style="background:linear-gradient(135deg,#0d9488,#2dd4bf)">💰</div>
         <h3>Касса филиалов</h3>
         <p>Сводка остатков: pie/bar charts, итог по сети и разбивка по регионам (только филиалы со складом).</p>
@@ -220,15 +220,15 @@
       </a>
     </div>
 
-    <div class="section-title">Модуль 2 — Кассиры</div>
+    <div class="section-title" data-perm-section>Модуль 2 — Кассиры</div>
     <div class="grid">
-      <a class="card" href="/dashboard/cashiers.html">
+      <a class="card" href="/dashboard/cashiers.html" data-perm="hr_cashiers">
         <div class="icon green">👥</div>
         <h3>Аналитика кассиров</h3>
         <p>KPI, нагрузка, структура БЭК/ФРОНТ операций, статусы штата, отпуска, замещения и выговоры.</p>
         <div class="go">Открыть аналитику →</div>
       </a>
-      <a class="card" href="/dashboard/import-cashiers.html">
+      <a class="card" href="/dashboard/import-cashiers.html" data-perm="__admin__">
         <div class="icon green">📥</div>
         <h3>Импорт отчётов кассиров</h3>
         <p>Загрузка месячных отчётов KPI «Kassirlar bo‘yicha»: каждый месяц хранится отдельно.</p>
@@ -236,27 +236,27 @@
       </a>
     </div>
 
-    <div class="section-title">Данные и интеграции</div>
+    <div class="section-title" data-perm-section>Данные и интеграции</div>
     <div class="grid">
-      <a class="card" href="/dashboard/import.html">
+      <a class="card" href="/dashboard/import.html" data-perm="__admin__">
         <div class="icon purple">🗂️</div>
         <h3>Центр импорта</h3>
         <p>Выбор типа реестра: банкоматы, филиалы или отчёты кассиров — в одном месте.</p>
         <div class="go">Выбрать тип →</div>
       </a>
-      <a class="card" href="/docs" target="_blank">
+      <a class="card" href="/docs" target="_blank" data-perm="__admin__">
         <div class="icon purple">⚙️</div>
         <h3>API документация</h3>
         <p>Swagger UI со всеми эндпоинтами обоих модулей: ATM, филиалы, инкассация, кассиры.</p>
         <div class="go">Открыть /docs →</div>
       </a>
-      <a class="card" href="/dashboard/atm-monitor.html" id="atm-monitor-card">
+      <a class="card" href="/dashboard/atm-monitor.html" id="atm-monitor-card" data-perm="__admin__">
         <div class="icon" style="background:linear-gradient(135deg,#0ea5e9,#38bdf8)">📡</div>
         <h3>atm_monitor <span id="am-dot" style="display:inline-block;width:9px;height:9px;border-radius:50%;background:#94a3b8;margin-left:4px;vertical-align:middle"></span></h3>
         <p id="am-desc">Проверка подключения…</p>
         <div class="go" id="am-detail">Открыть менеджер банкоматов →</div>
       </a>
-      <a class="card" href="/dashboard/data-console.html">
+      <a class="card" href="/dashboard/data-console.html" data-perm="__admin__">
         <div class="icon purple">🗄️</div>
         <h3>Модуль данных</h3>
         <p>Вся база, проверка полноты данных BTech по датам, догрузка и карточки банкоматов.</p>
@@ -266,7 +266,7 @@
   </div>
 
   <footer>
-    cash flow ·
+    Cash Management AI ·
     <a href="/api/health" target="_blank">health-check</a>
   </footer>
 

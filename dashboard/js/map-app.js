@@ -1093,6 +1093,7 @@ restoreLegends();
 // mode: 'all' — все филиалы, 'warehouse' — только со складом (остатками).
 // Повторный клик по активному режиму скрывает слой.
 async function setBranchMode(mode) {
+  if (window.CMAI_AUTH && window.CMAI_AUTH.canBranches === false) return;
   const wantWarehouse = mode === 'warehouse';
   const legend = document.getElementById('branches-legend');
 
@@ -1348,6 +1349,7 @@ function clearVashOpsBand() {
 }
 
 async function toggleVashLayer() {
+  if (window.CMAI_AUTH && window.CMAI_AUTH.canVash === false) return;
   branchVashCode = null;
   branchVashOwnedLayer = false;
   vashOpsBand = '';
@@ -2130,15 +2132,17 @@ function renderKpisAndMarkers(nCrit, nWarn, nOk, nInc) {
 
 async function loadExtraKpis() {
   const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  const canBr = !(window.CMAI_AUTH && window.CMAI_AUTH.canBranches === false);
+  const canVash = !(window.CMAI_AUTH && window.CMAI_AUTH.canVash === false);
   try {
     const [br, vash, cal] = await Promise.all([
-      fetch(`${API_BASE}/api/branches/stats`).then(r => r.ok ? r.json() : null).catch(() => null),
-      fetch(`${API_BASE}/api/vash`).then(r => r.ok ? r.json() : null).catch(() => null),
+      canBr ? fetch(`${API_BASE}/api/branches/stats`).then(r => r.ok ? r.json() : null).catch(() => null) : Promise.resolve(null),
+      canVash ? fetch(`${API_BASE}/api/vash`).then(r => r.ok ? r.json() : null).catch(() => null) : Promise.resolve(null),
       fetch(`${API_BASE}/api/incassation/calendar`).then(r => r.ok ? r.json() : null).catch(() => null),
     ]);
-    if (br && br.total != null) set('s-branches', br.total);
-    else if (branchesCache.length) set('s-branches', branchesCache.length);
-    if (vash && vash.count != null) set('s-vash', vash.count);
+    if (canBr && br && br.total != null) set('s-branches', br.total);
+    else if (canBr && branchesCache.length) set('s-branches', branchesCache.length);
+    if (canVash && vash && vash.count != null) set('s-vash', vash.count);
     if (cal) {
       const today = new Date();
       const ymd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;

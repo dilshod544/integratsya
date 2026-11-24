@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import math
 import re
+import threading
+import time
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
@@ -25,18 +27,39 @@ from .db import connect
 router = APIRouter(prefix="/api/data-console", tags=["data-console"])
 
 SCHEMAS = ("public", "atm_monitor")
-HIDDEN_COLUMN_RE = re.compile(r"pass|secret|token|salt|hash", re.I)
+HIDDEN_COLUMN_RE = re.compile(r"pass|secret|token|salt|hash|otp|credential", re.I)
 MAX_PAGE = 200
 MAX_DAYS = 1100
 # Загрузка считается достаточной, если есть 90 % опросов дня (сеть и сон машины случаются).
 POLLS_OK_SHARE = 0.9
 
+_PULL_LOCK = threading.Lock()
+_PULL_LAST: Dict[str, float] = {}
+_PULL_MIN_INTERVAL_SEC = 30
+
 
 def check_request(request: Request) -> None:
-    """Запросы с чужих сайтов не допускаются (в приложении CORS открыт для всех)."""
+    """Same-origin only: чужой Origin/Referer → 403 (защита от CSRF с другого сайта)."""
+    host = (request.headers.get("host") or "").split(",")[0].strip().lower()
+    if not host:
+        return
+
+    def _host_ok(url: str) -> bool:
+        try:
+            netloc = urlparse(url).netloc.lower()
+        except Exception:
+            return False
+        return bool(netloc) and netloc == host
+
     origin = request.headers.get("origin")
-    if origin and urlparse(origin).netloc != request.headers.get("host"):
+    if origin and not _host_ok(origin):
         raise HTTPException(403, "Запрос с другого сайта запрещён")
+
+    # Для POST (pull/stop) дополнительно сверяем Referer, если Origin нет.
+    if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+        referer = request.headers.get("referer") or request.headers.get("referrer")
+        if referer and not _host_ok(referer):
+            raise HTTPException(403, "Запрос с другого сайта запрещён")
 
 
 # ── Просмотр базы ────────────────────────────────────────────
@@ -323,11 +346,23 @@ def _ids_for_pull(scope: str, days: int, atm_ids: Optional[List[int]]) -> List[i
 
 
 @router.post("/pull", summary="Подтянуть инкассации из BTech")
-def pull(req: PullRequest):
+def pull(req: PullRequest, request: Request):
     if not 1 <= req.days <= MAX_DAYS:
         raise HTTPException(400, "Неверный период")
     if not settings.AUTH_USERNAME or not settings.AUTH_PASSWORD:
         raise HTTPException(400, "Не заданы AUTH_USERNAME и AUTH_PASSWORD в .env")
+    if not settings.AUTH_OTP_SECRET:
+        raise HTTPException(400, "Не задан AUTH_OTP_SECRET в .env — без OTP сбор BTech недоступен")
+
+    # Анти-спам: ручной pull не чаще раза в 30 сек с одного IP.
+    ip = (request.client.host if request.client else "unknown") or "unknown"
+    now = time.time()
+    with _PULL_LOCK:
+        last = _PULL_LAST.get(ip, 0.0)
+        if now - last < _PULL_MIN_INTERVAL_SEC:
+            raise HTTPException(429, "Слишком часто. Подождите несколько секунд.")
+        _PULL_LAST[ip] = now
+
     ids = _ids_for_pull(req.scope, req.days, req.atm_ids)
     if not ids:
         return {"started": False, "total": 0}
@@ -354,8 +389,10 @@ def status():
         mark = conn.execute(
             "SELECT value FROM history_state WHERE key = %s", (encashments.SYNC_MARK,)
         ).fetchone()
+    # Секреты (пароль/OTP) никогда не отдаём — только флаги готовности.
     return {
         "credentials_set": bool(settings.AUTH_USERNAME and settings.AUTH_PASSWORD),
+        "otp_configured": bool(settings.AUTH_OTP_SECRET),
         "collector_enabled": settings.COLLECTOR_ENABLED,
         "collector_running": bool(scheduler._thread and scheduler._thread.is_alive()),
         "poll_interval_minutes": settings.POLL_INTERVAL_MINUTES,
