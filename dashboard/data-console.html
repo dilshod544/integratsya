@@ -412,10 +412,20 @@
 
   async function refreshStatus() {
     const s = await api(API + '/status');
-    const collector = !s.credentials_set ? 'нет логина в .env' : !s.collector_enabled ? 'выключен (ATM_COLLECTOR=0)' : s.collector_running ? `работает, опрос раз в ${s.poll_interval_minutes} мин` : 'не запущен';
+    const loginOk = !!s.credentials_set;
+    const otpOk = !!s.otp_configured;
+    const collector = !loginOk ? 'нет логина в .env' : !s.collector_enabled ? 'выключен (ATM_COLLECTOR=0)' : s.collector_running ? `работает, опрос раз в ${s.poll_interval_minutes} мин` : 'не запущен';
+    const lastPoll = s.last_poll || {};
+    const pollLabel = lastPoll.status
+      ? `${lastPoll.status}${lastPoll.error_message ? ' — ' + lastPoll.error_message : ''}`
+      : 'нет данных';
+    const otpLabel = otpOk ? 'OK' : 'НЕТ в .env (AUTH_OTP_SECRET)';
+    const loginLabel = loginOk ? 'OK' : 'НЕТ (AUTH_USERNAME/PASSWORD)';
     $('status').innerHTML =
+      `<span>BTech логин: <b style="color:${loginOk ? 'var(--ok)' : '#b42318'}">${esc(loginLabel)}</b></span>` +
+      `<span>OTP: <b style="color:${otpOk ? 'var(--ok)' : '#b42318'}">${esc(otpLabel)}</b></span>` +
       `<span>Сборщик: <b>${esc(collector)}</b></span>` +
-      `<span>Последний опрос: <b>${dt(s.last_successful_poll)}</b></span>` +
+      `<span>Последний опрос: <b>${esc(pollLabel)}</b> · ${dt(s.last_successful_poll)}</span>` +
       `<span>Инкассации: <b>авто раз в ${s.encashment_sync_hours} ч</b>, полный обход: <b>${dt(s.last_full_encashment_sync)}</b></span>`;
     const j = s.job || {};
     const box = $('job');
