@@ -160,6 +160,8 @@ ADMIN_ONLY_PREFIXES = (
 
 PUBLIC_PATHS = {
     "/api/auth/login",
+    "/api/auth/setup",
+    "/api/auth/setup-status",
     "/api/auth/change-password",
     "/api/health",
     "/dashboard/login.html",
@@ -383,25 +385,27 @@ def create_auth_tables(conn) -> Optional[str]:
     from .config import ADMIN_PASSWORD, ADMIN_USERNAME
     from .security import validate_password_strength
 
+    # Без ADMIN_PASSWORD в .env — admin создаётся один раз через UI (setup).
+    if not ADMIN_PASSWORD:
+        log.info(
+            "Пользователей нет: откройте /dashboard/login.html и задайте пароль admin (одноразовая регистрация)."
+        )
+        _mark_setup_pending()
+        return None
+
     admin_role = conn.execute("SELECT id FROM roles WHERE name = 'admin'").fetchone()
     username = (ADMIN_USERNAME or "admin").strip() or "admin"
-    if ADMIN_PASSWORD:
-        err = validate_password_strength(ADMIN_PASSWORD)
-        if err:
-            raise ValueError(f"ADMIN_PASSWORD в .env слабый: {err}")
-        seeded_password = ADMIN_PASSWORD
-        must_change = 0
-    else:
-        seeded_password = generate_password()
-        must_change = 1
-    creds = _hash_password(seeded_password)
+    err = validate_password_strength(ADMIN_PASSWORD)
+    if err:
+        raise ValueError(f"ADMIN_PASSWORD в .env слабый: {err}")
+    creds = _hash_password(ADMIN_PASSWORD)
     conn.execute(
         """INSERT INTO users (username, password_hash, password_salt, full_name, role_id,
                               is_active, must_change_password)
-           VALUES (%s, %s, %s, 'Администратор', %s, 1, %s)""",
-        (username, creds["hash"], creds["salt"], admin_role["id"], must_change),
+           VALUES (%s, %s, %s, 'Администратор', %s, 1, 0)""",
+        (username, creds["hash"], creds["salt"], admin_role["id"]),
     )
-    return seeded_password
+    return ADMIN_PASSWORD
 
 
 def sync_admin_password_from_env() -> bool:
@@ -448,6 +452,88 @@ def sync_admin_password_from_env() -> bool:
         username,
     )
     return True
+
+
+def _setup_pending_path():
+    from .config import DATA_DIR
+
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    return DATA_DIR / "admin_setup.pending"
+
+
+def _mark_setup_pending() -> None:
+    path = _setup_pending_path()
+    path.write_text("open one-time admin registration on /dashboard/login.html\n", encoding="utf-8")
+
+
+def clear_setup_pending() -> None:
+    path = _setup_pending_path()
+    if path.exists():
+        path.unlink()
+
+
+def setup_needed() -> bool:
+    """Нужна одноразовая регистрация admin в UI."""
+    from .config import FORCE_ADMIN_SETUP
+
+    if FORCE_ADMIN_SETUP:
+        return True
+    if _setup_pending_path().exists():
+        return True
+    with connect() as conn:
+        n = int(conn.execute("SELECT COUNT(*) AS c FROM users").fetchone()["c"])
+    return n == 0
+
+
+def complete_admin_setup(username: str, password: str) -> Dict[str, Any]:
+    """Одноразовая установка admin (создать или перезаписать пароль)."""
+    from .security import validate_password_strength
+
+    if not setup_needed():
+        raise ValueError("Регистрация admin уже закрыта")
+    username = (username or "admin").strip() or "admin"
+    err = validate_password_strength(password or "")
+    if err:
+        raise ValueError(err)
+    creds = _hash_password(password)
+    with connect() as conn:
+        admin_role = conn.execute("SELECT id FROM roles WHERE name = 'admin'").fetchone()
+        if not admin_role:
+            raise ValueError("Роль admin не найдена — перезапустите сервер")
+        row = conn.execute("SELECT id FROM users WHERE username = %s", (username,)).fetchone()
+        if row:
+            conn.execute(
+                """UPDATE users SET password_hash = %s, password_salt = %s,
+                   must_change_password = 0, is_active = 1, role_id = %s,
+                   pages_json = NULL WHERE id = %s""",
+                (creds["hash"], creds["salt"], admin_role["id"], row["id"]),
+            )
+            user_id = int(row["id"])
+        else:
+            # Если другой admin уже есть — обновляем его, иначе создаём.
+            other = conn.execute(
+                """SELECT u.id FROM users u JOIN roles r ON r.id = u.role_id
+                   WHERE r.is_admin = 1 ORDER BY u.id LIMIT 1"""
+            ).fetchone()
+            if other and username == "admin":
+                conn.execute(
+                    """UPDATE users SET username = %s, password_hash = %s, password_salt = %s,
+                       must_change_password = 0, is_active = 1, pages_json = NULL WHERE id = %s""",
+                    (username, creds["hash"], creds["salt"], other["id"]),
+                )
+                user_id = int(other["id"])
+            else:
+                user_id = conn.execute(
+                    """INSERT INTO users (username, password_hash, password_salt, full_name, role_id,
+                                          is_active, must_change_password, pages_json)
+                       VALUES (%s,%s,%s,'Администратор',%s,1,0,NULL) RETURNING id""",
+                    (username, creds["hash"], creds["salt"], admin_role["id"]),
+                ).fetchone()["id"]
+    clear_setup_pending()
+    write_admin_credentials(password)
+    user = get_user_by_id(user_id)
+    assert user is not None
+    return user
 
 
 def write_admin_credentials(password: str) -> None:

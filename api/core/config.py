@@ -67,3 +67,10 @@ ADMIN_PASSWORD_SYNC = os.getenv("ADMIN_PASSWORD_SYNC", "0").strip().lower() in (
     "true",
     "yes",
 )
+# Временно открыть одноразовую регистрацию admin (даже если users уже есть).
+# После установки пароля в UI — поставьте 0 и перезапустите.
+FORCE_ADMIN_SETUP = os.getenv("FORCE_ADMIN_SETUP", "0").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)

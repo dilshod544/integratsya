@@ -430,7 +430,13 @@ async def auth_gate(request: Request, call_next):
 
     # Логин всегда публичный; change-password — только для уже вошедших
     # (проверяется ниже) или при must_change.
-    if path in {"/api/auth/login", "/api/health", "/dashboard/login.html"}:
+    if path in {
+        "/api/auth/login",
+        "/api/auth/setup",
+        "/api/auth/setup-status",
+        "/api/health",
+        "/dashboard/login.html",
+    }:
         return sec.apply_security_headers(await call_next(request), path)
 
     is_api = path.startswith("/api/")
@@ -511,8 +517,61 @@ class LoginRequest(BaseModel):
     remember_me: bool = True
 
 
+class SetupRequest(BaseModel):
+    username: str = "admin"
+    password: str
+    password2: str
+
+
+@app.get("/api/auth/setup-status", summary="Нужна ли первичная регистрация admin")
+async def setup_status():
+    if AUTH_DISABLED:
+        return {"needed": False, "auth_disabled": True}
+    needed = auth.setup_needed()
+    return {
+        "needed": needed,
+        "auth_disabled": False,
+        "hint": (
+            "Задайте логин и пароль администратора один раз."
+            if needed
+            else None
+        ),
+    }
+
+
+@app.post("/api/auth/setup", summary="Одноразовая регистрация admin")
+async def setup_admin(payload: SetupRequest, request: Request):
+    if AUTH_DISABLED:
+        raise HTTPException(400, "Вход выключен")
+    if not auth.setup_needed():
+        raise HTTPException(403, "Регистрация admin уже закрыта")
+    if payload.password != payload.password2:
+        raise HTTPException(400, "Пароли не совпадают")
+    limited = sec.check_login_rate(request, payload.username or "admin")
+    if limited:
+        raise HTTPException(429, limited)
+    try:
+        user = auth.complete_admin_setup(payload.username, payload.password)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    # Сразу войти после регистрации.
+    request.session.clear()
+    max_age = SESSION_MAX_AGE_REMEMBER
+    now_ts = datetime.now(timezone.utc).timestamp()
+    request.session["user_id"] = user["id"]
+    request.session["remember_me"] = True
+    request.session["max_age"] = max_age
+    request.session["expires_at"] = now_ts + max_age
+    return {"ok": True, "user": _public_user(user)}
+
+
 @app.post("/api/auth/login", summary="Вход")
 async def login(payload: LoginRequest, request: Request, response: Response):
+    if auth.setup_needed():
+        raise HTTPException(
+            403,
+            "Сначала задайте пароль администратора (форма регистрации на странице входа)",
+        )
     limited = sec.check_login_rate(request, payload.username)
     if limited:
         raise HTTPException(429, limited)

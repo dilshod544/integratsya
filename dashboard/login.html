@@ -277,10 +277,24 @@
     <div class="brand">
       <div class="logo">CM</div>
       <h1>Cash Management <span>AI</span></h1>
-      <p class="lead">Войдите, чтобы открыть платформу.</p>
+      <p class="lead" id="lead-text">Войдите, чтобы открыть платформу.</p>
     </div>
 
     <div class="card">
+      <div class="panel" id="panel-setup">
+        <p class="sub">Первый вход: задайте логин и пароль администратора один раз. Потом эта форма закроется.</p>
+        <div class="error" id="setup-error"></div>
+        <form id="setup-form" autocomplete="off">
+          <label class="lbl" for="setup-user">Логин</label>
+          <input class="field" id="setup-user" type="text" value="admin" autocomplete="username" required />
+          <label class="lbl" for="setup-pass">Пароль</label>
+          <input class="field" id="setup-pass" type="password" autocomplete="new-password" required minlength="10" />
+          <label class="lbl" for="setup-pass2">Повтор пароля</label>
+          <input class="field" id="setup-pass2" type="password" autocomplete="new-password" required minlength="10" />
+          <button class="btn" type="submit" id="setup-btn">Создать и войти</button>
+        </form>
+      </div>
+
       <div class="panel active" id="panel-login">
         <p class="sub">С «Запомнить меня» повторный вход не нужен, пока не нажмёте «Выйти».</p>
         <div class="error" id="error-box"></div>
@@ -315,19 +329,32 @@
 
 <script>
   const params = new URLSearchParams(location.search);
+  const setupPanel = document.getElementById('panel-setup');
   const loginPanel = document.getElementById('panel-login');
   const changePanel = document.getElementById('panel-change');
   const errorBox = document.getElementById('error-box');
+  const setupError = document.getElementById('setup-error');
   const changeError = document.getElementById('change-error');
   const changeOk = document.getElementById('change-ok');
+  const leadText = document.getElementById('lead-text');
 
+  function hideAll() {
+    [setupPanel, loginPanel, changePanel].forEach((p) => p.classList.remove('active'));
+  }
   function showLogin() {
+    hideAll();
     loginPanel.classList.add('active');
-    changePanel.classList.remove('active');
+    leadText.textContent = 'Войдите, чтобы открыть платформу.';
+  }
+  function showSetup() {
+    hideAll();
+    setupPanel.classList.add('active');
+    leadText.textContent = 'Одноразовая регистрация администратора.';
   }
   function showChange() {
-    loginPanel.classList.remove('active');
+    hideAll();
     changePanel.classList.add('active');
+    leadText.textContent = 'Смена пароля.';
   }
   function showErr(el, msg) {
     el.textContent = msg;
@@ -341,7 +368,7 @@
   }
 
   function wipeAllPasswords() {
-    ['password', 'cur', 'neu', 'neu2'].forEach((id) => wipe(document.getElementById(id)));
+    ['password', 'cur', 'neu', 'neu2', 'setup-pass', 'setup-pass2'].forEach((id) => wipe(document.getElementById(id)));
   }
 
   async function goNext() {
@@ -352,6 +379,11 @@
 
   (async () => {
     try {
+      const st = await fetch('/api/auth/setup-status', { cache: 'no-store' }).then((r) => r.json());
+      if (st.auth_disabled) { location.href = '/dashboard/index.html'; return; }
+      if (st.needed) { showSetup(); return; }
+    } catch (_) {}
+    try {
       const res = await fetch('/api/auth/me', { credentials: 'same-origin', cache: 'no-store' });
       if (!res.ok) return;
       const me = await res.json();
@@ -359,6 +391,44 @@
       if (me.must_change_password || params.get('change') === '1') showChange();
     } catch (_) {}
   })();
+
+  document.getElementById('setup-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    setupError.style.display = 'none';
+    const user = document.getElementById('setup-user').value.trim() || 'admin';
+    const p1 = document.getElementById('setup-pass').value;
+    const p2 = document.getElementById('setup-pass2').value;
+    if (p1 !== p2) { showErr(setupError, 'Пароли не совпадают'); return; }
+    if (p1.length < 10 || !/[A-Za-z]/.test(p1) || !/\d/.test(p1)) {
+      showErr(setupError, 'Пароль: минимум 10 символов, буква и цифра');
+      return;
+    }
+    wipe(document.getElementById('setup-pass'));
+    wipe(document.getElementById('setup-pass2'));
+    const btn = document.getElementById('setup-btn');
+    btn.disabled = true;
+    btn.textContent = 'Сохраняем…';
+    try {
+      const res = await fetch('/api/auth/setup', {
+        method: 'POST',
+        credentials: 'same-origin',
+        cache: 'no-store',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: user, password: p1, password2: p1 }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showErr(setupError, data.detail || 'Не удалось создать admin');
+        return;
+      }
+      await goNext();
+    } catch (_) {
+      showErr(setupError, 'Сервер недоступен');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Создать и войти';
+    }
+  });
 
   document.getElementById('login-form').addEventListener('submit', async (e) => {
     e.preventDefault();
