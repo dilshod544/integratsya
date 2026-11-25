@@ -36,8 +36,14 @@ def main() -> int:
     if otp:
         try:
             import pyotp
+            from atm_monitor.auth import _trusted_unix_time
 
-            print("TOTP_now:", pyotp.TOTP(otp).now(), "(code only for clock check)")
+            import time as _time
+
+            local = _time.time()
+            net = _trusted_unix_time()
+            print("clock_local:", int(local), "clock_network:", int(net), "skew_sec:", int(net - local))
+            print("TOTP_network:", pyotp.TOTP(otp).at(int(net)))
         except Exception as e:
             print("TOTP_FAIL:", type(e).__name__, str(e)[:120])
 

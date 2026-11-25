@@ -19,6 +19,55 @@ _LOGIN_COOLDOWN_SEC = 15 * 60
 _JWT_RE = re.compile(r"^[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}$")
 
 
+def _trusted_unix_time() -> float:
+    """Время «как у сети», а не обязательно локальные часы банк-сервера.
+
+    Берём Date из ответа BTech (или запасной HTTPS-источник). Если не удалось —
+    локальное time.time(). Так TOTP совпадает даже при сбитых часах ОС.
+    """
+    from email.utils import parsedate_to_datetime
+
+    local = time.time()
+    candidates = [
+        settings.API_BASE_URL.rstrip("/") + "/",
+        settings.API_BASE_URL.rstrip("/") + settings.LOGIN_PATH,
+        "https://www.google.com/",
+    ]
+    for url in candidates:
+        try:
+            resp = requests.head(url, timeout=8, allow_redirects=True)
+            if "Date" not in resp.headers:
+                resp = requests.get(url, timeout=8, allow_redirects=True)
+            date_hdr = resp.headers.get("Date")
+            if not date_hdr:
+                continue
+            remote = parsedate_to_datetime(date_hdr).timestamp()
+            skew = remote - local
+            if abs(skew) > 2:
+                logger.warning(
+                    "Часы сервера отличаются от сети на %.0f сек — TOTP считаем по сетевому времени.",
+                    skew,
+                )
+            return remote
+        except Exception as e:
+            logger.debug("Не удалось взять сетевое время с %s: %s", url, e)
+    return local
+
+
+def _totp_codes(secret: str) -> list:
+    """1–3 кода вокруг сетевого времени (без большого перебора — иначе rate-limit)."""
+    totp = pyotp.TOTP(secret)
+    base = int(_trusted_unix_time())
+    seen = set()
+    codes = []
+    for t in (0, -30, 30):
+        c = totp.at(base + t)
+        if c not in seen:
+            seen.add(c)
+            codes.append(c)
+    return codes
+
+
 def _find_jwt_recursive(node, _depth: int = 0):
     """Резервный способ найти токен: если настроенный LOGIN_TOKEN_RESPONSE_FIELD
     не совпал с реальным ответом API, ищем в ответе любую строку, похожую на JWT,
@@ -105,16 +154,8 @@ class TokenManager:
             settings.LOGIN_PASSWORD_FIELD: settings.AUTH_PASSWORD,
         }
         if settings.AUTH_OTP_SECRET:
-            logger.info("Логинимся на платформу (%s) с TOTP...", url)
-            totp = pyotp.TOTP(settings.AUTH_OTP_SECRET)
-            # Соседние 30-сек окна — на случай небольшой рассинхронизации часов.
-            seen = set()
-            codes = []
-            for t in (0, -30, 30):
-                c = totp.at(int(time.time()) + t)
-                if c not in seen:
-                    seen.add(c)
-                    codes.append(c)
+            logger.info("Логинимся на платформу (%s) с TOTP (время — сетевое)...", url)
+            codes = _totp_codes(settings.AUTH_OTP_SECRET)
         else:
             logger.info("Логинимся на платформу (%s)...", url)
             codes = [None]
