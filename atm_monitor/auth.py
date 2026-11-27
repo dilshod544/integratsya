@@ -4,6 +4,7 @@ import logging
 import re
 import threading
 import time
+from datetime import datetime, timezone
 
 import pyotp
 import requests
@@ -14,6 +15,8 @@ logger = logging.getLogger("atm_monitor.auth")
 
 # После "too many login" не долбим BTech соседними TOTP-кодами.
 _LOGIN_COOLDOWN_SEC = 15 * 60
+
+LOGIN_REQUIRED = "BTech login required"
 
 # Похоже на JWT: три base64url-блока через точку.
 _JWT_RE = re.compile(r"^[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}$")
@@ -104,34 +107,201 @@ def _find_jwt_in_headers(headers) -> "str | None":
     return None
 
 
+def _format_btech_errors(err: dict) -> str:
+    errors = err.get("errors") if isinstance(err, dict) else None
+    if isinstance(errors, dict) and errors:
+        parts = []
+        for key, vals in errors.items():
+            if isinstance(vals, list):
+                parts.append(f"{key}: {', '.join(str(v) for v in vals)}")
+            else:
+                parts.append(f"{key}: {vals}")
+        return "; ".join(parts)
+    return (err.get("raw") if isinstance(err, dict) else None) or str(err)[:300]
+
+
 class TokenManager:
-    """Логинится на платформу и держит актуальный Bearer-токен.
+    """Держит Bearer-токен BTech: ручная сессия (data-console) или авто-логин из .env.
 
-    Токен обновляется автоматически:
-    - при первом обращении;
-    - когда до истечения (поле 'exp' в JWT) остаётся < 60 секунд;
-    - принудительно, если API вернул 401 (см. force_refresh, используется в api_client).
-
-    OTP/TOTP генерируется на сервере из AUTH_OTP_SECRET — в браузер и data-console
-    секрет не отдаётся. Логин сериализован (lock), после rate-limit — cooldown.
+    Приоритет:
+    1) валидный JWT в памяти / PostgreSQL (btech_session);
+    2) авто-логин с AUTH_OTP_SECRET, если задан;
+    3) иначе — LOGIN_REQUIRED (без долбежки BTech).
     """
 
     def __init__(self):
         self._token = None
-        self._exp = 0
+        self._exp = 0.0
         self._lock = threading.Lock()
         self._cooldown_until = 0.0
+        self._loaded_from_db = False
+
+    def has_valid_session(self) -> bool:
+        with self._lock:
+            self._ensure_loaded_locked()
+            return bool(self._token and time.time() < self._exp - 60)
+
+    def session_expires_at(self) -> "float | None":
+        with self._lock:
+            self._ensure_loaded_locked()
+            if self._token and self._exp > time.time():
+                return float(self._exp)
+            return None
+
+    def set_session(self, token: str) -> float:
+        """Сохранить JWT (память + БД). Возвращает unix exp."""
+        exp = self._decode_exp(token)
+        with self._lock:
+            self._token = token
+            self._exp = exp
+            self._cooldown_until = 0.0
+            self._persist_locked()
+        logger.info("BTech сессия сохранена, истекает: %s", time.ctime(exp))
+        return exp
+
+    def clear_session(self) -> None:
+        with self._lock:
+            self._token = None
+            self._exp = 0.0
+            self._delete_persisted_locked()
+        logger.info("BTech сессия очищена")
 
     def get_token(self) -> str:
         with self._lock:
-            if not self._token or time.time() > self._exp - 60:
+            self._ensure_loaded_locked()
+            if self._token and time.time() <= self._exp - 60:
+                return self._token
+            if settings.AUTH_OTP_SECRET and settings.AUTH_USERNAME and settings.AUTH_PASSWORD:
                 self._login_locked()
-            return self._token
+                return self._token
+            self._token = None
+            self._exp = 0.0
+            raise RuntimeError(
+                f"{LOGIN_REQUIRED} — войдите в BTech через Модуль данных "
+                "(email / пароль / OTP)."
+            )
 
     def force_refresh(self) -> str:
+        """После 401: сбрасываем сессию; авто-логин только при AUTH_OTP_SECRET."""
         with self._lock:
-            self._login_locked()
-            return self._token
+            self._token = None
+            self._exp = 0.0
+            self._delete_persisted_locked()
+            if settings.AUTH_OTP_SECRET and settings.AUTH_USERNAME and settings.AUTH_PASSWORD:
+                self._login_locked()
+                return self._token
+            raise RuntimeError(
+                f"{LOGIN_REQUIRED} — сессия истекла, войдите снова через Модуль данных."
+            )
+
+    def login_manual(self, email: str, password: str, otp_code: str) -> float:
+        """Одна попытка логина с OTP из формы. JWT в ответ не отдаём — только exp."""
+        email = (email or "").strip()
+        password = password or ""
+        otp_code = (otp_code or "").strip()
+        if not email or not password or not otp_code:
+            raise RuntimeError("Укажите email, пароль и OTP-код")
+
+        with self._lock:
+            now = time.time()
+            if now < self._cooldown_until:
+                wait = int(self._cooldown_until - now)
+                raise RuntimeError(
+                    f"BTech login cooldown ({wait}s) — подождите, чтобы не усилить блокировку."
+                )
+
+            url = settings.API_BASE_URL.rstrip("/") + settings.LOGIN_PATH
+            body = {
+                settings.LOGIN_USERNAME_FIELD: email,
+                settings.LOGIN_PASSWORD_FIELD: password,
+                settings.LOGIN_OTP_FIELD: otp_code,
+            }
+            logger.info("Ручной логин BTech (%s)...", url)
+            resp = requests.post(
+                url,
+                json=body,
+                params={"lang": settings.QUERY_PARAMS.get("lang", "ru")},
+                timeout=settings.REQUEST_TIMEOUT,
+            )
+            try:
+                data = resp.json() if resp.content else {}
+            except Exception:
+                data = {"raw": (resp.text or "")[:300]}
+
+            if not resp.ok:
+                errors = (data.get("errors") or {}) if isinstance(data, dict) else {}
+                if "password" in errors and any(
+                    "many" in str(x).lower() for x in errors["password"]
+                ):
+                    self._cooldown_until = time.time() + _LOGIN_COOLDOWN_SEC
+                    raise RuntimeError(
+                        f"BTech login rate-limited — пауза {_LOGIN_COOLDOWN_SEC // 60} мин"
+                    )
+                raise RuntimeError(_format_btech_errors(data if isinstance(data, dict) else {"raw": str(data)}))
+
+            token = self._extract_token(data)
+            if not token:
+                token = _find_jwt_recursive(data)
+            if not token:
+                token = _find_jwt_in_headers(resp.headers)
+            if not token:
+                raise RuntimeError("BTech не вернул токен в ответе логина")
+
+            self._token = token
+            self._exp = self._decode_exp(token)
+            self._cooldown_until = 0.0
+            self._persist_locked()
+            logger.info("Ручной логин OK, истекает: %s", time.ctime(self._exp))
+            return float(self._exp)
+
+    def _ensure_loaded_locked(self) -> None:
+        if self._loaded_from_db:
+            return
+        self._loaded_from_db = True
+        try:
+            from .db import connect
+
+            with connect() as conn:
+                row = conn.execute(
+                    "SELECT token, EXTRACT(EPOCH FROM exp) AS exp FROM btech_session WHERE id = 1"
+                ).fetchone()
+            if row and row.get("token") and row.get("exp"):
+                exp = float(row["exp"])
+                if exp > time.time() + 60:
+                    self._token = row["token"]
+                    self._exp = exp
+                    logger.info("BTech сессия загружена из БД, истекает: %s", time.ctime(exp))
+        except Exception as e:  # noqa: BLE001
+            logger.debug("Не удалось загрузить btech_session: %s", e)
+
+    def _persist_locked(self) -> None:
+        try:
+            from .db import connect
+
+            exp_dt = datetime.fromtimestamp(self._exp, tz=timezone.utc)
+            with connect() as conn:
+                conn.execute(
+                    """INSERT INTO btech_session (id, token, exp, updated_at)
+                       VALUES (1, %s, %s, now())
+                       ON CONFLICT (id) DO UPDATE
+                         SET token = EXCLUDED.token,
+                             exp = EXCLUDED.exp,
+                             updated_at = now()""",
+                    (self._token, exp_dt),
+                )
+            self._loaded_from_db = True
+        except Exception:  # noqa: BLE001
+            logger.exception("Не удалось сохранить btech_session")
+
+    def _delete_persisted_locked(self) -> None:
+        try:
+            from .db import connect
+
+            with connect() as conn:
+                conn.execute("DELETE FROM btech_session WHERE id = 1")
+            self._loaded_from_db = True
+        except Exception:  # noqa: BLE001
+            logger.debug("Не удалось удалить btech_session", exc_info=True)
 
     def _login_locked(self):
         if not settings.AUTH_USERNAME or not settings.AUTH_PASSWORD:
@@ -213,8 +383,6 @@ class TokenManager:
 
         token = self._extract_token(data)
         if not token:
-            # Настроенный ключ не сработал — пробуем найти JWT-строку
-            # где угодно в теле ответа, вдруг сервер называет поле иначе.
             token = _find_jwt_recursive(data)
             if token:
                 logger.warning(
@@ -224,8 +392,6 @@ class TokenManager:
                 )
 
         if not token:
-            # В теле нет ничего похожего на JWT — пробуем заголовки ответа
-            # (включая Set-Cookie): некоторые API отдают токен именно так.
             token = _find_jwt_in_headers(last_resp.headers)
 
         if not token:
@@ -238,6 +404,7 @@ class TokenManager:
         self._token = token
         self._exp = self._decode_exp(token)
         self._cooldown_until = 0.0
+        self._persist_locked()
         logger.info("Токен обновлён, истекает: %s", time.ctime(self._exp))
 
     def _extract_token(self, data):

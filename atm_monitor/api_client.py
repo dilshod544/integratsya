@@ -20,8 +20,12 @@ def _get_items(url: str, params: dict) -> list:
     resp = requests.get(url, params=params, headers=_headers(), timeout=settings.REQUEST_TIMEOUT)
 
     if resp.status_code == 401:
-        logger.warning("Получили 401, принудительно обновляем токен и повторяем запрос")
-        token_manager.force_refresh()
+        logger.warning("Получили 401, обновляем токен и повторяем запрос")
+        try:
+            token_manager.force_refresh()
+        except RuntimeError:
+            # Сессия сброшена; без AUTH_OTP_SECRET нужен ручной вход.
+            raise
         resp = requests.get(url, params=params, headers=_headers(), timeout=settings.REQUEST_TIMEOUT)
 
     resp.raise_for_status()

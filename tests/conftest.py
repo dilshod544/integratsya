@@ -31,6 +31,10 @@ def pg_db(tmp_path, monkeypatch):
         conn.execute("DROP SCHEMA public CASCADE")
         conn.execute("CREATE SCHEMA public")
     db.init_db()
+    from atm_monitor.auth import token_manager
+
+    token_manager.clear_session()
+    token_manager._loaded_from_db = False  # schema recreate — reload next time
     yield
     db.close_pool()
     atm_monitor_db.close_pool()

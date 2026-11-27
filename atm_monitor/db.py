@@ -300,6 +300,14 @@ CREATE TABLE IF NOT EXISTS atm_monitor.atm_forecasts (
     balance_end_uzs DOUBLE PRECISION,
     PRIMARY KEY (run_id, atm_id, forecast_date)
 );
+
+-- Ручная сессия BTech (JWT с data-console). Одна строка id=1.
+CREATE TABLE IF NOT EXISTS atm_monitor.btech_session (
+    id SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+    token TEXT NOT NULL,
+    exp TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 """
 
 _pool = None

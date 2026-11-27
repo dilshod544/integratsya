@@ -21,6 +21,7 @@ from psycopg import sql
 from pydantic import BaseModel
 
 from . import encashments, scheduler
+from .auth import LOGIN_REQUIRED, token_manager
 from .config import settings
 from .db import connect
 
@@ -345,14 +346,44 @@ def _ids_for_pull(scope: str, days: int, atm_ids: Optional[List[int]]) -> List[i
     raise HTTPException(400, "Неизвестный scope")
 
 
+class BtechLoginRequest(BaseModel):
+    email: str
+    password: str
+    otpCode: str
+
+
+@router.post("/btech/login", summary="Ручной вход в BTech (сохраняет JWT на сервере)")
+def btech_login(req: BtechLoginRequest, request: Request):
+    check_request(request)
+    try:
+        exp = token_manager.login_manual(req.email, req.password, req.otpCode)
+    except RuntimeError as e:
+        raise HTTPException(400, str(e)) from e
+    return {
+        "ok": True,
+        "expires_at": datetime.fromtimestamp(exp, tz=timezone.utc),
+    }
+
+
+@router.post("/btech/logout", summary="Сбросить сессию BTech")
+def btech_logout(request: Request):
+    check_request(request)
+    token_manager.clear_session()
+    return {"ok": True}
+
+
 @router.post("/pull", summary="Подтянуть инкассации из BTech")
 def pull(req: PullRequest, request: Request):
     if not 1 <= req.days <= MAX_DAYS:
         raise HTTPException(400, "Неверный период")
-    if not settings.AUTH_USERNAME or not settings.AUTH_PASSWORD:
-        raise HTTPException(400, "Не заданы AUTH_USERNAME и AUTH_PASSWORD в .env")
-    if not settings.AUTH_OTP_SECRET:
-        raise HTTPException(400, "Не задан AUTH_OTP_SECRET в .env — без OTP сбор BTech недоступен")
+    if not token_manager.has_valid_session() and not (
+        settings.AUTH_OTP_SECRET and settings.AUTH_USERNAME and settings.AUTH_PASSWORD
+    ):
+        raise HTTPException(
+            400,
+            f"{LOGIN_REQUIRED} — войдите через форму BTech на этой странице "
+            "(или задайте AUTH_OTP_SECRET в .env).",
+        )
 
     # Анти-спам: ручной pull не чаще раза в 30 сек с одного IP.
     ip = (request.client.host if request.client else "unknown") or "unknown"
@@ -389,10 +420,17 @@ def status():
         mark = conn.execute(
             "SELECT value FROM history_state WHERE key = %s", (encashments.SYNC_MARK,)
         ).fetchone()
-    # Секреты (пароль/OTP) никогда не отдаём — только флаги готовности.
+    # Секреты (пароль/OTP/JWT) никогда не отдаём — только флаги готовности.
+    exp = token_manager.session_expires_at()
+    session_ok = token_manager.has_valid_session()
     return {
         "credentials_set": bool(settings.AUTH_USERNAME and settings.AUTH_PASSWORD),
         "otp_configured": bool(settings.AUTH_OTP_SECRET),
+        "btech_session_ok": session_ok,
+        "btech_expires_at": (
+            datetime.fromtimestamp(exp, tz=timezone.utc) if exp else None
+        ),
+        "default_btech_email": settings.AUTH_USERNAME or "",
         "collector_enabled": settings.COLLECTOR_ENABLED,
         "collector_running": bool(scheduler._thread and scheduler._thread.is_alive()),
         "poll_interval_minutes": settings.POLL_INTERVAL_MINUTES,

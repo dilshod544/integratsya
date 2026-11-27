@@ -260,13 +260,45 @@ def test_atm_card_finds_atm_by_each_identifier(app_client, monkeypatch):
     assert get(terminal="NOPE").status_code == 404
 
 
-def test_pull_refuses_without_login(client, monkeypatch):
+def test_pull_refuses_without_session(client, monkeypatch):
+    from atm_monitor.auth import token_manager
+
+    token_manager.clear_session()
     monkeypatch.setattr(settings, "AUTH_USERNAME", "")
-    assert client.post("/api/data-console/pull", json={"scope": "all"}).status_code == 400
-
-
-def test_pull_refuses_without_otp_secret(client, monkeypatch):
-    monkeypatch.setattr(settings, "AUTH_USERNAME", "u")
-    monkeypatch.setattr(settings, "AUTH_PASSWORD", "p")
+    monkeypatch.setattr(settings, "AUTH_PASSWORD", "")
     monkeypatch.setattr(settings, "AUTH_OTP_SECRET", "")
     assert client.post("/api/data-console/pull", json={"scope": "all"}).status_code == 400
+
+
+def test_status_reports_btech_session(client):
+    from atm_monitor.auth import token_manager
+
+    token_manager.clear_session()
+    data = client.get("/api/data-console/status").json()
+    assert data["btech_session_ok"] is False
+    assert "btech_expires_at" in data
+
+
+def test_btech_login_endpoint(client, monkeypatch):
+    import time
+    from atm_monitor.auth import token_manager
+
+    exp = time.time() + 7200
+
+    def fake_login(email, password, otp_code):
+        assert email and password and otp_code
+        return exp
+
+    monkeypatch.setattr(token_manager, "login_manual", fake_login)
+    r = client.post(
+        "/api/data-console/btech/login",
+        json={"email": "u@bank.uz", "password": "secret", "otpCode": "123456"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is True
+    assert body["expires_at"]
+
+    r2 = client.post("/api/data-console/btech/logout")
+    assert r2.status_code == 200
+    assert r2.json()["ok"] is True

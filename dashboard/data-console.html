@@ -68,6 +68,15 @@
     .progress { height: 8px; background: #eef2f6; border-radius: 99px; overflow: hidden; margin: 6px 0; }
     .progress div { height: 100%; background: var(--primary); width: 0; transition: width .3s; }
     #job { display: none; border: 1px solid #c7d7fe; background: #f5f8ff; border-radius: 8px; padding: 10px; margin-bottom: 10px; }
+    #btech-login { display: none; margin: 14px 20px 0; padding: 14px; border: 1px solid #c7d7fe; background: #f5f8ff; border-radius: 12px; }
+    #btech-login h2 { margin-bottom: 6px; }
+    #btech-login .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-top: 10px; }
+    #btech-login label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 700; color: var(--muted); }
+    #btech-login input { font: inherit; border: 1px solid var(--border-strong); border-radius: 8px; padding: 8px 10px; color: var(--text); font-weight: 500; }
+    #btech-login .actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+    #btech-login-msg { font-size: 12px; font-weight: 700; }
+    #btech-login-msg.err { color: #b42318; }
+    #btech-login-msg.ok { color: #067647; }
     #error { display: none; margin: 14px 20px 0; padding: 10px 12px; border-radius: 8px; background: var(--bad-bg); color: #b42318; font-weight: 600; }
     dialog { border: 0; border-radius: 12px; padding: 16px; width: min(760px, calc(100vw - 32px)); max-height: 85vh; box-shadow: 0 20px 50px rgba(15,23,42,.3); }
     dialog::backdrop { background: rgba(15,23,42,.4); }
@@ -79,10 +88,26 @@
     <h1>Модуль данных</h1>
     <div class="status-line" id="status">Загрузка…</div>
     <div class="spacer"></div>
+    <button id="btech-logout" style="display:none">Выйти из BTech</button>
     <button id="poll-now">Опросить BTech сейчас</button>
     <button id="process-history">Пересчитать историю</button>
   </header>
   <div id="error" role="alert"></div>
+  <section id="btech-login" aria-label="Вход в BTech">
+    <h2>Вход в BTech</h2>
+    <p class="hint" style="margin:0">Логин на monitoring.btech.uz. Токен сохранится на сервере (~3 дня) — опросы идут без повторного OTP. JWT в браузер не отдаётся.</p>
+    <form id="btech-login-form" autocomplete="on">
+      <div class="form-grid">
+        <label>Email<input id="btech-email" type="email" name="email" required placeholder="user@bank.uz"></label>
+        <label>Пароль<input id="btech-password" type="password" name="password" required autocomplete="current-password"></label>
+        <label>OTP-код<input id="btech-otp" type="text" name="otp" inputmode="numeric" pattern="[0-9]*" maxlength="8" required placeholder="6 цифр из Authenticator"></label>
+      </div>
+      <div class="actions">
+        <button class="primary" type="submit" id="btech-login-btn">Войти в BTech</button>
+        <span id="btech-login-msg"></span>
+      </div>
+    </form>
+  </section>
   <main>
     <section class="card">
       <h2>База данных</h2>
@@ -412,21 +437,34 @@
 
   async function refreshStatus() {
     const s = await api(API + '/status');
-    const loginOk = !!s.credentials_set;
-    const otpOk = !!s.otp_configured;
-    const collector = !loginOk ? 'нет логина в .env' : !s.collector_enabled ? 'выключен (ATM_COLLECTOR=0)' : s.collector_running ? `работает, опрос раз в ${s.poll_interval_minutes} мин` : 'не запущен';
+    const sessionOk = !!s.btech_session_ok;
+    const autoOtp = !!s.otp_configured;
+    const collector = !s.collector_enabled
+      ? 'выключен (ATM_COLLECTOR=0)'
+      : s.collector_running
+        ? `работает, опрос раз в ${s.poll_interval_minutes} мин`
+        : 'не запущен';
     const lastPoll = s.last_poll || {};
     const pollLabel = lastPoll.status
       ? `${lastPoll.status}${lastPoll.error_message ? ' — ' + lastPoll.error_message : ''}`
       : 'нет данных';
-    const otpLabel = otpOk ? 'OK' : 'НЕТ в .env (AUTH_OTP_SECRET)';
-    const loginLabel = loginOk ? 'OK' : 'НЕТ (AUTH_USERNAME/PASSWORD)';
+    const sessionLabel = sessionOk
+      ? `OK до ${dt(s.btech_expires_at)}`
+      : (autoOtp ? 'нет сессии (есть AUTH_OTP_SECRET)' : 'нужен вход');
     $('status').innerHTML =
-      `<span>BTech логин: <b style="color:${loginOk ? 'var(--ok)' : '#b42318'}">${esc(loginLabel)}</b></span>` +
-      `<span>OTP: <b style="color:${otpOk ? 'var(--ok)' : '#b42318'}">${esc(otpLabel)}</b></span>` +
+      `<span>BTech сессия: <b style="color:${sessionOk ? 'var(--ok)' : '#b42318'}">${esc(sessionLabel)}</b></span>` +
       `<span>Сборщик: <b>${esc(collector)}</b></span>` +
       `<span>Последний опрос: <b>${esc(pollLabel)}</b> · ${dt(s.last_successful_poll)}</span>` +
       `<span>Инкассации: <b>авто раз в ${s.encashment_sync_hours} ч</b>, полный обход: <b>${dt(s.last_full_encashment_sync)}</b></span>`;
+
+    const loginBox = $('btech-login');
+    loginBox.style.display = sessionOk ? 'none' : 'block';
+    $('btech-logout').style.display = sessionOk ? '' : 'none';
+    $('poll-now').disabled = !sessionOk && !autoOtp;
+    if (!sessionOk && s.default_btech_email && !$('btech-email').value) {
+      $('btech-email').value = s.default_btech_email;
+    }
+
     const j = s.job || {};
     const box = $('job');
     if (j.total) {
@@ -437,13 +475,45 @@
       $('job-stop').style.display = j.running ? '' : 'none';
       if (j.running) { $('job-stop').disabled = false; $('job-stop').textContent = 'Остановить'; }
     }
-    $('pull-missing').disabled = !!j.running || (cov.data && cov.data.atm_total === (cov.data.atm_status_counts.ok || 0));
-    $('pull-all').disabled = !!j.running;
+    const noSession = !sessionOk && !autoOtp;
+    $('pull-missing').disabled = !!j.running || noSession || (cov.data && cov.data.atm_total === (cov.data.atm_status_counts.ok || 0));
+    $('pull-all').disabled = !!j.running || noSession;
     if (jobWasRunning && !j.running) { await loadCoverage(); await loadTables(); }
     jobWasRunning = !!j.running;
     clearTimeout(refreshStatus.t);
     refreshStatus.t = setTimeout(guarded(refreshStatus), j.running ? 2000 : 30000);
   }
+
+  $('btech-login-form').addEventListener('submit', guarded(async (e) => {
+    e.preventDefault();
+    const msg = $('btech-login-msg');
+    const btn = $('btech-login-btn');
+    msg.className = '';
+    msg.textContent = 'Входим…';
+    btn.disabled = true;
+    try {
+      const res = await post(API + '/btech/login', {
+        email: $('btech-email').value.trim(),
+        password: $('btech-password').value,
+        otpCode: $('btech-otp').value.trim(),
+      });
+      $('btech-password').value = '';
+      $('btech-otp').value = '';
+      msg.className = 'ok';
+      msg.textContent = res.expires_at ? `Готово, сессия до ${dt(res.expires_at)}` : 'Готово';
+      await refreshStatus();
+    } catch (err) {
+      msg.className = 'err';
+      msg.textContent = err.message || 'Ошибка входа';
+    } finally {
+      btn.disabled = false;
+    }
+  }));
+
+  $('btech-logout').addEventListener('click', guarded(async () => {
+    await post(API + '/btech/logout');
+    await refreshStatus();
+  }));
 
   guarded(async () => { await Promise.all([loadTables(), loadCoverage()]); await refreshStatus(); })();
 })();

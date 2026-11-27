@@ -83,8 +83,17 @@ def run_once() -> bool:
         logger.error("Опрос завершился с ошибкой (%s), следующая попытка по расписанию", e)
         ok = False
         msg = str(e).lower()
-        if "too many login" in msg or "many login attempt" in msg:
+        if (
+            "too many login" in msg
+            or "many login attempt" in msg
+            or "rate-limited" in msg
+            or "login cooldown" in msg
+        ):
             run_once.last_rate_limited = True  # type: ignore[attr-defined]
+            run_once.rate_limited_until = time.time() + RATE_LIMIT_RETRY_SEC  # type: ignore[attr-defined]
+        elif "btech login required" in msg:
+            # Нет сессии — не долбим BTech; ждём ручной вход в data-console.
+            run_once.last_login_required = True  # type: ignore[attr-defined]
     finally:
         _run_lock.release()
 
@@ -98,6 +107,8 @@ def run_once() -> bool:
 
 
 run_once.last_rate_limited = False  # type: ignore[attr-defined]
+run_once.rate_limited_until = 0.0  # type: ignore[attr-defined]
+run_once.last_login_required = False  # type: ignore[attr-defined]
 
 
 def _last_success_ts() -> float:
@@ -129,15 +140,26 @@ def _loop():
     while not _stop.is_set():
         try:
             if time.time() >= next_run:
-                run_once.last_rate_limited = False  # type: ignore[attr-defined]
+                # Не сбрасываем last_rate_limited до вызова — иначе после
+                # "rate-limited" delay падает на 60с и блокировка BTech не снимается.
+                run_once.last_login_required = False  # type: ignore[attr-defined]
                 ok = run_once()
                 if ok:
+                    run_once.last_rate_limited = False  # type: ignore[attr-defined]
+                    run_once.rate_limited_until = 0.0  # type: ignore[attr-defined]
                     delay = interval
                 elif run_once.last_rate_limited:  # type: ignore[attr-defined]
                     delay = RATE_LIMIT_RETRY_SEC
                     logger.warning(
                         "BTech rate-limit — следующая попытка через %d мин",
                         RATE_LIMIT_RETRY_SEC // 60,
+                    )
+                elif run_once.last_login_required:  # type: ignore[attr-defined]
+                    delay = interval
+                    logger.warning(
+                        "Нет сессии BTech — войдите в Модуле данных; "
+                        "следующая проверка через %d мин",
+                        interval // 60,
                     )
                 else:
                     delay = RETRY_DELAY_SEC
@@ -154,12 +176,25 @@ def _watch_loop():
         try:
             if not settings.COLLECTOR_ENABLED:
                 pass
-            elif not settings.AUTH_USERNAME or not settings.AUTH_PASSWORD:
-                pass
             elif not (_thread and _thread.is_alive()):
                 logger.warning("Поток сборщика не жив — перезапуск")
                 start_background()
             else:
+                # Во время BTech rate-limit не форсируем — иначе каждые 60с
+                # обновляем блокировку аккаунта на стороне платформы.
+                until = float(getattr(run_once, "rate_limited_until", 0) or 0)
+                if until and time.time() < until:
+                    continue
+                if getattr(run_once, "last_login_required", False):
+                    continue
+                from .auth import token_manager
+
+                if not token_manager.has_valid_session() and not (
+                    settings.AUTH_OTP_SECRET
+                    and settings.AUTH_USERNAME
+                    and settings.AUTH_PASSWORD
+                ):
+                    continue
                 last = _last_success_ts()
                 age = time.time() - last if last else None
                 limit = _interval_sec() * STALE_INTERVALS
@@ -175,17 +210,14 @@ def _watch_loop():
 
 
 def start_background():
-    """Запускает сборщик в фоне. Без AUTH_USERNAME/AUTH_PASSWORD не стартует —
-    сервер продолжает работать без «живых» данных."""
+    """Запускает сборщик в фоне.
+
+    Сессия BTech может появиться позже через Модуль данных (ручной логин) —
+    без .env OTP collector всё равно стартует и ждёт валидный JWT.
+    """
     global _thread, _watch_thread
     if not settings.COLLECTOR_ENABLED:
         logger.info("Сборщик atm_monitor отключён (ATM_COLLECTOR=0).")
-        return
-    if not settings.AUTH_USERNAME or not settings.AUTH_PASSWORD:
-        logger.warning(
-            "Сборщик atm_monitor не запущен: задайте AUTH_USERNAME и AUTH_PASSWORD в .env "
-            "(логин на monitoring.btech.uz). Остальная платформа работает без живых данных."
-        )
         return
     init_db()
     _stop.clear()
